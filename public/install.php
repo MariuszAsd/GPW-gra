@@ -55,8 +55,15 @@ if (($_GET['run'] ?? '') !== '1') {
 // 4) instalacja
 define('GPW_ALLOW_SETUP', true);       // odblokuj migrate/seed (chronione przed HTTP)
 echo "<div style='background:#f4f4f6;padding:14px 16px;border-radius:8px'>";
-require __DIR__ . '/../migrate.php';   // DROP+CREATE (baza jest pusta, sprawdzone wyżej)
-require __DIR__ . '/../seed.php';      // spółki + boty + gracz demo
+try {
+    require __DIR__ . '/../migrate.php';   // DROP+CREATE (baza jest pusta, sprawdzone wyżej)
+    require __DIR__ . '/../seed.php';      // spółki + boty + gracz demo
+} catch (Throwable $e) {
+    if (Db::pdo()->inTransaction()) Db::pdo()->rollBack();
+    echo "</div><p style='color:#b02a24'><b>BŁĄD INSTALACJI:</b> " . htmlspecialchars($e->getMessage())
+       . "<br>w " . htmlspecialchars(basename($e->getFile())) . ":" . (int) $e->getLine() . "</p>";
+    exit;
+}
 echo "</div>";
 
 echo "<p style='color:#1c7a4e;font-size:1.1em'><b>✅ Gotowe!</b> Tabele założone, świat wypełniony.</p>";

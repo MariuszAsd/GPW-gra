@@ -85,7 +85,10 @@ $makeName = function (string $sym) use ($parts, &$usedNames): string {
     return 'Spolka' . count($usedNames);
 };
 $makeTicker = function (string $name) use (&$usedTickers): string {
-    $letters = strtoupper(preg_replace('/[^A-Za-z]/', '', iconv('UTF-8', 'ASCII//TRANSLIT', $name)));
+    $ascii = @iconv('UTF-8', 'ASCII//TRANSLIT', $name);
+    if ($ascii === false || $ascii === '') $ascii = $name;                 // fallback, gdy iconv nie działa na hostingu
+    $letters = strtoupper(preg_replace('/[^A-Za-z]/', '', $ascii));
+    if (strlen($letters) < 2) $letters = 'X' . strtoupper(substr(md5($name), 0, 3));
     $candidates = [substr($letters, 0, 3), substr($letters, 0, 2) . substr($letters, -1), substr($letters, 0, 4)];
     foreach ($candidates as $t) { if (strlen($t) >= 2 && !isset($usedTickers[$t])) { $usedTickers[$t] = 1; return $t; } }
     for ($i = 2; $i < 100; $i++) { $t = substr($letters, 0, 3) . $i; if (!isset($usedTickers[$t])) { $usedTickers[$t] = 1; return $t; } }
