@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 3;   // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 4;   // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -29,7 +29,8 @@ final class Schema
                 cash          $money NOT NULL DEFAULT 0,
                 cash_reserved $money NOT NULL DEFAULT 0,
                 joined_session INT NOT NULL DEFAULT 1,   -- sesja dołączenia (liczy się od niej limit celu)
-                goal_session   INT NULL                  -- sesja, w której gracz osiągnął cel (NULL = jeszcze nie)
+                goal_session   INT NULL,                 -- sesja, w której gracz osiągnął cel (NULL = jeszcze nie)
+                start_equity   $money NOT NULL DEFAULT 0 -- kapitał startowy (baza do wyniku % w rankingu)
             )",
 
             // --- SEKTOR (branża) ---

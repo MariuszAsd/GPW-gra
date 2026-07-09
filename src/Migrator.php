@@ -29,6 +29,11 @@ final class Migrator
                 "ALTER TABLE users ADD COLUMN joined_session INT NOT NULL DEFAULT 1",
                 "ALTER TABLE users ADD COLUMN goal_session INT NULL",
             ],
+            // v4: kapitał startowy (baza wyniku % w rankingu) + backfill dla istniejących graczy
+            4 => [
+                "ALTER TABLE users ADD COLUMN start_equity DECIMAL(15,2) NOT NULL DEFAULT 0",
+                "UPDATE users SET start_equity = 100000 WHERE is_bot = 0 AND role = 'player' AND start_equity = 0",
+            ],
         ];
     }
 

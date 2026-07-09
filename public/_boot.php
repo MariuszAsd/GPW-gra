@@ -35,6 +35,7 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
     echo "<header class='topbar'><a class='brand' href='market.php'><span class='mk'>G</span>GPW<span>-gra</span></a><nav>";
     if ($user) {
         echo "<a class='" . trim($act('market')) . "' href='market.php'>Rynek</a>";
+        echo "<a class='" . trim($act('ranking')) . "' href='ranking.php'>Ranking</a>";
         echo "<a class='" . trim($act('portfolio')) . "' href='portfolio.php'>Portfel</a>";
         if ($isAdmin) echo "<a class='gm" . $act('gm') . "' href='gm.php'>GM</a>";
         echo "<span class='bal'><b>" . money($user['cash']) . " PLN</b><small>zamrożone +" . money($user['cash_reserved']) . "</small></span>";
@@ -44,6 +45,7 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
     if ($user) {
         echo "<nav class='bottomnav'>";
         echo "<a class='" . trim($act('market')) . "' href='market.php'><span class='ic'>▤</span>Rynek</a>";
+        echo "<a class='" . trim($act('ranking')) . "' href='ranking.php'><span class='ic'>🏆</span>Ranking</a>";
         echo "<a class='" . trim($act('portfolio')) . "' href='portfolio.php'><span class='ic'>◈</span>Portfel</a>";
         if ($isAdmin) echo "<a class='" . trim($act('gm')) . "' href='gm.php'><span class='ic'>⚙</span>GM</a>";
         echo "<a href='logout.php'><span class='ic'>⏻</span>Wyjście</a>";

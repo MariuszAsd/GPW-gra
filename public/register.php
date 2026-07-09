@@ -22,8 +22,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($err === null) {
         try {
             [$sessionNo] = Engine::sessionInfo();
-            Db::pdo()->prepare("INSERT INTO users (username, password_hash, is_bot, role, cash, joined_session) VALUES (?,?,0,'player',?,?)")
-                ->execute([$username, password_hash($pass1, PASSWORD_DEFAULT), $cfg['starting_cash'], $sessionNo]);
+            Db::pdo()->prepare("INSERT INTO users (username, password_hash, is_bot, role, cash, joined_session, start_equity) VALUES (?,?,0,'player',?,?,?)")
+                ->execute([$username, password_hash($pass1, PASSWORD_DEFAULT), $cfg['starting_cash'], $sessionNo, $cfg['starting_cash']]);
             $uid = (int) Db::pdo()->lastInsertId();
             session_regenerate_id(true);
             $_SESSION['uid'] = $uid;

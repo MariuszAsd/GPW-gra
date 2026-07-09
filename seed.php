@@ -17,8 +17,8 @@ function rf(float $a, float $b, int $dec = 2): float { return round($a + mt_rand
 $pdo->beginTransaction();
 
 // --- konta ---
-$pdo->prepare("INSERT INTO users (username, password_hash, is_bot, role, cash) VALUES (?,?,0,'player',?)")
-    ->execute(['gracz', password_hash('haslo123', PASSWORD_DEFAULT), $cfg['starting_cash']]);
+$pdo->prepare("INSERT INTO users (username, password_hash, is_bot, role, cash, start_equity) VALUES (?,?,0,'player',?,?)")
+    ->execute(['gracz', password_hash('haslo123', PASSWORD_DEFAULT), $cfg['starting_cash'], $cfg['starting_cash']]);
 $pdo->prepare("INSERT INTO users (username, password_hash, is_bot, role, cash) VALUES (?,?,0,'admin',0)")
     ->execute(['admin', password_hash('admin123', PASSWORD_DEFAULT)]);
 Engine::setState('tick', '0');
@@ -163,13 +163,15 @@ foreach ($tpl as $t) $tStmt->execute($t);
 $log("✔ " . count($tpl) . " szablonów newsów/ESPI");
 
 // --- BOTY (+ DNA) ---
-$uStmt = $pdo->prepare("INSERT INTO users (username, password_hash, is_bot, role, cash) VALUES (?,?,1,?,?)");
+$uStmt = $pdo->prepare("INSERT INTO users (username, password_hash, is_bot, role, cash, start_equity) VALUES (?,?,1,?,?,?)");
 $dStmt = $pdo->prepare("INSERT INTO bots (user_id, strategy, news_reactivity, technical_sensitivity, risk_appetite, horizon) VALUES (?,?,?,?,?,?)");
 $wStmt = $pdo->prepare("INSERT INTO wallets (user_id, stock_id, qty, avg_price) VALUES (?,?,?,?)");
+$sumPrices = array_sum(array_map(fn($st) => (float) $st['price'], $stockRows));
 $n = 0;
-$mk = function (string $role, int $count, float $cash, int $shares) use ($uStmt, $dStmt, $wStmt, $pdo, $stockRows, &$n) {
+$mk = function (string $role, int $count, float $cash, int $shares) use ($uStmt, $dStmt, $wStmt, $pdo, $stockRows, $sumPrices, &$n) {
     for ($i = 0; $i < $count; $i++) {
-        $uStmt->execute(["bot_{$role}_" . (++$n), password_hash(bin2hex(random_bytes(6)), PASSWORD_DEFAULT), $role, $cash]);
+        $startEq = $cash + $shares * $sumPrices;   // gotówka + wartość akcji na starcie
+        $uStmt->execute(["bot_{$role}_" . (++$n), password_hash(bin2hex(random_bytes(6)), PASSWORD_DEFAULT), $role, $cash, $startEq]);
         $uid = (int) $pdo->lastInsertId();
         $dStmt->execute([$uid, $role, rf(0.5, 2.0), rf(0.5, 2.0), rf(0.5, 2.0), mt_rand(5, 30)]);
         foreach ($stockRows as $st) $wStmt->execute([$uid, $st['id'], $shares, $st['price']]);
@@ -183,10 +185,11 @@ $mk('news', 6, 1500000, 200);
 Engine::setState('bot_activity', '1');
 $log("✔ 40 botów (10 mm, 8 trend, 8 RSI, 8 fundamentalnych, 6 newsowych) + DNA");
 
-// --- gracz dostaje akcje na start ---
+// --- gracz dostaje akcje na start (doliczone do kapitału startowego) ---
 Engine::ensureWallet(1, (int) $stockRows[0]['id']);
 $pdo->prepare("UPDATE wallets SET qty=100, avg_price=? WHERE user_id=1 AND stock_id=?")
     ->execute([$stockRows[0]['price'], $stockRows[0]['id']]);
+$pdo->prepare("UPDATE users SET start_equity = start_equity + ? WHERE id=1")->execute([100 * (float) $stockRows[0]['price']]);
 
 $pdo->commit();
 $log("✅ Świat zasiany.");
