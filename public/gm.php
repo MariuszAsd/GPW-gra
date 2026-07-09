@@ -21,6 +21,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         Engine::setState('goal_sessions', (string) max(1, (int) ($_POST['goal_sessions'] ?? 60)));
         Engine::setState('ticks_per_session', (string) max(1, (int) ($_POST['ticks_per_session'] ?? 20)));
         flash('Zapisano ustawienia celu gry i sesji.');
+    } elseif ($a === 'invite') {
+        Engine::setState('invite_code', trim($_POST['invite_code'] ?? ''));
+        flash(trim($_POST['invite_code'] ?? '') === '' ? 'Rejestracja otwarta (bez kodu).' : 'Ustawiono kod zaproszenia.');
     } elseif ($a === 'stock') {
         $pdo->prepare("UPDATE stocks SET bias=?, volatility=?, profit_trend=? WHERE id=?")->execute([
             (float) str_replace(',', '.', $_POST['bias'] ?? '0'),
@@ -67,6 +70,8 @@ $botCount = (int) Engine::one("SELECT COUNT(*) FROM users WHERE is_bot=1");
 $tick = (int) (Engine::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
 $goalTarget = (float) (Engine::one("SELECT v FROM game_state WHERE k='goal_target'") ?: 0);
 $goalSessions = (int) (Engine::one("SELECT v FROM game_state WHERE k='goal_sessions'") ?: 60);
+$inviteCode = (string) (Engine::one("SELECT v FROM game_state WHERE k='invite_code'") ?: '');
+$playerCount = (int) Engine::one("SELECT COUNT(*) FROM users WHERE is_bot=0 AND role='player'");
 [$sessionNo, $ticksLeft, $tps] = Engine::sessionInfo();
 $stocks = Engine::all("SELECT * FROM stocks ORDER BY ticker");
 $sectors = Engine::all("SELECT * FROM sectors ORDER BY symbol");
@@ -89,6 +94,12 @@ layout_header('Panel GM', $user, 'gm');
     <button class="btn sm">Zapisz</button>
   </form>
   <p class="muted" style="margin-top:8px">Gracz ma osiągnąć zadany kapitał w limicie sesji od dołączenia. Sesja = dzień giełdowy (na otwarciu zapisuje się kurs odniesienia dla dziennej zmiany).</p>
+  <h2 style="margin-top:18px">Rejestracja (graczy: <?= $playerCount ?>)</h2>
+  <form method="post" class="row" style="align-items:flex-end">
+    <input type="hidden" name="action" value="invite">
+    <div><label>Kod zaproszenia <span class="muted">(puste = rejestracja otwarta)</span></label><input name="invite_code" value="<?= h($inviteCode) ?>" style="width:200px"></div>
+    <button class="btn sm">Zapisz</button>
+  </form>
 </section>
 
 <div class="gm-grid">

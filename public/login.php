@@ -21,12 +21,13 @@ layout_header('Logowanie', null);
   <div class="panel">
     <form method="post">
       <label for="username">Login</label>
-      <input id="username" name="username" autofocus required value="gracz">
+      <input id="username" name="username" autofocus required>
       <label for="password">Hasło</label>
-      <input id="password" name="password" type="password" required value="haslo123">
+      <input id="password" name="password" type="password" required>
       <button class="btn">Zaloguj</button>
     </form>
-    <p class="muted" style="margin-top:14px;font-size:12px">Konta demo: <b>gracz / haslo123</b> · admin: <b>admin / admin123</b></p>
+    <p class="muted" style="margin-top:14px;font-size:13px">Nie masz konta? <a href="register.php" style="color:var(--accent)">Załóż konto — start 100 000 PLN</a></p>
+    <p class="muted" style="margin-top:8px;font-size:12px">Konto demo: <b>gracz / haslo123</b></p>
   </div>
 </div>
 <?php layout_footer();
