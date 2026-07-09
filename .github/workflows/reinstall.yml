@@ -1,0 +1,33 @@
+name: Reinstall world (reset bazy)
+
+# Przeinstalowuje świat gry NA SERWERZE (migrate + seed od zera) przez webowy
+# instalator. Uruchamiane ręcznie (Actions -> Run workflow) albo zdalnie przez API.
+# UWAGA: kasuje wszystkie dane gry i buduje świat od nowa.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  reinstall:
+    runs-on: ubuntu-latest
+    env:
+      APP_URL: ${{ secrets.APP_URL || 'https://gra.mppp.com.pl/public' }}
+    steps:
+      - name: Stan instalatora przed
+        run: |
+          echo "GET $APP_URL/install.php"
+          curl -sS -m 60 "$APP_URL/install.php" | sed 's/<[^>]*>//g' | grep -v '^\s*$' | head -15 || true
+
+      - name: Przeinstaluj świat od zera
+        run: |
+          RESP=$(curl -sS -m 180 "$APP_URL/install.php?run=1&force=1")
+          CLEAN=$(echo "$RESP" | sed 's/<[^>]*>//g' | grep -v '^\s*$')
+          echo "$CLEAN" | head -40
+          echo "$CLEAN" | grep -q "Gotowe" || { echo "::error::Instalacja nie zwróciła 'Gotowe' — sprawdź config bazy (sekrety DB_*) i logi."; exit 1; }
+
+      - name: Weryfikacja (instalator ma odmówić ponownej instalacji)
+        run: |
+          RESP=$(curl -sS -m 60 "$APP_URL/install.php")
+          echo "$RESP" | sed 's/<[^>]*>//g' | grep -v '^\s*$' | head -8
+          echo "$RESP" | grep -q "już założona" || { echo "::error::Świat nie wygląda na zainstalowany."; exit 1; }
+          echo "✅ Świat przeinstalowany i zweryfikowany."
