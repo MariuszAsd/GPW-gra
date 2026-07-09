@@ -171,10 +171,13 @@ $mk = function (string $role, int $count, float $cash, int $shares) use ($uStmt,
         foreach ($stockRows as $st) $wStmt->execute([$uid, $st['id'], $shares, $st['price']]);
     }
 };
-$mk('mm', 12, 8000000, 3000);
-$mk('trend', 9, 1500000, 300);
-$mk('rsi', 9, 1500000, 300);
-$log("✔ 30 botów (mm/trend/rsi) + DNA");
+$mk('mm', 10, 8000000, 3000);
+$mk('trend', 8, 1500000, 300);
+$mk('rsi', 8, 1500000, 300);
+$mk('fundamental', 8, 2000000, 300);
+$mk('news', 6, 1500000, 200);
+Engine::setState('bot_activity', '1');
+$log("✔ 40 botów (10 mm, 8 trend, 8 RSI, 8 fundamentalnych, 6 newsowych) + DNA");
 
 // --- gracz dostaje akcje na start ---
 Engine::ensureWallet(1, (int) $stockRows[0]['id']);

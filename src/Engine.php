@@ -110,44 +110,110 @@ final class Engine
         return $trades;
     }
 
-    /* ---------- Boty ---------- */
+    /* ---------- Boty (strategie wg DNA z tabeli bots) ---------- */
 
     public static function runBots(): void
     {
-        $pdo = Db::pdo();
-        $bots   = self::all("SELECT id, role FROM users WHERE is_bot=1");
-        $stocks = self::all("SELECT id, price, fundamental FROM stocks");
+        // globalny suwak aktywności botów (GM): 0 = wyłączone, 1 = normalnie, 2 = agresywnie
+        $act = (float) (self::one("SELECT v FROM game_state WHERE k='bot_activity'") ?? 1);
+        if ($act <= 0) return;
+
+        $bots = self::all("SELECT u.id, b.strategy, b.news_reactivity, b.technical_sensitivity, b.risk_appetite, b.horizon
+                           FROM users u JOIN bots b ON b.user_id = u.id WHERE u.is_bot = 1");
+        $stocks = self::all("SELECT id, sector_id, price, fundamental, pe_target, last_eps, liquidity FROM stocks");
+        $tick = (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
 
         foreach ($bots as $bot) self::cancelAllFor((int) $bot['id']);
 
+        // prefetch: portfele wszystkich botów (jedno zapytanie zamiast setek)
+        $wal = [];
+        foreach (self::all("SELECT user_id, stock_id, qty, avg_price FROM wallets WHERE user_id IN (SELECT id FROM users WHERE is_bot=1)") as $w) {
+            $wal[$w['user_id']][$w['stock_id']] = $w;
+        }
+        // prefetch: historia zamknięć per spółka (raz na tick, nie raz na bota)
+        $closes = [];
+        foreach ($stocks as $st) $closes[$st['id']] = self::closes((int) $st['id'], 60);
+        // prefetch: świeże newsy/ESPI (ostatnie 4 ticki) -> sentyment per spółka i per sektor
+        $newsCo = []; $newsSec = [];
+        foreach (self::all("SELECT scope, target_id, impact_strength FROM news WHERE publish_tick > ? AND impact_strength <> 0", [$tick - 4]) as $nw) {
+            if ($nw['scope'] === 'COMPANY')     $newsCo[$nw['target_id']]  = ($newsCo[$nw['target_id']] ?? 0) + (float) $nw['impact_strength'];
+            elseif ($nw['scope'] === 'SECTOR')  $newsSec[$nw['target_id']] = ($newsSec[$nw['target_id']] ?? 0) + (float) $nw['impact_strength'];
+        }
+
         foreach ($bots as $bot) {
-            $uid = (int) $bot['id'];
+            $uid  = (int) $bot['id'];
+            $strat = $bot['strategy'];
+            $risk = max(0.3, (float) $bot['risk_appetite']);
+            $sens = max(0.3, (float) $bot['technical_sensitivity']);
+            $react = max(0.1, (float) $bot['news_reactivity']);
+            $hor  = max(6, min(50, (int) $bot['horizon']));
+
             foreach ($stocks as $st) {
                 $sid = (int) $st['id'];
-                // przy dużym rynku każdy bot pokrywa ~1/3 spółek (deterministycznie) —
-                // każda spółka ma nadal ~4 market makerów, a tick nie puchnie
+                // każdy bot pokrywa ~1/3 spółek (deterministycznie) — tick nie puchnie przy 50 spółkach
                 if ((($sid + $uid) % 3) !== 0) continue;
-                if ($bot['role'] === 'mm') {
-                    $base = 0.7 * $st['fundamental'] + 0.3 * $st['price'];
-                    $base *= 1 + mt_rand(-40, 40) / 10000;
+
+                $price = (float) $st['price'];
+                $have  = (int) ($wal[$uid][$sid]['qty'] ?? 0);
+                $avg   = (float) ($wal[$uid][$sid]['avg_price'] ?? 0);
+                $liq   = max(0.3, (float) $st['liquidity']);
+                $news  = ($newsCo[$sid] ?? 0) + 0.6 * ($newsSec[$st['sector_id']] ?? 0);   // świeży sentyment
+
+                // wspólny odruch (ze starej wersji): realizacja zysku — kurs > śr. zakupu +15%
+                if ($strat !== 'mm' && $have > 0 && $avg > 0 && $price > $avg * 1.15 && mt_rand(1, 100) <= 20) {
+                    self::place($uid, $sid, 'sell', max(1, (int) floor($have * 0.25)), round($price * 0.99, 2));
+                    continue;
+                }
+
+                if ($strat === 'mm') {
+                    // animator: kwotuje wokół 0.7*fundament + 0.3*kurs; spread maleje z płynnością spółki
+                    $base = (0.7 * $st['fundamental'] + 0.3 * $price) * (1 + mt_rand(-40, 40) / 10000);
                     foreach ([[0.010, 60], [0.022, 40], [0.038, 25]] as [$sp, $qy]) {
-                        self::place($uid, $sid, 'buy',  $qy, round($base * (1 - $sp), 2));
-                        self::place($uid, $sid, 'sell', $qy, round($base * (1 + $sp), 2));
+                        $spread = $sp / $liq;
+                        $q = max(5, (int) round($qy * $act));
+                        self::place($uid, $sid, 'buy',  $q, round($base * (1 - $spread), 2));
+                        self::place($uid, $sid, 'sell', $q, round($base * (1 + $spread), 2));
                     }
-                } elseif ($bot['role'] === 'trend') {
-                    $c = self::closes($sid, 20);
-                    if (count($c) < 20) continue;
-                    $short = self::sma(array_slice($c, -5)); $long = self::sma($c);
-                    $have = (int) self::one("SELECT qty FROM wallets WHERE user_id=? AND stock_id=?", [$uid, $sid]);
-                    if ($short > $long * 1.01 && $have < 300)      self::place($uid, $sid, 'buy',  60, round($st['price'] * 1.02, 2));
-                    elseif ($short < $long * 0.99 && $have > 0)     self::place($uid, $sid, 'sell', min(120, $have), round($st['price'] * 0.98, 2));
-                } elseif ($bot['role'] === 'rsi') {
-                    $c = self::closes($sid, 100);
+                } elseif ($strat === 'trend') {
+                    // podąża za trendem: SMA krótka vs długa, okna z horyzontu DNA, próg z czułości
+                    $c = $closes[$sid];
+                    if (count($c) < $hor) continue;
+                    $short = self::sma(array_slice($c, -max(3, (int) round($hor / 4))));
+                    $long  = self::sma(array_slice($c, -$hor));
+                    $th = 0.01 / $sens;
+                    if ($short > $long * (1 + $th) && $have < 400 * $risk)  self::place($uid, $sid, 'buy',  max(1, (int) round(50 * $risk * $act)), round($price * 1.02, 2));
+                    elseif ($short < $long * (1 - $th) && $have > 0)         self::place($uid, $sid, 'sell', min((int) round(100 * $risk * $act) + 1, $have), round($price * 0.98, 2));
+                } elseif ($strat === 'rsi') {
+                    // kontrarianin: kupuje wyprzedanie, sprzedaje wykupienie (progi z czułości)
+                    $c = $closes[$sid];
                     if (count($c) < 15) continue;
                     $r = self::rsi($c);
-                    $have = (int) self::one("SELECT qty FROM wallets WHERE user_id=? AND stock_id=?", [$uid, $sid]);
-                    if ($r < 30 && $have < 300)     self::place($uid, $sid, 'buy',  80, round($st['price'] * 1.02, 2));
-                    elseif ($r > 70 && $have > 0)   self::place($uid, $sid, 'sell', min(120, $have), round($st['price'] * 0.98, 2));
+                    $buyTh  = min(45, 30 + 10 * ($sens - 1));
+                    $sellTh = max(55, 70 - 10 * ($sens - 1));
+                    if ($r < $buyTh && $have < 400 * $risk)   self::place($uid, $sid, 'buy',  max(1, (int) round(60 * $risk * $act)), round($price * 1.02, 2));
+                    elseif ($r > $sellTh && $have > 0)         self::place($uid, $sid, 'sell', min((int) round(100 * $risk * $act) + 1, $have), round($price * 0.98, 2));
+                } elseif ($strat === 'fundamental') {
+                    // inwestor wartościowy: porównuje kurs z wyceną z zysków (C/Z × EPS),
+                    // a jego percepcję przesuwają świeże newsy (× news_reactivity — jak w starej wersji)
+                    $fair = (float) $st['pe_target'] * (float) $st['last_eps'];
+                    if ($fair <= 0) continue;
+                    $fair *= 1 + ($news / 100) * $react * 6;
+                    $margin = 0.08 / $risk;
+                    if ($price < $fair * (1 - $margin) && $have < 500 * $risk)  self::place($uid, $sid, 'buy',  max(1, (int) round(40 * $risk * $act)), round($price * 1.02, 2));
+                    elseif ($price > $fair * (1 + $margin) && $have > 0)         self::place($uid, $sid, 'sell', min((int) round(80 * $risk * $act) + 1, $have), round($price * 0.98, 2));
+                } elseif ($strat === 'news') {
+                    // gracz newsowy: wchodzi za świeżym ESPI (momentum), siła zależna od reaktywności
+                    if (abs($news) < 0.05) {
+                        // brak newsów: drobny szum rynkowy (płynność + wolumen jak w starej wersji)
+                        if (mt_rand(1, 1000) <= (int) round(30 * $liq * $act)) {
+                            if (mt_rand(0, 1) === 1) self::place($uid, $sid, 'buy', mt_rand(1, 8), round($price * 1.03, 2));
+                            elseif ($have > 0)        self::place($uid, $sid, 'sell', min(mt_rand(1, 8), $have), round($price * 0.97, 2));
+                        }
+                        continue;
+                    }
+                    $q = max(1, (int) round(30 * $react * $act * min(3, abs($news) * 4)));
+                    if ($news > 0 && $have < 600)  self::place($uid, $sid, 'buy',  $q, round($price * 1.025, 2));
+                    elseif ($news < 0 && $have > 0) self::place($uid, $sid, 'sell', min($q * 2, $have), round($price * 0.975, 2));
                 }
             }
         }
@@ -168,7 +234,8 @@ final class Engine
      */
     private static function arbitrage(): void
     {
-        $bots = self::col("SELECT id FROM users WHERE is_bot=1 AND role='mm'");
+        if ((float) (self::one("SELECT v FROM game_state WHERE k='bot_activity'") ?? 1) <= 0) return;  // boty zamrożone
+        $bots = self::col("SELECT u.id FROM users u JOIN bots b ON b.user_id=u.id WHERE u.is_bot=1 AND b.strategy='mm'");
         if (!$bots) return;
         foreach (self::all("SELECT id, price, fundamental FROM stocks") as $st) {
             $sid = (int) $st['id']; $price = (float) $st['price']; $fund = (float) $st['fundamental'];

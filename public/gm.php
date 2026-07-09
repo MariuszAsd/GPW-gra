@@ -13,6 +13,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($a === 'sentiment') {
         Engine::setState('sentiment', (string) (float) str_replace(',', '.', $_POST['sentiment'] ?? '0'));
         flash('Ustawiono nastawienie rynku.');
+    } elseif ($a === 'botact') {
+        Engine::setState('bot_activity', (string) max(0, min(3, (float) str_replace(',', '.', $_POST['bot_activity'] ?? '1'))));
+        flash('Ustawiono aktywność botów.');
     } elseif ($a === 'stock') {
         $pdo->prepare("UPDATE stocks SET bias=?, volatility=?, profit_trend=? WHERE id=?")->execute([
             (float) str_replace(',', '.', $_POST['bias'] ?? '0'),
@@ -53,6 +56,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $sentiment = (float) (Engine::one("SELECT v FROM game_state WHERE k='sentiment'") ?: 0);
+$botact = Engine::one("SELECT v FROM game_state WHERE k='bot_activity'");
+$botact = $botact === false || $botact === null ? 1.0 : (float) $botact;
+$botCount = (int) Engine::one("SELECT COUNT(*) FROM users WHERE is_bot=1");
 $tick = (int) (Engine::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
 $stocks = Engine::all("SELECT * FROM stocks ORDER BY ticker");
 $sectors = Engine::all("SELECT * FROM sectors ORDER BY symbol");
@@ -72,6 +78,13 @@ layout_header('Panel GM', $user, 'gm');
     <form method="post" class="inline">
       <input type="hidden" name="action" value="sentiment">
       <input type="number" step="0.05" name="sentiment" value="<?= $sentiment ?>" style="width:120px">
+      <button class="btn sm">Ustaw</button>
+    </form>
+    <h2 style="margin-top:18px">Aktywność botów (<?= $botCount ?> na rynku)</h2>
+    <p class="muted">0 = boty wyłączone · 1 = normalnie · 2–3 = agresywny handel.</p>
+    <form method="post" class="inline">
+      <input type="hidden" name="action" value="botact">
+      <input type="number" step="0.1" min="0" max="3" name="bot_activity" value="<?= rtrim(rtrim((string)$botact,'0'),'.') ?: '0' ?>" style="width:120px">
       <button class="btn sm">Ustaw</button>
     </form>
   </section>
