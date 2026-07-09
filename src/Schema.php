@@ -10,12 +10,16 @@ final class Schema
 
     public static function tables(): array
     {
-        $pk    = Db::driver() === 'mysql' ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT';
+        $mysql = Db::driver() === 'mysql';
+        $pk    = $mysql ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT';
         $money = 'DECIMAL(15,2)';   // ceny, gotówka
         $big   = 'DECIMAL(18,2)';   // przychody / zyski
         $f     = 'DECIMAL(6,3)';    // współczynniki
+        // jawny charset na MySQL — baza hostingowa może mieć domyślny latin1,
+        // a bez tego polskie znaki ('ł' w "Przemysł") wywalają INSERT (błąd 1366)
+        $suffix = $mysql ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : '';
 
-        return [
+        $tables = [
             "users" => "CREATE TABLE users (
                 id $pk,
                 username   VARCHAR(50)  NOT NULL UNIQUE,
@@ -172,6 +176,8 @@ final class Schema
                 v VARCHAR(255) NOT NULL
             )",
         ];
+
+        return array_map(fn($ddl) => $ddl . $suffix, $tables);
     }
 
     public static function indexes(): array

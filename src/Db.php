@@ -19,6 +19,7 @@ final class Db
             $m = $cfg['mysql'];
             $dsn = "mysql:host={$m['host']};dbname={$m['name']};charset=utf8mb4";
             $pdo = new PDO($dsn, $m['user'], $m['pass']);
+            $pdo->exec("SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci");
         } else {
             @mkdir(dirname($cfg['sqlite']['path']), 0777, true);
             $pdo = new PDO('sqlite:' . $cfg['sqlite']['path']);
