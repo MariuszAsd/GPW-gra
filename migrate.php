@@ -1,7 +1,7 @@
 <?php
 /** Tworzy schemat od zera. Jedno źródło prawdy (Schema). Uruchom: php migrate.php */
-require __DIR__ . '/src/Db.php';
-require __DIR__ . '/src/Schema.php';
+require_once __DIR__ . '/src/Db.php';
+require_once __DIR__ . '/src/Schema.php';
 
 $pdo = Db::pdo();
 $cli = php_sapi_name() === 'cli';

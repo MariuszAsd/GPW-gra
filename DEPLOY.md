@@ -51,11 +51,11 @@ buduje z nich `config.local.php` i wgrywa na serwer (hasło jest maskowane w log
 Zmiana danych bazy = zmiana sekretu i ponowny deploy.
 
 ## 7. Załóż tabele i dane (raz)
-Najproście przez SSH w folderze aplikacji:
-```bash
-php migrate.php && php seed.php
-```
-Bez SSH: dodaj w cPanel jednorazowe zadanie Cron z komendą `php /pełna/ścieżka/gpw/migrate.php` (potem `seed.php`).
+**Najprościej — instalator webowy (bez SSH):** wejdź na `https://gpw.twojadomena.pl/install.php`
+i kliknij „Zainstaluj teraz". Zakłada tabele i wypełnia świat. Jest bezpieczny — odmawia
+działania, jeśli baza jest już założona (nie skasuje danych). **Po instalacji usuń plik `public/install.php`.**
+
+Alternatywnie przez SSH w folderze aplikacji: `php migrate.php && php seed.php`.
 
 ## 8. Puls rynku (cron)
 cPanel/DirectAdmin → **Cron Jobs** → co minutę:

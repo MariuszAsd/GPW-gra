@@ -1,8 +1,8 @@
 <?php
 /** Zasiewa świat: gracz demo, spółki, boty + historia startowa. Uruchom: php seed.php */
-require __DIR__ . '/src/Db.php';
-require __DIR__ . '/src/Schema.php';
-require __DIR__ . '/src/Engine.php';
+require_once __DIR__ . '/src/Db.php';
+require_once __DIR__ . '/src/Schema.php';
+require_once __DIR__ . '/src/Engine.php';
 
 $cfg = require __DIR__ . '/config.php';
 $pdo = Db::pdo();
