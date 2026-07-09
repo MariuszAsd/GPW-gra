@@ -51,9 +51,13 @@ buduje z nich `config.local.php` i wgrywa na serwer (hasło jest maskowane w log
 Zmiana danych bazy = zmiana sekretu i ponowny deploy.
 
 ## 7. Załóż tabele i dane (raz)
-**Najprościej — instalator webowy (bez SSH):** wejdź na `https://gpw.twojadomena.pl/install.php`
-i kliknij „Zainstaluj teraz". Zakłada tabele i wypełnia świat. Jest bezpieczny — odmawia
-działania, jeśli baza jest już założona (nie skasuje danych). **Po instalacji usuń plik `public/install.php`.**
+**Najprościej — instalator webowy (bez SSH):** wejdź na adres instalatora i kliknij „Zainstaluj teraz".
+- jeśli adres wskazuje na katalog aplikacji (np. `public_html`): **`https://twoj-adres/public/install.php`**
+- jeśli docroot ustawiłeś na `.../public`: **`https://twoj-adres/install.php`**
+
+Zakłada tabele i wypełnia świat. Jest bezpieczny — odmawia działania, jeśli baza jest już
+założona (nie skasuje danych), a `migrate.php`/`seed.php` są zablokowane przez przeglądarkę (403).
+**Po instalacji usuń plik `public/install.php`.**
 
 Alternatywnie przez SSH w folderze aplikacji: `php migrate.php && php seed.php`.
 

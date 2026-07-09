@@ -48,6 +48,7 @@ if (($_GET['run'] ?? '') !== '1') {
 }
 
 // 4) instalacja
+define('GPW_ALLOW_SETUP', true);       // odblokuj migrate/seed (chronione przed HTTP)
 echo "<div style='background:#f4f4f6;padding:14px 16px;border-radius:8px'>";
 require __DIR__ . '/../migrate.php';   // DROP+CREATE (baza jest pusta, sprawdzone wyżej)
 require __DIR__ . '/../seed.php';      // spółki + boty + gracz demo

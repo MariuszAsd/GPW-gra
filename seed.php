@@ -1,5 +1,7 @@
 <?php
 /** Zasiewa świat: gracz demo, spółki, boty + historia startowa. Uruchom: php seed.php */
+// Ochrona: nie wolno uruchamiać przez przeglądarkę (tylko CLI albo z instalatora).
+if (php_sapi_name() !== 'cli' && !defined('GPW_ALLOW_SETUP')) { http_response_code(403); exit('Forbidden'); }
 require_once __DIR__ . '/src/Db.php';
 require_once __DIR__ . '/src/Schema.php';
 require_once __DIR__ . '/src/Engine.php';
