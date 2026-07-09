@@ -14,9 +14,40 @@ $pl = $value - $cost;
 $equity = $user['cash'] + $user['cash_reserved'] + $value;
 $plPct = $cost > 0 ? $pl / $cost * 100 : 0;
 
+// --- cel gry ---
+$goalTarget = (float) (Engine::one("SELECT v FROM game_state WHERE k='goal_target'") ?: 0);
+$goalSessions = (int) (Engine::one("SELECT v FROM game_state WHERE k='goal_sessions'") ?: 0);
+[$sessionNo] = Engine::sessionInfo();
+$me = Engine::row("SELECT joined_session, goal_session FROM users WHERE id=?", [$user['id']]);
+$deadline = (int) ($me['joined_session'] ?? 1) + $goalSessions - 1;
+$sessionsLeft = $deadline - $sessionNo;
+$progress = $goalTarget > 0 ? min(100, $equity / $goalTarget * 100) : 0;
+
 layout_header('Portfel', $user, 'portfolio');
 ?>
-<div class="page-head"><h1>Portfel</h1></div>
+<div class="page-head"><h1>Portfel</h1><span class="tag" style="color:var(--accent);border-color:var(--accent)">Sesja #<?= $sessionNo ?></span></div>
+
+<?php if ($goalTarget > 0): ?>
+<div class="panel goal <?= $me['goal_session'] !== null ? 'won' : ($sessionsLeft < 0 ? 'lost' : '') ?>">
+  <div class="goal-row">
+    <div>
+      <h2>Cel gry</h2>
+      <div class="goal-title">Zbuduj kapitał <b><?= money($goalTarget) ?> PLN</b> w <?= $goalSessions ?> sesji</div>
+    </div>
+    <div class="goal-status">
+      <?php if ($me['goal_session'] !== null): ?>
+        <span class="chg p">🏆 Osiągnięty w sesji #<?= (int) $me['goal_session'] ?></span>
+      <?php elseif ($sessionsLeft >= 0): ?>
+        <span class="mono soft">pozostało sesji: <b class="up"><?= $sessionsLeft ?></b></span>
+      <?php else: ?>
+        <span class="chg n">czas minął — grasz dalej w trybie wolnym</span>
+      <?php endif; ?>
+    </div>
+  </div>
+  <div class="goalbar"><i style="width:<?= round($progress, 1) ?>%"></i></div>
+  <div class="goal-nums mono"><span><?= money($equity) ?> PLN</span><span><?= number_format($progress, 1, ',', ' ') ?>%</span><span><?= money($goalTarget) ?> PLN</span></div>
+</div>
+<?php endif; ?>
 
 <div class="stats">
   <div class="stat"><div class="k">Kapitał</div><div class="v"><?= money($equity) ?></div></div>

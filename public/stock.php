@@ -8,9 +8,8 @@ if (!$s) { flash('Nie ma takiej spółki.', 'err'); redirect('market.php'); }
 $reports = Engine::all("SELECT * FROM financial_reports WHERE stock_id=? ORDER BY id DESC LIMIT 12", [$id]);
 $news = Engine::all("SELECT * FROM news WHERE (scope='COMPANY' AND target_id=?) OR (scope='SECTOR' AND target_id=?) OR scope='MARKET' ORDER BY id DESC LIMIT 15", [$id, (int) $s['sector_id']]);
 
-$ref = Engine::one("SELECT c FROM candles WHERE stock_id=? AND t>=1 ORDER BY t ASC LIMIT 1", [$id]);
-$ref = ($ref !== false && $ref !== null) ? (float) $ref : (float) $s['price'];
-$chg = $ref > 0 ? ((float) $s['price'] - $ref) / $ref * 100 : 0;
+$ref = (float) $s['day_open_price'] > 0 ? (float) $s['day_open_price'] : (float) $s['price'];
+$chg = $ref > 0 ? ((float) $s['price'] - $ref) / $ref * 100 : 0;   // zmiana od otwarcia sesji
 
 $candles = array_reverse(Engine::all("SELECT o,h,l,c FROM candles WHERE stock_id=? ORDER BY t DESC LIMIT 80", [$id]));
 

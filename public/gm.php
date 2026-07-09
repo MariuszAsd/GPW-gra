@@ -16,6 +16,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($a === 'botact') {
         Engine::setState('bot_activity', (string) max(0, min(3, (float) str_replace(',', '.', $_POST['bot_activity'] ?? '1'))));
         flash('Ustawiono aktywność botów.');
+    } elseif ($a === 'goal') {
+        Engine::setState('goal_target', (string) max(0, (float) str_replace(',', '.', $_POST['goal_target'] ?? '0')));
+        Engine::setState('goal_sessions', (string) max(1, (int) ($_POST['goal_sessions'] ?? 60)));
+        Engine::setState('ticks_per_session', (string) max(1, (int) ($_POST['ticks_per_session'] ?? 20)));
+        flash('Zapisano ustawienia celu gry i sesji.');
     } elseif ($a === 'stock') {
         $pdo->prepare("UPDATE stocks SET bias=?, volatility=?, profit_trend=? WHERE id=?")->execute([
             (float) str_replace(',', '.', $_POST['bias'] ?? '0'),
@@ -60,6 +65,9 @@ $botact = Engine::one("SELECT v FROM game_state WHERE k='bot_activity'");
 $botact = $botact === false || $botact === null ? 1.0 : (float) $botact;
 $botCount = (int) Engine::one("SELECT COUNT(*) FROM users WHERE is_bot=1");
 $tick = (int) (Engine::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
+$goalTarget = (float) (Engine::one("SELECT v FROM game_state WHERE k='goal_target'") ?: 0);
+$goalSessions = (int) (Engine::one("SELECT v FROM game_state WHERE k='goal_sessions'") ?: 60);
+[$sessionNo, $ticksLeft, $tps] = Engine::sessionInfo();
 $stocks = Engine::all("SELECT * FROM stocks ORDER BY ticker");
 $sectors = Engine::all("SELECT * FROM sectors ORDER BY symbol");
 $fmt = fn($v) => rtrim(rtrim((string) $v, '0'), '.') ?: '0';
@@ -68,8 +76,20 @@ layout_header('Panel GM', $user, 'gm');
 ?>
 <div class="page-head">
   <h1>Panel GM — sterowanie rynkiem</h1>
-  <span class="muted">tick #<?= $tick ?></span>
+  <span class="muted">tick #<?= $tick ?> · sesja #<?= $sessionNo ?> (do końca: <?= $ticksLeft ?> ticków)</span>
 </div>
+
+<section class="panel" style="margin-bottom:16px">
+  <h2>Cel gry i sesje</h2>
+  <form method="post" class="row" style="align-items:flex-end">
+    <input type="hidden" name="action" value="goal">
+    <div><label>Cel — kapitał (PLN)</label><input type="number" step="10000" name="goal_target" value="<?= (int) $goalTarget ?>" style="width:140px"></div>
+    <div><label>Limit sesji na cel</label><input type="number" min="1" name="goal_sessions" value="<?= $goalSessions ?>" style="width:110px"></div>
+    <div><label>Ticków na sesję</label><input type="number" min="1" name="ticks_per_session" value="<?= $tps ?>" style="width:110px"></div>
+    <button class="btn sm">Zapisz</button>
+  </form>
+  <p class="muted" style="margin-top:8px">Gracz ma osiągnąć zadany kapitał w limicie sesji od dołączenia. Sesja = dzień giełdowy (na otwarciu zapisuje się kurs odniesienia dla dziennej zmiany).</p>
+</section>
 
 <div class="gm-grid">
   <section class="panel">

@@ -404,6 +404,50 @@ final class Engine
         }
     }
 
+    /* ---------- Sesje giełdowe i cel gry ---------- */
+
+    /** [numer sesji, ticków do końca sesji, długość sesji] dla danego ticku. */
+    public static function sessionInfo(?int $tick = null): array
+    {
+        $tps = max(1, (int) (self::one("SELECT v FROM game_state WHERE k='ticks_per_session'") ?: 20));
+        if ($tick === null) $tick = (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
+        $n = intdiv(max(0, $tick), $tps) + 1;
+        return [$n, $tps - (max(0, $tick) % $tps), $tps];
+    }
+
+    /** Na otwarciu nowej sesji: zapisz kurs otwarcia dnia (dzienna zmiana % w notowaniach). */
+    private static function rollSession(int $tick): void
+    {
+        [$n] = self::sessionInfo($tick);
+        $prev = (int) (self::one("SELECT v FROM game_state WHERE k='session'") ?: 0);
+        if ($n === $prev) return;
+        Db::pdo()->exec("UPDATE stocks SET day_open_price = price");
+        self::setState('session', (string) $n);
+    }
+
+    /** Cel gry: gdy kapitał gracza (equity) osiągnie próg — zapisz sesję sukcesu + komunikat. */
+    private static function checkGoal(int $tick): void
+    {
+        $target = (float) (self::one("SELECT v FROM game_state WHERE k='goal_target'") ?: 0);
+        if ($target <= 0) return;
+        [$session] = self::sessionInfo($tick);
+        $players = self::all("SELECT id, username, cash, cash_reserved FROM users WHERE is_bot=0 AND role='player' AND goal_session IS NULL");
+        foreach ($players as $p) {
+            $stockVal = (float) (self::one(
+                "SELECT COALESCE(SUM((w.qty + w.qty_reserved) * s.price), 0) FROM wallets w JOIN stocks s ON s.id = w.stock_id WHERE w.user_id = ?",
+                [$p['id']]
+            ) ?: 0);
+            $equity = (float) $p['cash'] + (float) $p['cash_reserved'] + $stockVal;
+            if ($equity >= $target) {
+                Db::pdo()->prepare("UPDATE users SET goal_session=? WHERE id=?")->execute([$session, $p['id']]);
+                Db::pdo()->prepare("INSERT INTO news (headline,body,type,scope,target_id,is_espi,impact_strength,publish_tick,expire_tick,published_at)
+                                    VALUES (?,?,'POS','MARKET',NULL,0,0,?,?,?)")
+                    ->execute(['🏆 ' . $p['username'] . ' osiągnął cel gry: ' . number_format($target, 0, ',', ' ') . ' PLN!',
+                               'Kapitał inwestora przekroczył próg celu w sesji ' . $session . '.', $tick, $tick + 20, Db::now()]);
+            }
+        }
+    }
+
     /* ---------- Pełny tick świata ---------- */
 
     public static function runTick(): int
@@ -412,6 +456,7 @@ final class Engine
         $pdo->beginTransaction();   // cały tick atomowo (i dużo szybciej na SQLite)
         try {
         $t = (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?? 0) + 1;
+        self::rollSession($t);   // nowa sesja giełdowa -> kurs otwarcia dnia
 
         // dynamika ceny fundamentalnej — STEROWALNA i zależna od otoczenia:
         //   dryf = trend rynku*beta + trend sektora*beta + bias(GM) + growth(spółki+sektora)
@@ -443,6 +488,7 @@ final class Engine
         $tickTrades = [];
         foreach (self::all("SELECT id FROM stocks") as $st) self::matchBook((int) $st['id'], $tickTrades);
         self::recordCandles($t, $tickTrades);
+        self::checkGoal($t);     // czy któryś gracz osiągnął cel gry
 
         self::setState('tick', (string) $t);
         $pdo->commit();

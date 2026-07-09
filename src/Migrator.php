@@ -24,6 +24,11 @@ final class Migrator
                 "ALTER TABLE stocks  ADD COLUMN profit_trend   DECIMAL(6,3) NOT NULL DEFAULT 0",
                 "ALTER TABLE sectors ADD COLUMN profit_climate DECIMAL(6,3) NOT NULL DEFAULT 0",
             ],
+            // v3: cel gry i sesje (sesja dołączenia gracza + sesja osiągnięcia celu)
+            3 => [
+                "ALTER TABLE users ADD COLUMN joined_session INT NOT NULL DEFAULT 1",
+                "ALTER TABLE users ADD COLUMN goal_session INT NULL",
+            ],
         ];
     }
 

@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 2;   // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 3;   // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -27,7 +27,9 @@ final class Schema
                 is_bot     TINYINT NOT NULL DEFAULT 0,
                 role       VARCHAR(20) NOT NULL DEFAULT 'player',
                 cash          $money NOT NULL DEFAULT 0,
-                cash_reserved $money NOT NULL DEFAULT 0
+                cash_reserved $money NOT NULL DEFAULT 0,
+                joined_session INT NOT NULL DEFAULT 1,   -- sesja dołączenia (liczy się od niej limit celu)
+                goal_session   INT NULL                  -- sesja, w której gracz osiągnął cel (NULL = jeszcze nie)
             )",
 
             // --- SEKTOR (branża) ---
