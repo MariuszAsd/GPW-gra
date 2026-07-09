@@ -1,0 +1,60 @@
+name: Deploy (FTP)
+
+# Wypycha kod na serwer przez FTPS przy każdym push do main.
+# Sekrety ustawiasz w: Settings → Secrets and variables → Actions:
+#   FTP_SERVER      np. ftp.twojadomena.pl   (host FTP)
+#   FTP_USERNAME    użytkownik FTP
+#   FTP_PASSWORD    hasło FTP
+#   FTP_SERVER_DIR  DOCELOWY, DEDYKOWANY folder aplikacji, np. ./gpw/   (musi kończyć się /)
+#
+# WAŻNE: FTP_SERVER_DIR wskaż na OSOBNY folder tylko dla tej gry — akcja
+# synchronizuje katalog i może usuwać pliki, których nie ma w repo.
+# Plik config.local.php (hasło do bazy) i katalog data/ są WYKLUCZONE, więc
+# deploy ich nie nadpisze ani nie skasuje.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-ftp
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sprawdź, czy sekrety FTP są ustawione
+        id: chk
+        run: |
+          if [ -z "${{ secrets.FTP_SERVER }}" ]; then
+            echo "::notice::Brak sekretów FTP — dodaj FTP_SERVER/FTP_USERNAME/FTP_PASSWORD/FTP_SERVER_DIR w Settings→Secrets, wtedy deploy ruszy."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy przez FTPS
+        if: steps.chk.outputs.ok == 'true'
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ftps
+          server-dir: ${{ secrets.FTP_SERVER_DIR }}
+          # nie wgrywaj i nie kasuj tych ścieżek na serwerze:
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/.github/**
+            **/node_modules/**
+            config.local.php
+            config.local.php.example
+            data/*.sqlite
+            cron/*.lock
+            **/*.md
+            verify.php
