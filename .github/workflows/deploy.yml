@@ -1,16 +1,19 @@
 name: Deploy (FTP)
 
 # Wypycha kod na serwer przez FTPS przy każdym push do main.
-# Sekrety ustawiasz w: Settings → Secrets and variables → Actions:
-#   FTP_SERVER      np. ftp.twojadomena.pl   (host FTP)
+# Sekrety: Settings → Secrets and variables → Actions:
+#   FTP_SERVER      host FTP, np. ftp.twojadomena.pl
 #   FTP_USERNAME    użytkownik FTP
 #   FTP_PASSWORD    hasło FTP
-#   FTP_SERVER_DIR  DOCELOWY, DEDYKOWANY folder aplikacji, np. ./gpw/   (musi kończyć się /)
+#   FTP_SERVER_DIR  dedykowany folder aplikacji zakończony /, np. ./gpw/
+#   DB_HOST         host bazy (zwykle localhost)
+#   DB_NAME         nazwa bazy MySQL
+#   DB_USER         użytkownik bazy
+#   DB_PASS         hasło do bazy
 #
-# WAŻNE: FTP_SERVER_DIR wskaż na OSOBNY folder tylko dla tej gry — akcja
-# synchronizuje katalog i może usuwać pliki, których nie ma w repo.
-# Plik config.local.php (hasło do bazy) i katalog data/ są WYKLUCZONE, więc
-# deploy ich nie nadpisze ani nie skasuje.
+# Dane bazy (DB_*) NIE trafiają do repo — workflow buduje z nich plik
+# config.local.php i wgrywa go na serwer. Ty nie edytujesz nic ręcznie.
+# FTP_SERVER_DIR wskaż na OSOBNY folder tylko tej gry (akcja synchronizuje katalog).
 
 on:
   push:
@@ -27,15 +30,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Sprawdź, czy sekrety FTP są ustawione
+      - name: Sprawdź sekrety
         id: chk
         run: |
           if [ -z "${{ secrets.FTP_SERVER }}" ]; then
-            echo "::notice::Brak sekretów FTP — dodaj FTP_SERVER/FTP_USERNAME/FTP_PASSWORD/FTP_SERVER_DIR w Settings→Secrets, wtedy deploy ruszy."
+            echo "::notice::Brak sekretów FTP — dodaj FTP_* w Settings→Secrets, wtedy deploy ruszy."
             echo "ok=false" >> "$GITHUB_OUTPUT"
           else
             echo "ok=true" >> "$GITHUB_OUTPUT"
           fi
+          if [ -z "${{ secrets.DB_HOST }}" ]; then
+            echo "::warning::Brak sekretów bazy (DB_*) — config.local.php nie zostanie zbudowany. Dodaj DB_HOST/DB_NAME/DB_USER/DB_PASS."
+            echo "has_db=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_db=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Zbuduj config.local.php z sekretów bazy
+        if: steps.chk.outputs.has_db == 'true'
+        env:
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASS: ${{ secrets.DB_PASS }}
+        run: |
+          php -r '$c=["db_driver"=>"mysql","mysql"=>["host"=>getenv("DB_HOST"),"name"=>getenv("DB_NAME"),"user"=>getenv("DB_USER"),"pass"=>getenv("DB_PASS")]]; file_put_contents("config.local.php","<?php return ".var_export($c,true).";\n");'
+          echo "config.local.php zbudowany (wartości zamaskowane)."
 
       - name: Deploy przez FTPS
         if: steps.chk.outputs.ok == 'true'
@@ -46,13 +66,12 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           protocol: ftps
           server-dir: ${{ secrets.FTP_SERVER_DIR }}
-          # nie wgrywaj i nie kasuj tych ścieżek na serwerze:
+          # nie wysyłaj śmieci; config.local.php JEST wysyłany (zbudowany wyżej):
           exclude: |
             **/.git*
             **/.git*/**
             **/.github/**
             **/node_modules/**
-            config.local.php
             config.local.php.example
             data/*.sqlite
             cron/*.lock

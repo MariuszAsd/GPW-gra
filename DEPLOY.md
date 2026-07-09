@@ -33,17 +33,22 @@ Repo → **Settings → Secrets and variables → Actions → New repository sec
 | `FTP_USERNAME` | użytkownik FTP |
 | `FTP_PASSWORD` | hasło FTP |
 | `FTP_SERVER_DIR` | folder docelowy zakończony `/`. Jeśli konto FTP ląduje w `gpw/` → `./`. Jeśli wyżej → np. `./gpw/` |
+| `DB_HOST` | host bazy (zwykle `localhost`) |
+| `DB_NAME` | nazwa bazy z kroku 1 |
+| `DB_USER` | użytkownik bazy |
+| `DB_PASS` | hasło do bazy |
 
 > Haseł **nie** wpisuj do kodu ani nie wysyłaj na czacie — tylko tutaj, w sekretach.
+> Dane bazy (`DB_*`) workflow sam zamienia w plik `config.local.php` na serwerze — nic nie edytujesz ręcznie.
 
 ## 5. Pierwszy deploy
 Repo → **Actions → „Deploy (FTP)" → Run workflow** (albo dowolny push do `main`).
 Po zielonym ✔ pliki są na serwerze.
 
-## 6. Hasło do bazy na serwerze (raz)
-Przez File Manager/FTP, w **głównym folderze aplikacji** (tam gdzie `config.php`, NAD `public/`):
-skopiuj `config.local.php.example` → `config.local.php` i wpisz dane z kroku 1.
-Ten plik jest w `.gitignore` i deploy go nie nadpisuje.
+## 6. Hasło do bazy — automatycznie
+Nic nie robisz ręcznie. Skoro dane bazy są w sekretach `DB_*`, workflow przy deployu
+buduje z nich `config.local.php` i wgrywa na serwer (hasło jest maskowane w logach).
+Zmiana danych bazy = zmiana sekretu i ponowny deploy.
 
 ## 7. Załóż tabele i dane (raz)
 Najproście przez SSH w folderze aplikacji:
