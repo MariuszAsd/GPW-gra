@@ -6,6 +6,8 @@
  */
 final class Schema
 {
+    public const VERSION = 2;   // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+
     public static function tables(): array
     {
         $pk    = Db::driver() === 'mysql' ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT';
@@ -33,7 +35,8 @@ final class Schema
                 volatility       $f NOT NULL DEFAULT 1,   -- własna zmienność branży
                 growth           $f NOT NULL DEFAULT 0,   -- dryf długoterminowy (%/tick)
                 news_sensitivity $f NOT NULL DEFAULT 1,   -- siła newsów sektorowych
-                trend            $f NOT NULL DEFAULT 0    -- bieżący trend branży (%/tick, sterowalny)
+                trend            $f NOT NULL DEFAULT 0,   -- bieżący trend branży (%/tick, sterowalny)
+                profit_climate   $f NOT NULL DEFAULT 0    -- koniunktura wyników w branży (%/miesiąc)
             )",
 
             // --- SPÓŁKA (centrum) ---
@@ -60,6 +63,7 @@ final class Schema
                 aggressiveness       $f NOT NULL DEFAULT 1,
                 -- sterowanie GM:
                 bias $f NOT NULL DEFAULT 0,
+                profit_trend $f NOT NULL DEFAULT 0,   -- ręczny miernik trendu zysków (%/miesiąc, edytowalny w GM)
                 -- fundamenty / raporty miesięczne:
                 base_profit  $big NOT NULL DEFAULT 0,   -- bazowy miesięczny zysk netto
                 last_profit  $big NOT NULL DEFAULT 0,   -- ostatni raportowany zysk (baza oczekiwań)

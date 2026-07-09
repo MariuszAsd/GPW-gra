@@ -2,9 +2,13 @@
 /** Wspólny bootstrap: sesja, autoryzacja, layout. Dołączany na górze każdej strony. */
 require_once __DIR__ . '/../src/Db.php';
 require_once __DIR__ . '/../src/Schema.php';
+require_once __DIR__ . '/../src/Migrator.php';
 require_once __DIR__ . '/../src/Engine.php';
 
 session_start();
+
+// Auto-migracja: po deployu baza sama dołoży nowe kolumny/tabele (bez utraty danych).
+try { Migrator::ensure(); } catch (Throwable $e) { error_log('Migracja: ' . $e->getMessage()); }
 
 function h($s): string { return htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8'); }
 function money($v): string { return number_format((float) $v, 2, ',', ' '); }

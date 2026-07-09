@@ -5,7 +5,10 @@
  */
 require __DIR__ . '/../src/Db.php';
 require __DIR__ . '/../src/Schema.php';
+require __DIR__ . '/../src/Migrator.php';
 require __DIR__ . '/../src/Engine.php';
+
+try { Migrator::ensure(); } catch (Throwable $e) { error_log('Migracja(cron): ' . $e->getMessage()); }
 
 $lock = __DIR__ . '/tick.lock';
 if (is_file($lock) && time() - filemtime($lock) < 120) { fwrite(STDERR, "Poprzedni cykl trwa.\n"); exit(1); }

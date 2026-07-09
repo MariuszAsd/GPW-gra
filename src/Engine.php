@@ -221,21 +221,23 @@ final class Engine
     public static function generateReports(int $tick): void
     {
         $pdo = Db::pdo();
-        $due = self::all("SELECT * FROM stocks WHERE next_report_tick <= ?", [$tick]);
+        $due = self::all("SELECT s.*, sec.profit_climate AS sector_climate FROM stocks s JOIN sectors sec ON sec.id = s.sector_id WHERE s.next_report_tick <= ?", [$tick]);
         if (!$due) return;
-        $per = max(1, (int) (self::one("SELECT v FROM game_state WHERE k='ticks_per_month'") ?: 20));
+        $globalPer = max(1, (int) (self::one("SELECT v FROM game_state WHERE k='ticks_per_month'") ?: 20));
 
         foreach ($due as $s) {
             $sid = (int) $s['id'];
+            $per = max(1, (int) $s['report_period']);   // kadencja raportu per spółka
             $shares = max(1.0, (float) $s['total_shares']);
-            $base = (float) $s['base_profit'];
-            $expected = ((float) $s['last_profit']) ?: $base;
+            $prev = ((float) $s['last_profit']) ?: (float) $s['base_profit'];
 
-            // wynik miesiąca: baza * (1 + dryf zysku na miesiąc + szum × agresywność)
-            $growth = ((float) $s['growth_potential']) / 100.0 * $per;
-            $noise  = (mt_rand(-15, 15) / 100.0) * max(0.2, (float) $s['aggressiveness']);
-            $profit = round($base * (1 + $growth + $noise), 2);
-            $eps    = round($profit * 12.0 / $shares, 4);
+            // oczekiwany wynik = poprzedni × ZNANY trend (miernik spółki + koniunktura branży + growth)
+            $trend_m  = ((float) $s['profit_trend'] + (float) $s['sector_climate'] + (float) $s['growth_potential'] * $per) / 100.0;
+            $expected = $prev * (1 + $trend_m);
+            // faktyczny wynik = oczekiwany × niespodzianka (szum × agresywność)
+            $noise    = (mt_rand(-12, 12) / 100.0) * max(0.2, (float) $s['aggressiveness']);
+            $profit   = round(max(0, $expected * (1 + $noise)), 2);
+            $eps      = round($profit * 12.0 / $shares, 4);
             $surprise = $expected != 0.0 ? ($profit - $expected) / abs($expected) * 100.0 : 0.0;
 
             // reakcja fundamentu: przyciągnij go do wyceny z zysków (C/Z × roczny EPS)
@@ -249,7 +251,7 @@ final class Engine
             $pdo->prepare("UPDATE stocks SET fundamental=?, last_profit=?, last_eps=?, next_report_tick=next_report_tick+? WHERE id=?")
                 ->execute([$newFund, $profit, $eps, $per, $sid]);
 
-            $period = 'Miesiąc ' . (int) round($tick / $per);
+            $period = 'Miesiąc ' . (int) round($tick / $globalPer);
             $rev = round($profit / 0.15, 2); $cost = round($rev - $profit, 2);
             $pdo->prepare("INSERT INTO financial_reports (stock_id,tick,period,report_date,revenue,costs,net_profit,eps,expected_eps,surprise_pct)
                            VALUES (?,?,?,?,?,?,?,?,?,?)")
@@ -259,10 +261,76 @@ final class Engine
             $type = $surprise >= 3 ? 'POS' : ($surprise <= -3 ? 'NEG' : 'NEU');
             $head = sprintf('Wyniki %s: zysk %s PLN (niespodzianka %s%%)',
                 $s['ticker'], number_format($profit, 0, ',', ' '), ($surprise >= 0 ? '+' : '') . round($surprise, 1));
-            $impact = max(-0.4, min(0.4, $surprise / 100.0 * (float) $s['news_impact']));
+            $impact = max(-0.15, min(0.15, $surprise / 100.0 * (float) $s['news_impact'] * 0.3));  // łagodny dryf po wynikach
             $pdo->prepare("INSERT INTO news (headline,body,type,scope,target_id,is_espi,impact_strength,publish_tick,expire_tick,published_at)
                            VALUES (?,?,?,?,?,1,?,?,?,?)")
                 ->execute([$head, 'Spółka opublikowała raport miesięczny.', $type, 'COMPANY', $sid, $impact, $tick, $tick + 8, Db::now()]);
+        }
+    }
+
+    /* ---------- Newsy / ESPI (generowanie + ciągły wpływ) ---------- */
+
+    public static function generateNews(int $tick): void
+    {
+        $templates = self::all("SELECT * FROM news_templates");
+        if (!$templates) return;
+        $companyTpl = array_values(array_filter($templates, fn($t) => $t['scope'] === 'COMPANY'));
+        $sectorTpl  = array_values(array_filter($templates, fn($t) => $t['scope'] === 'SECTOR'));
+
+        // ESPI/newsy spółek — częstotliwość zależna od news_frequency spółki
+        foreach (self::all("SELECT s.id, s.ticker, s.news_frequency, sec.news_sensitivity FROM stocks s JOIN sectors sec ON sec.id = s.sector_id") as $s) {
+            if (mt_rand(1, 1000) <= (int) round(20 * (float) $s['news_frequency'])) {
+                $tpl = self::pickTemplate($companyTpl);
+                if ($tpl) self::emitNews($tick, $tpl, 'COMPANY', (int) $s['id'], $s['ticker'], (float) $s['news_sensitivity']);
+            }
+        }
+        // newsy sektorowe — rzadziej
+        foreach (self::all("SELECT id, name, news_sensitivity FROM sectors") as $sec) {
+            if (mt_rand(1, 1000) <= 8) {
+                $tpl = self::pickTemplate($sectorTpl);
+                if ($tpl) self::emitNews($tick, $tpl, 'SECTOR', (int) $sec['id'], $sec['name'], (float) $sec['news_sensitivity']);
+            }
+        }
+    }
+
+    private static function pickTemplate(array $tpls): ?array
+    {
+        if (!$tpls) return null;
+        $total = 0; foreach ($tpls as $t) $total += max(1, (int) $t['frequency_weight']);
+        $r = mt_rand(1, $total); $acc = 0;
+        foreach ($tpls as $t) { $acc += max(1, (int) $t['frequency_weight']); if ($r <= $acc) return $t; }
+        return $tpls[0];
+    }
+
+    private static function emitNews(int $tick, array $tpl, string $scope, int $targetId, string $label, float $sensitivity): void
+    {
+        $head = str_replace('[T]', $label, $tpl['headline_template']);
+        $body = str_replace('[T]', $label, (string) $tpl['body_template']);
+        $impact = round((float) $tpl['base_impact'] * $sensitivity, 3);   // %/tick w szczycie, ze znakiem
+        $dur = max(1, (int) $tpl['duration_ticks']);
+        Db::pdo()->prepare("INSERT INTO news (template_id,headline,body,type,scope,target_id,is_espi,impact_strength,publish_tick,expire_tick,published_at)
+                            VALUES (?,?,?,?,?,?,?,?,?,?,?)")
+            ->execute([$tpl['id'], $head, $body, $tpl['type'], $scope, $targetId, (int) $tpl['is_espi'], $impact, $tick, $tick + $dur, Db::now()]);
+    }
+
+    /** Ciągły, zanikający wpływ aktywnych newsów/ESPI na wartość fundamentalną (lekko rusza kursem). */
+    public static function applyNewsImpact(int $tick): void
+    {
+        $pdo = Db::pdo();
+        $active = self::all("SELECT scope, target_id, impact_strength, publish_tick, expire_tick
+                             FROM news WHERE publish_tick <= ? AND expire_tick > ? AND impact_strength <> 0", [$tick, $tick]);
+        foreach ($active as $nw) {
+            $span  = max(1, (int) $nw['expire_tick'] - (int) $nw['publish_tick']);
+            $decay = ((int) $nw['expire_tick'] - $tick) / $span;               // 1 -> 0
+            $nudge = ((float) $nw['impact_strength'] / 100.0) * $decay;         // ułamek na tick
+            if (abs($nudge) < 1e-9) continue;
+            if ($nw['scope'] === 'COMPANY') {
+                $pdo->prepare("UPDATE stocks SET fundamental = ROUND(fundamental * (1 + ?), 2) WHERE id=?")->execute([$nudge, (int) $nw['target_id']]);
+            } elseif ($nw['scope'] === 'SECTOR') {
+                $pdo->prepare("UPDATE stocks SET fundamental = ROUND(fundamental * (1 + ?), 2) WHERE sector_id=?")->execute([$nudge, (int) $nw['target_id']]);
+            } else {
+                $pdo->prepare("UPDATE stocks SET fundamental = ROUND(fundamental * (1 + ?), 2)")->execute([$nudge]);
+            }
         }
     }
 
@@ -285,16 +353,18 @@ final class Engine
                              FROM stocks s JOIN sectors sec ON sec.id = s.sector_id");
         foreach ($stocks as $st) {
             $vol = (max(0.1, (float) $st['volatility'])) * (max(0.1, (float) $st['sector_vol']));
+            // uwaga: growth idzie teraz kanałem raportów (zyski -> wycena), nie w ciągłym dryfie
             $drift = ( $market * (float) $st['beta']
                      + (float) $st['sector_trend'] * (float) $st['sector_beta']
-                     + (float) $st['bias']
-                     + (float) $st['growth_potential'] + (float) $st['sector_growth'] ) / 100.0;
+                     + (float) $st['bias'] ) / 100.0;
             $noise = (mt_rand(-12, 12) / 1000) * $vol;
             $f = (float) $st['fundamental'] * (1 + $drift + $noise);
             if (mt_rand(1, 100) <= 10) $f *= 1 + (mt_rand(-70, 70) / 1000) * $vol;   // drobne szoki (pełne newsy w kolejnym kroku)
             $pdo->prepare("UPDATE stocks SET fundamental=? WHERE id=?")->execute([max(1, round($f, 2)), $st['id']]);
         }
         self::generateReports($t);   // raporty miesięczne -> skok wartości fundamentalnej + news/ESPI
+        self::generateNews($t);      // losowe ESPI/newsy pozytywne i negatywne
+        self::applyNewsImpact($t);   // aktywne newsy lekko ruszają fundamentem (z zanikiem)
 
         self::checkStops();
         self::runBots();
