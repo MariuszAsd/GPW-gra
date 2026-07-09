@@ -124,6 +124,9 @@ final class Engine
             $uid = (int) $bot['id'];
             foreach ($stocks as $st) {
                 $sid = (int) $st['id'];
+                // przy dużym rynku każdy bot pokrywa ~1/3 spółek (deterministycznie) —
+                // każda spółka ma nadal ~4 market makerów, a tick nie puchnie
+                if ((($sid + $uid) % 3) !== 0) continue;
                 if ($bot['role'] === 'mm') {
                     $base = 0.7 * $st['fundamental'] + 0.3 * $st['price'];
                     $base *= 1 + mt_rand(-40, 40) / 10000;

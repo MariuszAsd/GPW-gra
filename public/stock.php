@@ -109,6 +109,7 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
       </div>
 
       <div class="tabpane" id="tab-info">
+        <?php if (!empty($s['description'])): ?><p class="soft" style="margin:4px 0 12px"><?= h($s['description']) ?></p><?php endif; ?>
         <table><tbody>
           <tr><td class="muted">Sektor</td><td class="num"><?= h($s['sector']) ?></td></tr>
           <tr><td class="muted">Kapitalizacja</td><td class="num"><?= money($mcap) ?> PLN</td></tr>
