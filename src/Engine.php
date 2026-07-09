@@ -216,6 +216,56 @@ final class Engine
         }
     }
 
+    /* ---------- Raporty finansowe (miesięczne) ---------- */
+
+    public static function generateReports(int $tick): void
+    {
+        $pdo = Db::pdo();
+        $due = self::all("SELECT * FROM stocks WHERE next_report_tick <= ?", [$tick]);
+        if (!$due) return;
+        $per = max(1, (int) (self::one("SELECT v FROM game_state WHERE k='ticks_per_month'") ?: 20));
+
+        foreach ($due as $s) {
+            $sid = (int) $s['id'];
+            $shares = max(1.0, (float) $s['total_shares']);
+            $base = (float) $s['base_profit'];
+            $expected = ((float) $s['last_profit']) ?: $base;
+
+            // wynik miesiąca: baza * (1 + dryf zysku na miesiąc + szum × agresywność)
+            $growth = ((float) $s['growth_potential']) / 100.0 * $per;
+            $noise  = (mt_rand(-15, 15) / 100.0) * max(0.2, (float) $s['aggressiveness']);
+            $profit = round($base * (1 + $growth + $noise), 2);
+            $eps    = round($profit * 12.0 / $shares, 4);
+            $surprise = $expected != 0.0 ? ($profit - $expected) / abs($expected) * 100.0 : 0.0;
+
+            // reakcja fundamentu: przyciągnij go do wyceny z zysków (C/Z × roczny EPS)
+            $fair  = (float) $s['pe_target'] * $eps;
+            $cur   = (float) $s['fundamental'];
+            $delta = $fair - $cur;
+            if ($delta < 0) $delta = $delta / max(0.5, (float) $s['financial_resilience']);  // odporne spadają mniej
+            $pull  = min(1.0, 0.5 * (float) $s['news_impact']);
+            $newFund = max(1, round($cur + $delta * $pull, 2));
+
+            $pdo->prepare("UPDATE stocks SET fundamental=?, last_profit=?, last_eps=?, next_report_tick=next_report_tick+? WHERE id=?")
+                ->execute([$newFund, $profit, $eps, $per, $sid]);
+
+            $period = 'Miesiąc ' . (int) round($tick / $per);
+            $rev = round($profit / 0.15, 2); $cost = round($rev - $profit, 2);
+            $pdo->prepare("INSERT INTO financial_reports (stock_id,tick,period,report_date,revenue,costs,net_profit,eps,expected_eps,surprise_pct)
+                           VALUES (?,?,?,?,?,?,?,?,?,?)")
+                ->execute([$sid, $tick, $period, Db::now(), $rev, $cost, $profit, $eps, round((float) $s['last_eps'], 4), round($surprise, 2)]);
+
+            // news / ESPI z raportu (do wyświetlenia; ciągły wpływ newsów = kolejny krok)
+            $type = $surprise >= 3 ? 'POS' : ($surprise <= -3 ? 'NEG' : 'NEU');
+            $head = sprintf('Wyniki %s: zysk %s PLN (niespodzianka %s%%)',
+                $s['ticker'], number_format($profit, 0, ',', ' '), ($surprise >= 0 ? '+' : '') . round($surprise, 1));
+            $impact = max(-0.4, min(0.4, $surprise / 100.0 * (float) $s['news_impact']));
+            $pdo->prepare("INSERT INTO news (headline,body,type,scope,target_id,is_espi,impact_strength,publish_tick,expire_tick,published_at)
+                           VALUES (?,?,?,?,?,1,?,?,?,?)")
+                ->execute([$head, 'Spółka opublikowała raport miesięczny.', $type, 'COMPANY', $sid, $impact, $tick, $tick + 8, Db::now()]);
+        }
+    }
+
     /* ---------- Pełny tick świata ---------- */
 
     public static function runTick(): int
@@ -225,18 +275,26 @@ final class Engine
         try {
         $t = (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?? 0) + 1;
 
-        // dynamika ceny fundamentalnej — STEROWALNA:
-        //   sentiment (globalny) + bias (per spółka) = deterministyczny dryf w %/tick
-        //   vol (per spółka) = mnożnik szumu i siły szoków (newsów)
-        $sentiment = (float) (self::one("SELECT v FROM game_state WHERE k='sentiment'") ?: 0);
-        foreach (self::all("SELECT id, fundamental, bias, vol FROM stocks") as $st) {
-            $vol   = (float) $st['vol'] > 0 ? (float) $st['vol'] : 1.0;
-            $drift = ($sentiment + (float) $st['bias']) / 100.0;           // np. bias=+1 => +1%/tick
-            $noise = (mt_rand(-16, 16) / 1000) * $vol;                     // szum skalowany zmiennością
-            $f = $st['fundamental'] * (1 + $drift + $noise);
-            if (mt_rand(1, 100) <= 15) $f *= 1 + (mt_rand(-100, 100) / 1000) * $vol;  // szok/news
+        // dynamika ceny fundamentalnej — STEROWALNA i zależna od otoczenia:
+        //   dryf = trend rynku*beta + trend sektora*beta + bias(GM) + growth(spółki+sektora)
+        //   szum skalowany zmiennością spółki × sektora
+        $market = (float) (self::one("SELECT v FROM game_state WHERE k='sentiment'") ?: 0);  // trend rynku %/tick
+        $stocks = self::all("SELECT s.id, s.fundamental, s.bias, s.beta, s.volatility, s.growth_potential,
+                                    sec.trend AS sector_trend, sec.market_beta AS sector_beta,
+                                    sec.volatility AS sector_vol, sec.growth AS sector_growth
+                             FROM stocks s JOIN sectors sec ON sec.id = s.sector_id");
+        foreach ($stocks as $st) {
+            $vol = (max(0.1, (float) $st['volatility'])) * (max(0.1, (float) $st['sector_vol']));
+            $drift = ( $market * (float) $st['beta']
+                     + (float) $st['sector_trend'] * (float) $st['sector_beta']
+                     + (float) $st['bias']
+                     + (float) $st['growth_potential'] + (float) $st['sector_growth'] ) / 100.0;
+            $noise = (mt_rand(-12, 12) / 1000) * $vol;
+            $f = (float) $st['fundamental'] * (1 + $drift + $noise);
+            if (mt_rand(1, 100) <= 10) $f *= 1 + (mt_rand(-70, 70) / 1000) * $vol;   // drobne szoki (pełne newsy w kolejnym kroku)
             $pdo->prepare("UPDATE stocks SET fundamental=? WHERE id=?")->execute([max(1, round($f, 2)), $st['id']]);
         }
+        self::generateReports($t);   // raporty miesięczne -> skok wartości fundamentalnej + news/ESPI
 
         self::checkStops();
         self::runBots();

@@ -7,7 +7,7 @@ function change_pct(int $stockId, float $price): float {
     $ref = ($ref !== false && $ref !== null) ? (float) $ref : $price;
     return $ref > 0 ? ($price - $ref) / $ref * 100 : 0;
 }
-$stocks = Engine::all("SELECT id, ticker, name, sector, price FROM stocks ORDER BY ticker");
+$stocks = Engine::all("SELECT s.id, s.ticker, s.name, sec.name AS sector, s.price FROM stocks s JOIN sectors sec ON sec.id=s.sector_id ORDER BY s.ticker");
 $bid = []; foreach (Engine::all("SELECT stock_id, MAX(price) p FROM orders WHERE side='buy'  AND status='active' GROUP BY stock_id") as $r) $bid[$r['stock_id']] = $r['p'];
 $ask = []; foreach (Engine::all("SELECT stock_id, MIN(price) p FROM orders WHERE side='sell' AND status='active' GROUP BY stock_id") as $r) $ask[$r['stock_id']] = $r['p'];
 

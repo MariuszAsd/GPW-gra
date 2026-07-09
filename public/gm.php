@@ -14,7 +14,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         Engine::setState('sentiment', (string) (float) str_replace(',', '.', $_POST['sentiment'] ?? '0'));
         flash('Ustawiono nastawienie rynku.');
     } elseif ($a === 'stock') {
-        $pdo->prepare("UPDATE stocks SET bias=?, vol=? WHERE id=?")->execute([
+        $pdo->prepare("UPDATE stocks SET bias=?, volatility=? WHERE id=?")->execute([
             (float) str_replace(',', '.', $_POST['bias'] ?? '0'),
             max(0.1, (float) str_replace(',', '.', $_POST['vol'] ?? '1')),
             (int) $_POST['stock_id'],
@@ -26,12 +26,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ->execute([$pct, (int) $_POST['stock_id']]);
         Engine::runTick();
         flash(($pct >= 0 ? 'Pompka' : 'Zrzut') . " {$pct}% + tick wykonany.");
+    } elseif ($a === 'report') {
+        $t = (int) (Engine::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
+        $pdo->prepare("UPDATE stocks SET next_report_tick=? WHERE id=?")->execute([$t, (int) $_POST['stock_id']]);
+        Engine::generateReports($t);
+        flash('Opublikowano raport miesięczny.');
     } elseif ($a === 'tick') {
         $n = max(1, min(30, (int) ($_POST['n'] ?? 1)));
         for ($i = 0; $i < $n; $i++) Engine::runTick();
         flash("Wykonano {$n} ticków.");
     } elseif ($a === 'reset') {
-        $pdo->exec("UPDATE stocks SET bias=0, vol=1");
+        $pdo->exec("UPDATE stocks SET bias=0, volatility=1");
         Engine::setState('sentiment', '0');
         flash('Zresetowano sterowanie.');
     }
@@ -85,12 +90,13 @@ layout_header('Panel GM', $user, 'gm');
           <input type="hidden" name="action" value="stock">
           <input type="hidden" name="stock_id" value="<?= (int) $s['id'] ?>">
           <td class="num"><input type="number" step="0.05" name="bias" value="<?= rtrim(rtrim((string)$s['bias'],'0'),'.') ?: '0' ?>" style="width:90px"></td>
-          <td class="num"><input type="number" step="0.1" min="0.1" name="vol" value="<?= rtrim(rtrim((string)$s['vol'],'0'),'.') ?: '1' ?>" style="width:80px"></td>
+          <td class="num"><input type="number" step="0.1" min="0.1" name="vol" value="<?= rtrim(rtrim((string)$s['volatility'],'0'),'.') ?: '1' ?>" style="width:80px"></td>
           <td><button class="btn sm">Zapisz</button></td>
         </form>
         <td class="events">
           <form method="post" class="inline"><input type="hidden" name="action" value="event"><input type="hidden" name="stock_id" value="<?= (int) $s['id'] ?>"><input type="hidden" name="pct" value="5"><button class="btn sm up">▲ +5%</button></form>
           <form method="post" class="inline"><input type="hidden" name="action" value="event"><input type="hidden" name="stock_id" value="<?= (int) $s['id'] ?>"><input type="hidden" name="pct" value="-5"><button class="btn sm down">▼ −5%</button></form>
+          <form method="post" class="inline"><input type="hidden" name="action" value="report"><input type="hidden" name="stock_id" value="<?= (int) $s['id'] ?>"><button class="btn sm ghost">Raport</button></form>
         </td>
       </tr>
     <?php endforeach; ?>

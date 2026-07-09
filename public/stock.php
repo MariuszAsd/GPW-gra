@@ -3,8 +3,10 @@ require __DIR__ . '/_boot.php';
 $user = require_login();
 
 $id = (int) ($_GET['id'] ?? 0);
-$s = Engine::row("SELECT * FROM stocks WHERE id=?", [$id]);
+$s = Engine::row("SELECT s.*, sec.name AS sector FROM stocks s JOIN sectors sec ON sec.id=s.sector_id WHERE s.id=?", [$id]);
 if (!$s) { flash('Nie ma takiej spółki.', 'err'); redirect('market.php'); }
+$reports = Engine::all("SELECT * FROM financial_reports WHERE stock_id=? ORDER BY id DESC LIMIT 12", [$id]);
+$news = Engine::all("SELECT * FROM news WHERE (scope='COMPANY' AND target_id=?) OR (scope='SECTOR' AND target_id=?) OR scope='MARKET' ORDER BY id DESC LIMIT 15", [$id, (int) $s['sector_id']]);
 
 $ref = Engine::one("SELECT c FROM candles WHERE stock_id=? AND t>=1 ORDER BY t ASC LIMIT 1", [$id]);
 $ref = ($ref !== false && $ref !== null) ? (float) $ref : (float) $s['price'];
@@ -60,6 +62,8 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
       <div class="subtabs">
         <button class="on" data-tab="book">Arkusz zleceń</button>
         <button data-tab="trades">Transakcje</button>
+        <button data-tab="reports">Raporty</button>
+        <button data-tab="news">Wiadomości</button>
         <button data-tab="info">Info</button>
       </div>
 
@@ -86,12 +90,32 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
         </tbody></table>
       </div>
 
+      <div class="tabpane" id="tab-reports">
+        <table><thead><tr><th>Okres</th><th class="num">Przychody</th><th class="num">Zysk netto</th><th class="num">EPS</th><th class="num">Niespodzianka</th></tr></thead><tbody>
+          <?php foreach ($reports as $r): $sp = (float) $r['surprise_pct']; ?>
+            <tr><td><?= h($r['period']) ?></td><td class="num"><?= money($r['revenue']) ?></td><td class="num"><?= money($r['net_profit']) ?></td><td class="num"><?= number_format($r['eps'], 2, ',', ' ') ?></td><td class="num <?= $sp >= 0 ? 'up' : 'down' ?>"><?= ($sp >= 0 ? '+' : '') . number_format($sp, 1, ',', ' ') ?>%</td></tr>
+          <?php endforeach; if (!$reports) echo "<tr><td class='muted' colspan=5>brak raportów</td></tr>"; ?>
+        </tbody></table>
+      </div>
+
+      <div class="tabpane" id="tab-news">
+        <?php foreach ($news as $nw): $tc = $nw['type'] === 'POS' ? 'up' : ($nw['type'] === 'NEG' ? 'down' : 'soft'); ?>
+          <div style="padding:9px 2px;border-bottom:1px solid var(--line)">
+            <?php if ($nw['is_espi']): ?><span class="tag" style="color:#ffd27a;border-color:#5a4a1e">ESPI</span> <?php endif; ?>
+            <span class="<?= $tc ?>" style="font-weight:600"><?= h($nw['headline']) ?></span>
+            <div class="muted" style="font-size:12px;margin-top:2px"><?= h(substr($nw['published_at'], 0, 16)) ?> · <?= h($nw['scope']) ?></div>
+          </div>
+        <?php endforeach; if (!$news) echo "<div class='muted' style='padding:8px'>brak wiadomości</div>"; ?>
+      </div>
+
       <div class="tabpane" id="tab-info">
         <table><tbody>
           <tr><td class="muted">Sektor</td><td class="num"><?= h($s['sector']) ?></td></tr>
           <tr><td class="muted">Kapitalizacja</td><td class="num"><?= money($mcap) ?> PLN</td></tr>
           <tr><td class="muted">Liczba akcji</td><td class="num"><?= number_format($s['total_shares'], 0, ',', ' ') ?></td></tr>
           <tr><td class="muted">Wartość fundamentalna</td><td class="num"><?= money($s['fundamental']) ?> PLN</td></tr>
+          <tr><td class="muted">C/Z docelowe</td><td class="num"><?= number_format($s['pe_target'], 1, ',', ' ') ?></td></tr>
+          <tr><td class="muted">EPS (roczny)</td><td class="num"><?= number_format($s['last_eps'], 2, ',', ' ') ?> PLN</td></tr>
         </tbody></table>
       </div>
     </div>
