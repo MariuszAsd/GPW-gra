@@ -16,12 +16,24 @@ $pdo->prepare("INSERT INTO users (username, password_hash, is_bot, role, cash) V
     ->execute(['gracz', password_hash('haslo123', PASSWORD_DEFAULT), $cfg['starting_cash']]);
 $log("✔ gracz demo: login 'gracz' / hasło 'haslo123' (" . number_format($cfg['starting_cash'], 0, ',', ' ') . " PLN)");
 
+// --- konto admina (panel GM do sterowania rynkiem) ---
+$pdo->prepare("INSERT INTO users (username, password_hash, is_bot, role, cash) VALUES (?,?,0,'admin',?)")
+    ->execute(['admin', password_hash('admin123', PASSWORD_DEFAULT), 0]);
+$log("✔ konto admina: login 'admin' / hasło 'admin123' (panel GM: /public/gm.php)");
+Engine::setState('sentiment', '0');   // globalne nastawienie rynku (%/tick)
+
 // --- spółki ---
 $stocks = [
     ['PXS', 'PixelSoft',        'Technologie', 100.00],
+    ['CDR', 'CD Projekt',       'Technologie', 128.50],
     ['GNI', 'GenomX',           'Biotech',      45.00],
+    ['NAP', 'NaturaPharm',      'Biotech',      82.30],
     ['AEL', 'Aethelred Luxury', 'Dobra lux.',  250.00],
+    ['PRM', 'Prestige Motors',  'Dobra lux.',  540.00],
     ['STB', 'Stal-Bud',         'Przemysł',    150.00],
+    ['MCH', 'MegaChem',         'Przemysł',    320.00],
+    ['BNK', 'Bank Centralny',   'Finanse',     210.00],
+    ['ENG', 'EnergiaPL',        'Energetyka',   64.00],
 ];
 $sIns = $pdo->prepare("INSERT INTO stocks (ticker, name, sector, price, fundamental) VALUES (?,?,?,?,?)");
 foreach ($stocks as $s) $sIns->execute([$s[0], $s[1], $s[2], $s[3], $s[3]]);

@@ -157,6 +157,31 @@ final class Engine
         $pdo->prepare("UPDATE orders SET status='cancelled' WHERE user_id=? AND status='active'")->execute([$uid]);
     }
 
+    /**
+     * Presja arbitrażowa: gdy kurs odbiega od wartości fundamentalnej (sterowanej przez
+     * bias/sentiment/eventy w panelu GM), losowy market maker krzyżuje spread w stronę
+     * fundamentu. Kurs nadal powstaje z arkusza (transakcja po realnej cenie zlecenia),
+     * ale rynek realnie podąża za sterowaniem.
+     */
+    private static function arbitrage(): void
+    {
+        $bots = self::col("SELECT id FROM users WHERE is_bot=1 AND role='mm'");
+        if (!$bots) return;
+        foreach (self::all("SELECT id, price, fundamental FROM stocks") as $st) {
+            $sid = (int) $st['id']; $price = (float) $st['price']; $fund = (float) $st['fundamental'];
+            if (abs($fund - $price) < $price * 0.001) continue;          // już blisko wartości godziwej
+            $uid = (int) $bots[array_rand($bots)];
+            if ($fund > $price) {                                        // podnieś kurs: kup po najlepszym ask
+                $ask = self::one("SELECT MIN(price) FROM orders WHERE stock_id=? AND side='sell' AND status='active' AND user_id<>?", [$sid, $uid]);
+                if ($ask && $fund >= (float) $ask) self::place($uid, $sid, 'buy', 40, (float) $ask);
+            } else {                                                     // zbij kurs: sprzedaj po najlepszym bid
+                $bid  = self::one("SELECT MAX(price) FROM orders WHERE stock_id=? AND side='buy' AND status='active' AND user_id<>?", [$sid, $uid]);
+                $have = (int) self::one("SELECT qty FROM wallets WHERE user_id=? AND stock_id=?", [$uid, $sid]);
+                if ($bid && $have > 0 && $fund <= (float) $bid) self::place($uid, $sid, 'sell', min(40, $have), (float) $bid);
+            }
+        }
+    }
+
     /* ---------- Stop-Loss / Take-Profit (realna egzekucja) ---------- */
 
     public static function checkStops(): void
@@ -196,24 +221,38 @@ final class Engine
     public static function runTick(): int
     {
         $pdo = Db::pdo();
+        $pdo->beginTransaction();   // cały tick atomowo (i dużo szybciej na SQLite)
+        try {
         $t = (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?? 0) + 1;
 
-        // dynamika ceny fundamentalnej: błądzenie losowe + rzadsze szoki (newsy)
-        foreach (self::all("SELECT id, fundamental FROM stocks") as $st) {
-            $f = $st['fundamental'] * (1 + mt_rand(-14, 14) / 1000);
-            if (mt_rand(1, 100) <= 15) $f *= 1 + mt_rand(-100, 100) / 1000;
+        // dynamika ceny fundamentalnej — STEROWALNA:
+        //   sentiment (globalny) + bias (per spółka) = deterministyczny dryf w %/tick
+        //   vol (per spółka) = mnożnik szumu i siły szoków (newsów)
+        $sentiment = (float) (self::one("SELECT v FROM game_state WHERE k='sentiment'") ?: 0);
+        foreach (self::all("SELECT id, fundamental, bias, vol FROM stocks") as $st) {
+            $vol   = (float) $st['vol'] > 0 ? (float) $st['vol'] : 1.0;
+            $drift = ($sentiment + (float) $st['bias']) / 100.0;           // np. bias=+1 => +1%/tick
+            $noise = (mt_rand(-16, 16) / 1000) * $vol;                     // szum skalowany zmiennością
+            $f = $st['fundamental'] * (1 + $drift + $noise);
+            if (mt_rand(1, 100) <= 15) $f *= 1 + (mt_rand(-100, 100) / 1000) * $vol;  // szok/news
             $pdo->prepare("UPDATE stocks SET fundamental=? WHERE id=?")->execute([max(1, round($f, 2)), $st['id']]);
         }
 
         self::checkStops();
         self::runBots();
+        self::arbitrage();   // boty domykają lukę kurs -> wartość fundamentalna (kurs podąża za sterowaniem)
 
         $tickTrades = [];
         foreach (self::all("SELECT id FROM stocks") as $st) self::matchBook((int) $st['id'], $tickTrades);
         self::recordCandles($t, $tickTrades);
 
         self::setState('tick', (string) $t);
+        $pdo->commit();
         return $t;
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            throw $e;
+        }
     }
 
     /* ---------- Sygnały ---------- */

@@ -8,40 +8,41 @@ function change_pct(int $stockId, float $price): float {
     return $ref > 0 ? ($price - $ref) / $ref * 100 : 0;
 }
 $stocks = Engine::all("SELECT id, ticker, name, sector, price FROM stocks ORDER BY ticker");
+$bid = []; foreach (Engine::all("SELECT stock_id, MAX(price) p FROM orders WHERE side='buy'  AND status='active' GROUP BY stock_id") as $r) $bid[$r['stock_id']] = $r['p'];
+$ask = []; foreach (Engine::all("SELECT stock_id, MIN(price) p FROM orders WHERE side='sell' AND status='active' GROUP BY stock_id") as $r) $ask[$r['stock_id']] = $r['p'];
 
-layout_header('Rynek', $user);
+layout_header('Rynek', $user, 'market');
 ?>
-<h1>Rynek giełdowy</h1>
-<div class="panel">
-  <table>
-    <thead><tr><th>Ticker</th><th>Spółka</th><th>Sektor</th><th class="num">Kurs</th><th class="num">Zmiana</th></tr></thead>
-    <tbody>
-    <?php foreach ($stocks as $s):
-        $chg = change_pct((int) $s['id'], (float) $s['price']); $cls = $chg >= 0 ? 'pos' : 'neg'; ?>
-      <tr class="rowlink" onclick="location='stock.php?id=<?= (int) $s['id'] ?>'">
-        <td class="tick"><?= h($s['ticker']) ?></td>
-        <td><?= h($s['name']) ?></td>
-        <td class="muted"><?= h($s['sector']) ?></td>
-        <td class="num" data-px="<?= (int) $s['id'] ?>"><?= money($s['price']) ?> PLN</td>
-        <td class="num <?= $cls ?>" data-chg="<?= (int) $s['id'] ?>"><?= ($chg >= 0 ? '+' : '') . number_format($chg, 2, ',', ' ') ?>%</td>
-      </tr>
-    <?php endforeach; ?>
-    </tbody>
-  </table>
+<div class="page-head"><h1>Rynek</h1><span class="muted">notowania odświeżają się co 5&nbsp;s · kliknij, aby handlować</span></div>
+<div class="panel" style="padding:0;overflow:hidden">
+  <div class="tbl-scroll">
+    <table class="mw">
+      <thead><tr><th>Instrument</th><th class="num">Kurs</th><th class="num">Zmiana</th><th class="num">Bid</th><th class="num">Ask</th></tr></thead>
+      <tbody>
+      <?php foreach ($stocks as $s): $id = (int) $s['id']; $chg = change_pct($id, (float) $s['price']); ?>
+        <tr onclick="location='stock.php?id=<?= $id ?>'">
+          <td><div class="sym"><span class="tk"><?= h($s['ticker']) ?></span><span class="nm"><?= h($s['name']) ?></span><span class="tag"><?= h($s['sector']) ?></span></div></td>
+          <td class="num px" data-px="<?= $id ?>"><?= money($s['price']) ?></td>
+          <td class="num"><span class="chg <?= $chg >= 0 ? 'p' : 'n' ?>" data-chg="<?= $id ?>"><span class="ar"><?= $chg >= 0 ? '▲' : '▼' ?></span><?= number_format(abs($chg), 2, ',', ' ') ?>%</span></td>
+          <td class="num bid"><?= isset($bid[$id]) ? money($bid[$id]) : '—' ?></td>
+          <td class="num ask"><?= isset($ask[$id]) ? money($ask[$id]) : '—' ?></td>
+        </tr>
+      <?php endforeach; ?>
+      </tbody>
+    </table>
+  </div>
 </div>
-<p class="muted" style="margin-top:12px">Kursy odświeżają się automatycznie co 5&nbsp;s. Kliknij spółkę, aby handlować.</p>
 <script>
 setInterval(async () => {
   try {
-    const r = await fetch('api_market.php'); const j = await r.json(); if (!j.ok) return;
+    const j = await (await fetch('api_market.php')).json(); if (!j.ok) return;
     for (const [id, d] of Object.entries(j.data)) {
-      const px = document.querySelector(`[data-px="${id}"]`);
-      const cg = document.querySelector(`[data-chg="${id}"]`);
-      if (px) px.textContent = Number(d.price).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' PLN';
-      if (cg) { cg.textContent = (d.chg>=0?'+':'') + d.chg.toFixed(2).replace('.',',') + '%';
-        cg.className = 'num ' + (d.chg>=0?'pos':'neg'); }
+      const px = document.querySelector(`[data-px="${id}"]`), cg = document.querySelector(`[data-chg="${id}"]`);
+      if (px) px.textContent = Number(d.price).toLocaleString('pl-PL', {minimumFractionDigits:2, maximumFractionDigits:2});
+      if (cg) { const up = d.chg >= 0; cg.className = 'chg ' + (up ? 'p' : 'n');
+        cg.innerHTML = '<span class="ar">' + (up ? '▲' : '▼') + '</span>' + Math.abs(d.chg).toFixed(2).replace('.', ',') + '%'; }
     }
-  } catch(e){}
+  } catch (e) {}
 }, 5000);
 </script>
 <?php layout_footer();

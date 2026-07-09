@@ -15,17 +15,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 layout_header('Logowanie', null);
 ?>
-<div class="login">
-  <h1>Zaloguj się</h1>
+<div class="auth">
+  <h1 style="text-align:center">GPW-gra</h1>
+  <p class="muted" style="text-align:center;margin:0 0 18px">Symulator giełdy</p>
   <div class="panel">
     <form method="post">
       <label for="username">Login</label>
       <input id="username" name="username" autofocus required value="gracz">
       <label for="password">Hasło</label>
       <input id="password" name="password" type="password" required value="haslo123">
-      <button class="btn">Wejdź na giełdę</button>
+      <button class="btn">Zaloguj</button>
     </form>
-    <p class="muted" style="margin-top:14px">Konto demo wypełnione — po prostu kliknij „Wejdź".</p>
+    <p class="muted" style="margin-top:14px;font-size:12px">Konta demo: <b>gracz / haslo123</b> · admin: <b>admin / admin123</b></p>
   </div>
 </div>
 <?php layout_footer();

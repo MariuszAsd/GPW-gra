@@ -34,7 +34,9 @@ final class Schema
                 sector   VARCHAR(40) NOT NULL DEFAULT 'Ogólny',
                 price        $money NOT NULL,
                 fundamental  $money NOT NULL,
-                total_shares BIGINT NOT NULL DEFAULT 1000000
+                total_shares BIGINT NOT NULL DEFAULT 1000000,
+                bias DECIMAL(6,3) NOT NULL DEFAULT 0,   -- sterowanie: dryf trendu w %/tick
+                vol  DECIMAL(6,3) NOT NULL DEFAULT 1    -- sterowanie: mnożnik zmienności
             )",
 
             "wallets" => "CREATE TABLE wallets (

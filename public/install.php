@@ -25,12 +25,17 @@ try {
     exit;
 }
 
-// 2) już zainstalowane? -> nie ruszaj danych
+// 2) już zainstalowane? -> nie ruszaj danych (chyba że wymuszona reinstalacja ?force=1)
 $installed = false;
 try { $installed = ((int) Engine::one("SELECT COUNT(*) FROM stocks")) > 0; } catch (Throwable $e) { $installed = false; }
-if ($installed) {
+$force = ($_GET['force'] ?? '') === '1';
+if ($installed && !$force) {
     echo "<p style='color:#1c7a4e'><b>✔ Baza jest już założona.</b> Instalator nic nie robi (nie skasuje danych).</p>";
-    echo "<p>Dla bezpieczeństwa usuń plik <code>public/install.php</code>. &nbsp; <a href='market.php'>Wejdź do gry →</a></p>";
+    echo "<p><a href='market.php'>Wejdź do gry →</a> &nbsp;·&nbsp; potem usuń <code>public/install.php</code>.</p>";
+    echo "<hr style='margin:22px 0;border:0;border-top:1px solid #ddd'>";
+    echo "<p>Zmienił się schemat/zawartość i chcesz zbudować świat od nowa (np. po aktualizacji)?</p>";
+    echo "<p><a href='install.php?run=1&force=1' onclick=\"return confirm('Skasować WSZYSTKIE dane i zbudować świat od nowa?')\" "
+       . "style='display:inline-block;padding:9px 14px;background:#b02a24;color:#fff;border-radius:8px;text-decoration:none;font-weight:600'>Przeinstaluj od zera (skasuje dane)</a></p>";
     exit;
 }
 
