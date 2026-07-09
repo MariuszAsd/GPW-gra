@@ -6,6 +6,9 @@ name: Reinstall world (reset bazy)
 
 on:
   workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths: ['.reinstall']   # aktualizacja pliku .reinstall = zdalny reset świata
 
 jobs:
   reinstall:
@@ -13,6 +16,17 @@ jobs:
     env:
       APP_URL: ${{ secrets.APP_URL || 'https://gra.mppp.com.pl/public' }}
     steps:
+      - name: Poczekaj aż deploy tego commita się zakończy
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for i in $(seq 1 30); do
+            ST=$(gh api "repos/${{ github.repository }}/actions/workflows/deploy.yml/runs?head_sha=${{ github.sha }}&per_page=1" --jq '.workflow_runs[0].status' 2>/dev/null || echo brak)
+            echo "deploy: $ST"
+            [ "$ST" = "completed" ] && break
+            [ "$ST" = "brak" ] && [ $i -gt 3 ] && break
+            sleep 10
+          done
       - name: Stan instalatora przed
         run: |
           echo "GET $APP_URL/install.php"
