@@ -1,0 +1,15 @@
+<?php
+/**
+ * SZABLON sekretów serwerowych.
+ * Na serwerze skopiuj ten plik do  config.local.php  i wpisz prawdziwe dane.
+ * config.local.php jest w .gitignore i NIGDY nie trafia do repozytorium.
+ */
+return [
+    'db_driver' => 'mysql',
+    'mysql' => [
+        'host' => 'localhost',
+        'name' => 'twoja_baza',
+        'user' => 'twoj_uzytkownik',
+        'pass' => 'TWOJE_HASLO_DO_BAZY',
+    ],
+];

@@ -1,0 +1,10 @@
+# sekrety serwerowe — NIGDY do repo
+config.local.php
+.env
+
+# lokalna baza i artefakty runtime
+data/*.sqlite
+cron/*.lock
+
+# system
+.DS_Store
