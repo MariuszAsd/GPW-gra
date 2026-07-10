@@ -59,9 +59,8 @@ final class Qa
             $uid = (int) $pdo->lastInsertId();
         }
         $uid = (int) $uid;
-        // czysty stan: anuluj zlecenia QA, zdejmij SL/TP, dosyp gotówki gdy wydrenowany
-        foreach (Engine::all("SELECT id FROM orders WHERE user_id=? AND status='active'", [$uid]) as $o) Engine::cancel((int) $o['id'], $uid);
-        $pdo->prepare("UPDATE wallets SET sl_price=NULL, tp_price=NULL WHERE user_id=?")->execute([$uid]);
+        // czysty stan: anuluj zlecenia QA (też obronne), dosyp gotówki gdy wydrenowany
+        foreach (Engine::all("SELECT id FROM orders WHERE user_id=? AND status IN ('active','pending')", [$uid]) as $o) Engine::cancel((int) $o['id'], $uid);
         if ((float) Engine::one("SELECT cash FROM users WHERE id=?", [$uid]) < 2000) {
             $pdo->prepare("UPDATE users SET cash=cash+5000, start_equity=start_equity+5000 WHERE id=?")->execute([$uid]);
             Log::write('info', 'qa', 'qa.topup', 'dosypano 5000 PLN kontu qa_tester');
@@ -151,6 +150,21 @@ final class Qa
                 $rest = (int) Engine::one("SELECT COUNT(*) FROM orders WHERE user_id=? AND status='active'", [$uid]);
                 $this->check($rest <= $restB4, 'pkc.no_resting', "PKC zostawiło aktywne zlecenie (przed: $restB4, po: $rest)");
 
+                // 5c) zlecenie obronne (SL/TP): rezerwacja pakietu, widoczność, anulowanie ze zwrotem
+                $freeB4 = (int) (Engine::one("SELECT qty FROM wallets WHERE user_id=? AND stock_id=?", [$uid, $sid]) ?: 0);
+                $this->http('POST', '/set_sltp.php', ['stock_id' => $sid, 'qty' => 1, 'sl_price' => '0.50', 'tp_price' => '99999']);
+                $stop = Engine::row("SELECT * FROM orders WHERE user_id=? AND stock_id=? AND status='pending' ORDER BY id DESC LIMIT 1", [$uid, $sid]);
+                $this->check($stop !== null && (float) $stop['sl_price'] === 0.5 && (float) $stop['tp_price'] === 99999.0 && (int) $stop['qty'] === 1,
+                    'stop.create', 'zlecenie obronne nie powstało lub ma złe progi');
+                if ($stop) {
+                    $freeA = (int) (Engine::one("SELECT qty FROM wallets WHERE user_id=? AND stock_id=?", [$uid, $sid]) ?: 0);
+                    $this->check($freeA === $freeB4 - 1, 'stop.reserve', "obronne nie zarezerwowało pakietu (wolne: $freeB4 -> $freeA)");
+                    $this->http('POST', '/cancel_order.php', ['order_id' => (int) $stop['id']]);
+                    $freeC = (int) (Engine::one("SELECT qty FROM wallets WHERE user_id=? AND stock_id=?", [$uid, $sid]) ?: 0);
+                    $st = Engine::one("SELECT status FROM orders WHERE id=?", [$stop['id']]);
+                    $this->check($freeC === $freeB4 && $st === 'cancelled', 'stop.cancel', "anulowanie obronnego nie zwróciło pakietu (wolne: $freeC, status: $st)");
+                }
+
                 // 5c) PKC sprzedaż: wpływ = suma (wartość − prowizja) per transakcja
                 if ($got > 0 && Engine::one("SELECT COUNT(*) FROM orders WHERE stock_id=? AND side='buy' AND status='active' AND user_id<>?", [$sid, $uid])) {
                     $txMax2 = (int) (Engine::one("SELECT COALESCE(MAX(id),0) FROM transactions") ?: 0);
@@ -169,14 +183,6 @@ final class Qa
             Log::write('warn', 'qa', 'qa.skip', 'brak ofert w arkuszu — pominięto test PKC');
         }
 
-        // 6) SL/TP: zapis i czyszczenie
-        $this->http('POST', '/set_sltp.php', ['stock_id' => $sid, 'sl_price' => '1.23', 'tp_price' => '999.99']);
-        $w = Engine::row("SELECT sl_price, tp_price FROM wallets WHERE user_id=? AND stock_id=?", [$uid, $sid]);
-        $this->check($w && (float) $w['sl_price'] === 1.23 && (float) $w['tp_price'] === 999.99, 'sltp.set', 'SL/TP nie zapisały się poprawnie');
-        $this->http('POST', '/set_sltp.php', ['stock_id' => $sid, 'sl_price' => '', 'tp_price' => '']);
-        $w = Engine::row("SELECT sl_price, tp_price FROM wallets WHERE user_id=? AND stock_id=?", [$uid, $sid]);
-        $this->check($w && $w['sl_price'] === null && $w['tp_price'] === null, 'sltp.clear', 'SL/TP nie wyczyściły się');
-
         // 7) inwarianty globalne (cały świat, nie tylko QA)
         $neg = (int) Engine::one("SELECT COUNT(*) FROM users WHERE cash < -0.01 OR cash_reserved < -0.01")
              + (int) Engine::one("SELECT COUNT(*) FROM wallets WHERE qty < 0 OR qty_reserved < 0");
@@ -188,12 +194,12 @@ final class Qa
         $this->check(count($badCash) === 0, 'inv.cash_reserved', 'rezerwacje gotówki ≠ aktywne zlecenia kupna', ['users' => array_slice($badCash, 0, 3)]);
 
         $badQty = Engine::all(
-            "SELECT w.user_id, w.stock_id, w.qty_reserved, COALESCE((SELECT SUM(o.qty) FROM orders o WHERE o.user_id=w.user_id AND o.stock_id=w.stock_id AND o.side='sell' AND o.status='active'),0) AS should_be
-             FROM wallets w WHERE w.qty_reserved <> COALESCE((SELECT SUM(o.qty) FROM orders o WHERE o.user_id=w.user_id AND o.stock_id=w.stock_id AND o.side='sell' AND o.status='active'),0)");
-        $this->check(count($badQty) === 0, 'inv.qty_reserved', 'rezerwacje akcji ≠ aktywne zlecenia sprzedaży', ['wallets' => array_slice($badQty, 0, 3)]);
+            "SELECT w.user_id, w.stock_id, w.qty_reserved, COALESCE((SELECT SUM(o.qty) FROM orders o WHERE o.user_id=w.user_id AND o.stock_id=w.stock_id AND o.side='sell' AND o.status IN ('active','pending')),0) AS should_be
+             FROM wallets w WHERE w.qty_reserved <> COALESCE((SELECT SUM(o.qty) FROM orders o WHERE o.user_id=w.user_id AND o.stock_id=w.stock_id AND o.side='sell' AND o.status IN ('active','pending')),0)");
+        $this->check(count($badQty) === 0, 'inv.qty_reserved', 'rezerwacje akcji ≠ aktywne zlecenia sprzedaży + obronne', ['wallets' => array_slice($badQty, 0, 3)]);
 
-        // sprzątanie po sobie
-        foreach (Engine::all("SELECT id FROM orders WHERE user_id=? AND status='active'", [$uid]) as $o) Engine::cancel((int) $o['id'], $uid);
+        // sprzątanie po sobie (też zlecenia obronne)
+        foreach (Engine::all("SELECT id FROM orders WHERE user_id=? AND status IN ('active','pending')", [$uid]) as $o) Engine::cancel((int) $o['id'], $uid);
     }
 
     /* ---------- pomocnicze ---------- */

@@ -124,11 +124,36 @@ final class Engine
     public static function cancel(int $orderId, int $userId): array
     {
         $pdo = Db::pdo();
-        $o = self::row("SELECT * FROM orders WHERE id=? AND user_id=? AND status='active'", [$orderId, $userId]);
+        $o = self::row("SELECT * FROM orders WHERE id=? AND user_id=? AND status IN ('active','pending')", [$orderId, $userId]);
         if (!$o) return [false, 'Nie znaleziono aktywnego zlecenia.'];
         self::release($o);
         $pdo->prepare("UPDATE orders SET status='cancelled' WHERE id=?")->execute([$orderId]);
         return [true, "Zlecenie #$orderId anulowane."];
+    }
+
+    /**
+     * Zlecenie obronne SL/TP na KONKRETNY pakiet akcji (status 'pending', czeka na kurs).
+     * Rezerwuje akcje jak zlecenie sprzedaży; wyzwolone sprzedaje po realnych cenach z arkusza.
+     */
+    public static function placeStop(int $userId, int $stockId, int $qty, ?float $sl, ?float $tp): array
+    {
+        if ($qty <= 0) return [false, 'Nieprawidłowa ilość.'];
+        if ($sl === null && $tp === null) return [false, 'Podaj próg SL i/lub TP.'];
+        $price = (float) self::one("SELECT price FROM stocks WHERE id=?", [$stockId]);
+        if ($price <= 0) return [false, 'Nie ma takiej spółki.'];
+        if ($sl !== null && ($sl <= 0 || $sl >= $price)) return [false, 'Stop-Loss musi być PONIŻEJ bieżącego kursu (' . number_format($price, 2, ',', ' ') . ').'];
+        if ($tp !== null && $tp <= $price)               return [false, 'Take-Profit musi być POWYŻEJ bieżącego kursu (' . number_format($price, 2, ',', ' ') . ').'];
+
+        self::ensureWallet($userId, $stockId);
+        $avail = (int) self::one("SELECT qty FROM wallets WHERE user_id=? AND stock_id=?", [$userId, $stockId]);
+        if ($avail < $qty) return [false, "Nie masz tylu wolnych akcji (dostępne: $avail)."];
+
+        $pdo = Db::pdo();
+        $pdo->prepare("UPDATE wallets SET qty=qty-?, qty_reserved=qty_reserved+? WHERE user_id=? AND stock_id=?")->execute([$qty, $qty, $userId, $stockId]);
+        $pdo->prepare("INSERT INTO orders (user_id, stock_id, side, qty, qty_init, price, status, sl_price, tp_price, created_at) VALUES (?,?, 'sell', ?, ?, 0, 'pending', ?, ?, ?)")
+            ->execute([$userId, $stockId, $qty, $qty, $sl, $tp, Db::now()]);
+        $lbl = ($sl !== null ? 'SL ' . number_format($sl, 2, ',', ' ') : '') . ($sl !== null && $tp !== null ? ' / ' : '') . ($tp !== null ? 'TP ' . number_format($tp, 2, ',', ' ') : '');
+        return [true, "Zlecenie obronne ($lbl) na $qty szt. przyjęte.", (int) $pdo->lastInsertId()];
     }
 
     /** zwolnij rezerwację pozostałej części zlecenia */
@@ -178,7 +203,9 @@ final class Engine
                 if ($b['user_id'] == $s['user_id']) continue;      // brak handlu z samym sobą
                 if ($b['price'] < $s['price']) break;              // dalej już nie skrzyżuje
 
-                $p   = (float) $s['price'];
+                // cena transakcji = cena zlecenia OCZEKUJĄCEGO (starszego) — jak na prawdziwej
+                // giełdzie: kto czeka w arkuszu, handluje po swojej cenie; agresor bierze co jest
+                $p   = ((int) $b['id'] < (int) $s['id']) ? (float) $b['price'] : (float) $s['price'];
                 $q   = (int) min($b['qty'], $s['qty']);
                 $val = round($q * $p, 2);
 
@@ -359,21 +386,27 @@ final class Engine
         }
     }
 
-    /* ---------- Stop-Loss / Take-Profit (realna egzekucja) ---------- */
+    /* ---------- Stop-Loss / Take-Profit (zlecenia obronne 'pending') ---------- */
 
     public static function checkStops(): void
     {
-        $rows = self::all("SELECT w.*, s.price FROM wallets w JOIN stocks s ON s.id=w.stock_id
-                           WHERE w.qty > 0 AND (w.sl_price IS NOT NULL OR w.tp_price IS NOT NULL)");
-        foreach ($rows as $w) {
-            $hitSL = $w['sl_price'] !== null && $w['price'] <= $w['sl_price'];
-            $hitTP = $w['tp_price'] !== null && $w['price'] >= $w['tp_price'];
-            if ($hitSL || $hitTP) {
-                // sprzedaj po cenie marketowej (limit lekko poniżej, żeby się złapało)
-                self::place((int) $w['user_id'], (int) $w['stock_id'], 'sell', (int) $w['qty'], round($w['price'] * 0.97, 2));
-                Db::pdo()->prepare("UPDATE wallets SET sl_price=NULL, tp_price=NULL WHERE user_id=? AND stock_id=?")
-                    ->execute([$w['user_id'], $w['stock_id']]);
-            }
+        $pdo = Db::pdo();
+        $rows = self::all("SELECT o.*, s.price AS cur, s.ticker FROM orders o JOIN stocks s ON s.id=o.stock_id WHERE o.status='pending'");
+        foreach ($rows as $o) {
+            $hitSL = $o['sl_price'] !== null && (float) $o['cur'] <= (float) $o['sl_price'];
+            $hitTP = $o['tp_price'] !== null && (float) $o['cur'] >= (float) $o['tp_price'];
+            if (!$hitSL && !$hitTP) continue;
+
+            // zwolnij rezerwację i sprzedaj po REALNYCH cenach z arkusza (jak PKC),
+            // nie po sztywnym limicie pod kursem — gracz dostaje to, co stoi w bidach
+            self::release($o);
+            $pdo->prepare("UPDATE orders SET status='triggered' WHERE id=?")->execute([$o['id']]);
+            [$ok, $msg] = self::marketOrder((int) $o['user_id'], (int) $o['stock_id'], 'sell', (int) $o['qty']);
+            Log::write($ok ? 'info' : 'warn', 'engine', $hitSL ? 'stops.sl' : 'stops.tp',
+                sprintf('%s %s: kurs %s przekroczył próg %s — %s', $hitSL ? 'Stop-Loss' : 'Take-Profit', $o['ticker'],
+                    number_format((float) $o['cur'], 2, ',', ' '),
+                    number_format((float) ($hitSL ? $o['sl_price'] : $o['tp_price']), 2, ',', ' '), $msg),
+                ['user_id' => (int) $o['user_id'], 'order_id' => (int) $o['id'], 'qty' => (int) $o['qty']]);
         }
     }
 

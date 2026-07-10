@@ -20,10 +20,18 @@ if ($type === 'market') {
 }
 Log::write($ok ? 'info' : 'warn', 'player', 'order.place', ($ok ? 'przyjęte' : 'odrzucone') . ": $type $side {$qty}szt" . ($type === 'limit' ? " @ $price" : '') . " (spółka #$sid)",
     ['user' => $user['username'], 'msg' => $msg]);
-if ($ok && ($sl !== null || $tp !== null)) {       // ustaw SL/TP na pozycji
-    Engine::ensureWallet((int) $user['id'], $sid);
-    Db::pdo()->prepare("UPDATE wallets SET sl_price=?, tp_price=? WHERE user_id=? AND stock_id=?")
-        ->execute([$sl, $tp, $user['id'], $sid]);
+if ($ok && $side === 'buy' && ($sl !== null || $tp !== null)) {
+    // zlecenie obronne NA KUPIONY PAKIET (nie na całą pozycję) — tyle, ile realnie weszło do portfela
+    $free = (int) (Engine::one("SELECT qty FROM wallets WHERE user_id=? AND stock_id=?", [$user['id'], $sid]) ?: 0);
+    $stopQty = min($qty, $free);
+    if ($stopQty > 0) {
+        [$ok2, $msg2] = Engine::placeStop((int) $user['id'], $sid, $stopQty, $sl, $tp);
+        Log::write($ok2 ? 'info' : 'warn', 'player', 'order.stop', ($ok2 ? 'przyjęte' : 'odrzucone') . ": SL/TP {$stopQty}szt (spółka #$sid)",
+            ['user' => $user['username'], 'sl' => $sl, 'tp' => $tp, 'msg' => $msg2]);
+        $msg .= ' ' . $msg2;
+    } else {
+        $msg .= ' SL/TP nie ustawione — zlecenie kupna czeka w arkuszu (ustaw je w Portfelu po realizacji).';
+    }
 }
 flash($msg, $ok ? 'ok' : 'err');
 redirect('stock.php?id=' . $sid);

@@ -164,9 +164,12 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
         </select>
       </div>
       <div class="summary"><span id="val-label">Wartość zlecenia</span><b id="val">—</b></div>
-      <div class="adv">
-        <div><label>Stop-Loss</label><input type="number" step="0.01" name="sl_price" placeholder="—"></div>
-        <div><label>Take-Profit</label><input type="number" step="0.01" name="tp_price" placeholder="—"></div>
+      <div id="f-sltp">
+        <div class="adv">
+          <div><label>Stop-Loss</label><input type="number" step="0.01" name="sl_price" placeholder="—"></div>
+          <div><label>Take-Profit</label><input type="number" step="0.01" name="tp_price" placeholder="—"></div>
+        </div>
+        <p class="muted" style="font-size:11px;margin:6px 0 0">Utworzy zlecenie obronne na kupowany pakiet — widoczne i anulowalne w Portfelu.</p>
       </div>
       <button class="btn buy" id="submit" style="margin-top:14px">Kup <?= h($s['ticker']) ?></button>
     </form>
@@ -193,6 +196,7 @@ function upd(){ const px=type.value==='market'?curPx:(parseFloat(price.value)||0
 function setSide(s){ side.value=s;
   document.getElementById('tb-buy').classList.toggle('on',s==='buy');
   document.getElementById('tb-sell').classList.toggle('on',s==='sell');
+  document.getElementById('f-sltp').style.display=s==='buy'?'':'none';
   sub.className='btn '+s; sub.textContent=(s==='buy'?'Kup ':'Sprzedaj ')+tk; }
 function setType(t){ type.value=t;
   document.getElementById('tt-limit').classList.toggle('on',t==='limit');

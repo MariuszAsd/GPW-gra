@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 8;   // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 9;   // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -100,8 +100,10 @@ final class Schema
                 qty          INT NOT NULL,            -- POZOSTAŁO do realizacji (maleje przy fill'ach)
                 qty_init     INT NOT NULL DEFAULT 0,  -- pierwotna wielkość zlecenia (archiwum: zrealizowano X/Y)
                 price    $money NOT NULL,
-                status   VARCHAR(10) NOT NULL DEFAULT 'active',
+                status   VARCHAR(10) NOT NULL DEFAULT 'active',  -- active|pending|filled|cancelled|expired|triggered
                 expires_session INT NULL,             -- ważność: NULL = bezterminowe, N = do końca sesji N
+                sl_price $money NULL,                 -- zlecenie obronne (status 'pending'): próg Stop-Loss
+                tp_price $money NULL,                 -- zlecenie obronne: próg Take-Profit
                 created_at VARCHAR(19) NOT NULL
             )",
 

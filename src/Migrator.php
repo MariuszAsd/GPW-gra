@@ -73,6 +73,18 @@ final class Migrator
                 "ALTER TABLE orders ADD COLUMN qty_init INT NOT NULL DEFAULT 0",
                 "UPDATE orders SET qty_init = qty WHERE qty_init = 0",
             ],
+            // v9: SL/TP jako zlecenia obronne per pakiet (status 'pending'), nie atrybut całej pozycji;
+            //     istniejące SL/TP z portfeli konwertujemy na zlecenia obronne (całość wolnych akcji)
+            9 => [
+                "ALTER TABLE orders ADD COLUMN sl_price DECIMAL(15,2) NULL",
+                "ALTER TABLE orders ADD COLUMN tp_price DECIMAL(15,2) NULL",
+                "INSERT INTO orders (user_id, stock_id, side, qty, qty_init, price, status, sl_price, tp_price, created_at)
+                 SELECT user_id, stock_id, 'sell', qty, qty, 0, 'pending', sl_price, tp_price, '" . Db::now() . "'
+                 FROM wallets WHERE (sl_price IS NOT NULL OR tp_price IS NOT NULL) AND qty > 0",
+                "UPDATE wallets SET qty_reserved = qty_reserved + qty, qty = 0
+                 WHERE (sl_price IS NOT NULL OR tp_price IS NOT NULL) AND qty > 0",
+                "UPDATE wallets SET sl_price = NULL, tp_price = NULL WHERE sl_price IS NOT NULL OR tp_price IS NOT NULL",
+            ],
         ];
     }
 
