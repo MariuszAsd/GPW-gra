@@ -27,6 +27,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($a === 'fee') {
         Engine::setState('fee_rate', (string) max(0, min(5, (float) str_replace(',', '.', $_POST['fee_rate'] ?? '0.5'))));
         flash('Ustawiono prowizję od obrotu.');
+    } elseif ($a === 'qa') {
+        require_once __DIR__ . '/../src/Qa.php';
+        $r = Qa::run();
+        flash($r['ok'] ? "✅ QA: wszystkie {$r['checks']} asercji OK." : '❌ QA znalazł błędy: ' . implode(' | ', array_slice($r['fails'], 0, 3)), $r['ok'] ? 'ok' : 'err');
     } elseif ($a === 'stock') {
         $pdo->prepare("UPDATE stocks SET bias=?, volatility=?, profit_trend=? WHERE id=?")->execute([
             (float) str_replace(',', '.', $_POST['bias'] ?? '0'),
@@ -55,8 +59,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         flash('Opublikowano raport miesięczny.');
     } elseif ($a === 'tick') {
         $n = max(1, min(30, (int) ($_POST['n'] ?? 1)));
-        for ($i = 0; $i < $n; $i++) Engine::runTick();
-        flash("Wykonano {$n} ticków.");
+        try {
+            for ($i = 0; $i < $n; $i++) Engine::runTick();
+            flash("Wykonano {$n} ticków.");
+        } catch (Throwable $e) {
+            Log::write('error', 'engine', 'tick.exception', $e->getMessage(), ['file' => basename($e->getFile()), 'line' => $e->getLine()]);
+            flash('Błąd ticka (zapisany w dzienniku): ' . $e->getMessage(), 'err');
+        }
     } elseif ($a === 'reset') {
         $pdo->exec("UPDATE stocks SET bias=0, volatility=1, profit_trend=0");
         $pdo->exec("UPDATE sectors SET trend=0, profit_climate=0");
@@ -76,6 +85,8 @@ $goalSessions = (int) (Engine::one("SELECT v FROM game_state WHERE k='goal_sessi
 $inviteCode = (string) (Engine::one("SELECT v FROM game_state WHERE k='invite_code'") ?: '');
 $playerCount = (int) Engine::one("SELECT COUNT(*) FROM users WHERE is_bot=0 AND role='player'");
 $treasury = (float) (Engine::one("SELECT v FROM game_state WHERE k='treasury'") ?: 0);
+$lastQa = Engine::row("SELECT ts, level, message FROM logs WHERE source='qa' AND event='qa.run' ORDER BY id DESC LIMIT 1");
+$errors24 = (int) Engine::one("SELECT COUNT(*) FROM logs WHERE level='error' AND ts >= ?", [date('Y-m-d H:i:s', time() - 86400)]);
 $feeRatePct = Engine::one("SELECT v FROM game_state WHERE k='fee_rate'");
 $feeRatePct = ($feeRatePct === false || $feeRatePct === null) ? 0.5 : (float) $feeRatePct;
 [$sessionNo, $ticksLeft, $tps] = Engine::sessionInfo();
@@ -141,6 +152,20 @@ layout_header('Panel GM', $user, 'gm');
       <form method="post" class="inline"><input type="hidden" name="action" value="tick"><input type="hidden" name="n" value="1"><button class="btn sm">+1 tick</button></form>
       <form method="post" class="inline"><input type="hidden" name="action" value="tick"><input type="hidden" name="n" value="10"><button class="btn sm">+10 ticków</button></form>
       <form method="post" class="inline" onsubmit="return confirm('Zresetować bias/vol/nastawienie?')"><input type="hidden" name="action" value="reset"><button class="btn sm ghost">Reset sterowania</button></form>
+    </div>
+    <h2 style="margin-top:18px">🩺 Zdrowie gry
+      <?php if ($lastQa): ?>
+        <span class="chg <?= $lastQa['level'] === 'info' ? 'p' : 'n' ?>" style="margin-left:6px"><?= $lastQa['level'] === 'info' ? 'OK' : 'BŁĘDY' ?></span>
+      <?php endif; ?>
+    </h2>
+    <p class="muted" style="margin:4px 0 10px">
+      <?php if ($lastQa): ?>Ostatni test QA: <?= h($lastQa['ts']) ?> — <?= h($lastQa['message']) ?>.<?php else: ?>QA jeszcze nie uruchomiony.<?php endif; ?>
+      Błędów w dzienniku (24h): <b class="<?= $errors24 > 0 ? 'down' : 'up' ?>"><?= $errors24 ?></b>.
+      QA-bot gra przez HTTP jak gracz i sprawdza księgowość co do grosza (auto co 30 ticków z crona).
+    </p>
+    <div class="row">
+      <form method="post" class="inline"><input type="hidden" name="action" value="qa"><button class="btn sm">Testuj teraz (QA)</button></form>
+      <a class="btn sm ghost" href="gm_logs.php">📜 Dziennik logów</a>
     </div>
   </section>
 </div>

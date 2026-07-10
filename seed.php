@@ -30,6 +30,7 @@ Engine::setState('goal_target', '1000000');    // CEL GRY: kapitał 1 000 000 PL
 Engine::setState('goal_sessions', '60');       // ...w 60 sesji od dołączenia
 Engine::setState('fee_rate', '0.5');           // prowizja od obrotu (% wartości, płaci sprzedający)
 Engine::setState('treasury', '0');             // skarbiec gry (zebrane prowizje)
+Engine::setState('qa_every_ticks', '30');      // QA-bot testuje grę co N ticków (z crona)
 $log("✔ konta: gracz/haslo123, admin/admin123 · cel gry: 1M PLN w 60 sesji");
 
 // --- SEKTORY (8 branż) ---

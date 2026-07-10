@@ -4,6 +4,7 @@ require_once __DIR__ . '/../src/Db.php';
 require_once __DIR__ . '/../src/Schema.php';
 require_once __DIR__ . '/../src/Migrator.php';
 require_once __DIR__ . '/../src/Engine.php';
+require_once __DIR__ . '/../src/Log.php';
 
 session_start();
 

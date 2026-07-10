@@ -21,6 +21,9 @@ $config = [
     ],
 
     'starting_cash' => 100000.0,   // startowa gotówka nowego gracza
+
+    // publiczny adres gry — używany przez QA-bota (testy przez HTTP jak prawdziwy gracz)
+    'app_url' => getenv('APP_URL') ?: 'https://gra.mppp.com.pl/public',
 ];
 
 // Nadpisz sekretami z pliku serwerowego (poza repo), jeśli istnieje.

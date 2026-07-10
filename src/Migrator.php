@@ -34,6 +34,20 @@ final class Migrator
                 "ALTER TABLE users ADD COLUMN start_equity DECIMAL(15,2) NOT NULL DEFAULT 0",
                 "UPDATE users SET start_equity = 100000 WHERE is_bot = 0 AND role = 'player' AND start_equity = 0",
             ],
+            // v5: dziennik logów (QA / silnik / akcje graczy)
+            5 => [
+                "CREATE TABLE logs (
+                    id " . (Db::driver() === 'mysql' ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT') . ",
+                    ts VARCHAR(19) NOT NULL,
+                    tick INT NOT NULL DEFAULT 0,
+                    level VARCHAR(10) NOT NULL DEFAULT 'info',
+                    source VARCHAR(20) NOT NULL,
+                    event VARCHAR(50) NOT NULL,
+                    message TEXT NULL,
+                    context TEXT NULL
+                )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
+                "CREATE INDEX ix_logs ON logs (level, id)",
+            ],
         ];
     }
 

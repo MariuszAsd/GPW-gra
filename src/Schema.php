@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 4;   // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 5;   // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -178,6 +178,18 @@ final class Schema
                 k VARCHAR(50) PRIMARY KEY,
                 v VARCHAR(255) NOT NULL
             )",
+
+            // --- DZIENNIK LOGÓW (dane do analizy błędów; pisany przez QA, silnik i akcje graczy) ---
+            "logs" => "CREATE TABLE logs (
+                id $pk,
+                ts VARCHAR(19) NOT NULL,
+                tick INT NOT NULL DEFAULT 0,
+                level VARCHAR(10) NOT NULL DEFAULT 'info',   -- info | warn | error
+                source VARCHAR(20) NOT NULL,                 -- qa | engine | player | auth | gm
+                event VARCHAR(50) NOT NULL,
+                message TEXT NULL,
+                context TEXT NULL                            -- JSON ze szczegółami
+            )",
         ];
 
         return array_map(fn($ddl) => $ddl . $suffix, $tables);
@@ -191,6 +203,7 @@ final class Schema
             "CREATE INDEX ix_wallets_user ON wallets (user_id)",
             "CREATE INDEX ix_reports_stock ON financial_reports (stock_id, id)",
             "CREATE INDEX ix_news_live ON news (scope, target_id, expire_tick)",
+            "CREATE INDEX ix_logs ON logs (level, id)",
         ];
     }
 }

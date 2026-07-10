@@ -9,6 +9,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $_SESSION['uid'] = (int) $u['id'];
         redirect('market.php');
     }
+    Log::write('warn', 'auth', 'login_fail', 'nieudane logowanie: ' . mb_substr(trim($_POST['username'] ?? ''), 0, 30));
     flash('Błędny login lub hasło.', 'err');
     redirect('login.php');
 }

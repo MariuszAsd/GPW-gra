@@ -11,6 +11,8 @@ $sl    = $_POST['sl_price'] !== '' ? (float) str_replace(',', '.', $_POST['sl_pr
 $tp    = $_POST['tp_price'] !== '' ? (float) str_replace(',', '.', $_POST['tp_price']) : null;
 
 [$ok, $msg] = Engine::place((int) $user['id'], $sid, $side, $qty, $price);
+Log::write($ok ? 'info' : 'warn', 'player', 'order.place', ($ok ? 'przyjęte' : 'odrzucone') . ": $side {$qty}szt @ $price (spółka #$sid)",
+    ['user' => $user['username'], 'msg' => $msg]);
 if ($ok) {
     Engine::matchBook($sid);                       // spróbuj skojarzyć od razu
     if ($sl !== null || $tp !== null) {            // ustaw SL/TP na pozycji

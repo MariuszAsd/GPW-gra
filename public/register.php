@@ -25,6 +25,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             Db::pdo()->prepare("INSERT INTO users (username, password_hash, is_bot, role, cash, joined_session, start_equity) VALUES (?,?,0,'player',?,?,?)")
                 ->execute([$username, password_hash($pass1, PASSWORD_DEFAULT), $cfg['starting_cash'], $sessionNo, $cfg['starting_cash']]);
             $uid = (int) Db::pdo()->lastInsertId();
+            Log::write('info', 'auth', 'register', "nowe konto: $username", ['uid' => $uid]);
             session_regenerate_id(true);
             $_SESSION['uid'] = $uid;
             $goal = (float) (Engine::one("SELECT v FROM game_state WHERE k='goal_target'") ?: 0);
