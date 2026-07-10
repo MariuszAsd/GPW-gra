@@ -13,7 +13,8 @@ final class Engine
 {
     /* ---------- Zlecenia gracza / botów ---------- */
 
-    public static function place(int $userId, int $stockId, string $side, int $qty, float $price): array
+    /** Zlecenie limit. $expiresSession: NULL = bezterminowe, N = ważne do końca sesji N. */
+    public static function place(int $userId, int $stockId, string $side, int $qty, float $price, ?int $expiresSession = null): array
     {
         $side = strtolower($side);
         if (!in_array($side, ['buy', 'sell'], true)) return [false, 'Nieznany typ zlecenia.'];
@@ -32,9 +33,92 @@ final class Engine
             $pdo->prepare("UPDATE wallets SET qty=qty-?, qty_reserved=qty_reserved+? WHERE user_id=? AND stock_id=?")->execute([$qty, $qty, $userId, $stockId]);
         }
 
-        $pdo->prepare("INSERT INTO orders (user_id, stock_id, side, qty, price, status, created_at) VALUES (?,?,?,?,?, 'active', ?)")
-            ->execute([$userId, $stockId, $side, $qty, round($price, 2), Db::now()]);
-        return [true, 'Zlecenie przyjęte.'];
+        $pdo->prepare("INSERT INTO orders (user_id, stock_id, side, qty, price, status, expires_session, created_at) VALUES (?,?,?,?,?, 'active', ?, ?)")
+            ->execute([$userId, $stockId, $side, $qty, round($price, 2), $expiresSession, Db::now()]);
+        return [true, 'Zlecenie przyjęte.', (int) $pdo->lastInsertId()];
+    }
+
+    /**
+     * Zlecenie PKC ("po każdej cenie") — realizacja natychmiast z arkusza.
+     * KUPNO: jedno agresywne zlecenie limit po najgorszej osiągalnej cenie (arkusz + budżet gotówki);
+     *        matchBook rozlicza każdy poziom po JEGO cenie i zwraca nadpłatę — kupujący płaci realne ceny.
+     * SPRZEDAŻ: poziom po poziomie po cenie najlepszego bidu (matchBook rozlicza po cenie zlecenia sprzedaży,
+     *           więc limit = bid gwarantuje sprzedaż dokładnie po cenach z arkusza).
+     * Niezrealizowana reszta jest anulowana (jak IOC). Zwraca [ok, komunikat].
+     */
+    public static function marketOrder(int $userId, int $stockId, string $side, int $qty): array
+    {
+        $side = strtolower($side);
+        if (!in_array($side, ['buy', 'sell'], true)) return [false, 'Nieznany typ zlecenia.'];
+        if ($qty <= 0) return [false, 'Nieprawidłowa ilość.'];
+        $pdo = Db::pdo();
+        $own = !$pdo->inTransaction();
+        if ($own) $pdo->beginTransaction();
+        try {
+            [$session] = self::sessionInfo();
+            $txFrom = (int) (self::one("SELECT MAX(id) FROM transactions") ?: 0);
+
+            if ($side === 'buy') {
+                $cash = (float) self::one("SELECT cash FROM users WHERE id=?", [$userId]);
+                // ile zdołamy kupić: idź po poziomach ask; escrow liczony po najgorszej cenie,
+                // więc na każdym poziomie L pilnujemy (dotychczas + biorę) * cena_L <= gotówka
+                $take = 0; $worst = 0.0; $need = $qty;
+                foreach (self::all("SELECT price, SUM(qty) q FROM orders WHERE stock_id=? AND side='sell' AND status='active' AND user_id<>? GROUP BY price ORDER BY price ASC LIMIT 40", [$stockId, $userId]) as $lvl) {
+                    $p = (float) $lvl['price'];
+                    $can = (int) floor(($cash + 1e-6) / $p) - $take;
+                    $t = min($need, (int) $lvl['q'], max(0, $can));
+                    if ($t <= 0) break;
+                    $take += $t; $need -= $t; $worst = $p;
+                    if ($need <= 0) break;
+                }
+                if ($take <= 0) { if ($own) $pdo->rollBack(); return [false, 'PKC: brak ofert sprzedaży w arkuszu (albo za mało gotówki na najtańszą).']; }
+                [$ok, $msg, $oid] = self::place($userId, $stockId, 'buy', $take, $worst, $session) + [2 => 0];
+                if (!$ok) { if ($own) $pdo->rollBack(); return [false, $msg]; }
+                self::matchBook($stockId);
+                self::cancelRemainder((int) $oid, $userId);
+            } else {
+                self::ensureWallet($userId, $stockId);
+                $have = (int) self::one("SELECT qty FROM wallets WHERE user_id=? AND stock_id=?", [$userId, $stockId]);
+                if ($have <= 0) { if ($own) $pdo->rollBack(); return [false, 'PKC: nie masz akcji tej spółki.']; }
+                $remaining = min($qty, $have);
+                for ($i = 0; $i < 40 && $remaining > 0; $i++) {
+                    $best = self::row("SELECT price, SUM(qty) q FROM orders WHERE stock_id=? AND side='buy' AND status='active' AND user_id<>? GROUP BY price ORDER BY price DESC LIMIT 1", [$stockId, $userId]);
+                    if (!$best) break;
+                    $t = min($remaining, (int) $best['q']);
+                    [$ok, $msg, $oid] = self::place($userId, $stockId, 'sell', $t, (float) $best['price'], $session) + [2 => 0];
+                    if (!$ok) break;
+                    self::matchBook($stockId);
+                    $left = self::cancelRemainder((int) $oid, $userId);
+                    $remaining -= ($t - $left);
+                    if ($left >= $t) break;   // nic nie zeszło (poziom zniknął) — nie kręć się w miejscu
+                }
+                if ($remaining >= min($qty, $have)) { if ($own) $pdo->rollBack(); return [false, 'PKC: brak ofert kupna w arkuszu.']; }
+            }
+
+            // podsumowanie z realnych transakcji tego wywołania
+            $who = $side === 'buy' ? 'buyer_id' : 'seller_id';
+            $sum = self::row("SELECT SUM(qty) q, SUM(qty*price) v FROM transactions WHERE $who=? AND stock_id=? AND id>?", [$userId, $stockId, $txFrom]);
+            if ($own) $pdo->commit();
+            $q = (int) ($sum['q'] ?? 0); $v = (float) ($sum['v'] ?? 0);
+            if ($q <= 0) return [false, 'PKC: nie udało się zrealizować transakcji.'];
+            $avg = number_format($v / $q, 2, ',', ' ');
+            $note = $q < $qty ? " (reszta z $qty szt. anulowana — arkusz/gotówka nie pozwoliły na więcej)" : '';
+            return [true, ($side === 'buy' ? "PKC: kupiono" : "PKC: sprzedano") . " $q szt. po średniej $avg PLN$note."];
+        } catch (\Throwable $e) {
+            if ($own && $pdo->inTransaction()) $pdo->rollBack();
+            throw $e;
+        }
+    }
+
+    /** Anuluje aktywną resztę zlecenia (zwalnia escrow); zwraca ile sztuk zostało anulowanych. */
+    private static function cancelRemainder(int $orderId, int $userId): int
+    {
+        if ($orderId <= 0) return 0;
+        $o = self::row("SELECT * FROM orders WHERE id=? AND user_id=? AND status='active'", [$orderId, $userId]);
+        if (!$o) return 0;
+        self::release($o);
+        Db::pdo()->prepare("UPDATE orders SET status='cancelled' WHERE id=?")->execute([$orderId]);
+        return (int) $o['qty'];
     }
 
     public static function cancel(int $orderId, int $userId): array
@@ -449,6 +533,20 @@ final class Engine
         }
     }
 
+    /** Zapis kapitału (equity) każdego CZŁOWIEKA-gracza po ticku — wykres portfela. */
+    private static function recordEquity(int $t): void
+    {
+        Db::pdo()->prepare(
+            "INSERT INTO equity_history (user_id, t, equity)
+             SELECT u.id, ?, ROUND(u.cash + u.cash_reserved + COALESCE(sv.v, 0), 2)
+             FROM users u
+             LEFT JOIN (SELECT w.user_id AS uid, SUM((w.qty + w.qty_reserved) * s.price) AS v
+                        FROM wallets w JOIN stocks s ON s.id = w.stock_id GROUP BY w.user_id) sv ON sv.uid = u.id
+             WHERE u.is_bot = 0 AND u.role = 'player'"
+        )->execute([$t]);
+        if ($t % 500 === 0) Db::pdo()->prepare("DELETE FROM equity_history WHERE t < ?")->execute([$t - 10000]);
+    }
+
     /* ---------- Sesje giełdowe i cel gry ---------- */
 
     /** [numer sesji, ticków do końca sesji, długość sesji] dla danego ticku. */
@@ -460,13 +558,20 @@ final class Engine
         return [$n, $tps - (max(0, $tick) % $tps), $tps];
     }
 
-    /** Na otwarciu nowej sesji: zapisz kurs otwarcia dnia (dzienna zmiana % w notowaniach). */
+    /** Na otwarciu nowej sesji: kurs otwarcia dnia + wygaśnięcie zleceń sesyjnych (ze zwrotem escrow). */
     private static function rollSession(int $tick): void
     {
         [$n] = self::sessionInfo($tick);
         $prev = (int) (self::one("SELECT v FROM game_state WHERE k='session'") ?: 0);
         if ($n === $prev) return;
         Db::pdo()->exec("UPDATE stocks SET day_open_price = price");
+
+        $expired = self::all("SELECT * FROM orders WHERE status='active' AND expires_session IS NOT NULL AND expires_session < ?", [$n]);
+        foreach ($expired as $o) self::release($o);
+        if ($expired) {
+            Db::pdo()->prepare("UPDATE orders SET status='expired' WHERE status='active' AND expires_session IS NOT NULL AND expires_session < ?")->execute([$n]);
+            Log::write('info', 'engine', 'orders.expired', 'wygasło zleceń sesyjnych: ' . count($expired), ['session' => $n]);
+        }
         self::setState('session', (string) $n);
     }
 
@@ -535,8 +640,9 @@ final class Engine
         $tickTrades = [];
         foreach (self::all("SELECT id FROM stocks") as $st) self::matchBook((int) $st['id'], $tickTrades);
         self::recordCandles($t, $tickTrades);
-        self::recordIndex($t);   // indeks giełdowy (historia pod wykres)
-        self::checkGoal($t);     // czy któryś gracz osiągnął cel gry
+        self::recordIndex($t);    // indeks giełdowy (historia pod wykres)
+        self::recordEquity($t);   // kapitał graczy (wykres portfela)
+        self::checkGoal($t);      // czy któryś gracz osiągnął cel gry
 
         self::setState('tick', (string) $t);
         $pdo->commit();

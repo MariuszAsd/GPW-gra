@@ -126,15 +126,29 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
     <form method="post" action="place_order.php">
       <input type="hidden" name="stock_id" value="<?= $id ?>">
       <input type="hidden" name="side" id="side" value="buy">
+      <input type="hidden" name="type" id="type" value="limit">
       <div class="seg">
         <button type="button" class="buy on" id="tb-buy">KUP</button>
         <button type="button" class="sell" id="tb-sell">SPRZEDAJ</button>
       </div>
+      <div class="seg" style="margin-top:0">
+        <button type="button" class="on" id="tt-limit" title="Zlecenie z limitem ceny — czeka w arkuszu">LIMIT</button>
+        <button type="button" id="tt-pkc" title="Po każdej cenie — kupuje/sprzedaje natychmiast z arkusza">PKC</button>
+      </div>
       <label>Ilość <span class="muted">(masz: <?= $owned ?> szt.)</span></label>
       <input type="number" name="qty" id="qty" min="1" value="10" required>
-      <label>Cena limit (PLN)</label>
-      <input type="number" step="0.01" name="price" id="price" value="<?= number_format($s['price'], 2, '.', '') ?>" required>
-      <div class="summary"><span>Wartość zlecenia</span><b id="val">—</b></div>
+      <div id="f-price">
+        <label>Cena limit (PLN)</label>
+        <input type="number" step="0.01" name="price" id="price" value="<?= number_format($s['price'], 2, '.', '') ?>" required>
+      </div>
+      <div id="f-validity">
+        <label>Ważność zlecenia</label>
+        <select name="validity">
+          <option value="gtc">Bezterminowe</option>
+          <option value="session">Do końca sesji</option>
+        </select>
+      </div>
+      <div class="summary"><span id="val-label">Wartość zlecenia</span><b id="val">—</b></div>
       <div class="adv">
         <div><label>Stop-Loss</label><input type="number" step="0.01" name="sl_price" placeholder="—"></div>
         <div><label>Take-Profit</label><input type="number" step="0.01" name="tp_price" placeholder="—"></div>
@@ -155,16 +169,26 @@ document.querySelectorAll('.subtabs button').forEach(b => b.onclick = () => {
 });
 // panel zleceń
 const side=document.getElementById('side'), qty=document.getElementById('qty'), price=document.getElementById('price');
-const val=document.getElementById('val'), sub=document.getElementById('submit');
-const tk=<?= json_encode($s['ticker']) ?>;
-function upd(){ const v=(parseFloat(qty.value)||0)*(parseFloat(price.value)||0);
-  val.textContent=v.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' PLN'; }
+const val=document.getElementById('val'), sub=document.getElementById('submit'), type=document.getElementById('type');
+const tk=<?= json_encode($s['ticker']) ?>, curPx=<?= json_encode((float) $s['price']) ?>;
+function upd(){ const px=type.value==='market'?curPx:(parseFloat(price.value)||0);
+  const v=(parseFloat(qty.value)||0)*px;
+  document.getElementById('val-label').textContent=type.value==='market'?'Wartość (szacunkowo)':'Wartość zlecenia';
+  val.textContent='≈ '.repeat(type.value==='market'?1:0)+v.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' PLN'; }
 function setSide(s){ side.value=s;
   document.getElementById('tb-buy').classList.toggle('on',s==='buy');
   document.getElementById('tb-sell').classList.toggle('on',s==='sell');
   sub.className='btn '+s; sub.textContent=(s==='buy'?'Kup ':'Sprzedaj ')+tk; }
+function setType(t){ type.value=t;
+  document.getElementById('tt-limit').classList.toggle('on',t==='limit');
+  document.getElementById('tt-pkc').classList.toggle('on',t==='market');
+  document.getElementById('f-price').style.display=t==='limit'?'':'none';
+  document.getElementById('f-validity').style.display=t==='limit'?'':'none';
+  price.required=(t==='limit'); upd(); }
 document.getElementById('tb-buy').onclick=()=>setSide('buy');
 document.getElementById('tb-sell').onclick=()=>setSide('sell');
+document.getElementById('tt-limit').onclick=()=>setType('limit');
+document.getElementById('tt-pkc').onclick=()=>setType('market');
 qty.oninput=upd; price.oninput=upd; upd();
 // live kurs w nagłówku
 setInterval(async()=>{ try{

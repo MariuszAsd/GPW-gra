@@ -8,3 +8,4 @@ cron/*.lock
 
 # system
 .DS_Store
+data/migrate.lock

@@ -129,6 +129,44 @@ final class Qa
             Log::write('warn', 'qa', 'qa.skip', 'brak ofert sprzedaży — pominięto test realizacji');
         }
 
+        // 5b) PKC ("po każdej cenie"): kupno natychmiast z arkusza — gotówka spada DOKŁADNIE
+        //     o sumę wartości transakcji (escrow po najgorszej cenie + zwroty muszą się domknąć)
+        if (Engine::one("SELECT COUNT(*) FROM orders WHERE stock_id=? AND side='sell' AND status='active' AND user_id<>?", [$sid, $uid])) {
+            $txMax = (int) (Engine::one("SELECT COALESCE(MAX(id),0) FROM transactions") ?: 0);
+            $qtyB4 = (int) (Engine::one("SELECT qty FROM wallets WHERE user_id=? AND stock_id=?", [$uid, $sid]) ?: 0);
+            $restB4 = (int) Engine::one("SELECT COUNT(*) FROM orders WHERE user_id=? AND status='active'", [$uid]);
+            $cashB4 = $this->cash($uid);
+            $this->http('POST', '/place_order.php', ['stock_id' => $sid, 'side' => 'buy', 'type' => 'market', 'qty' => 2, 'price' => '', 'sl_price' => '', 'tp_price' => '']);
+            $fills = Engine::all("SELECT qty, price FROM transactions WHERE buyer_id=? AND stock_id=? AND id>?", [$uid, $sid, $txMax]);
+            $this->check(count($fills) > 0, 'pkc.buy_fill', 'PKC kupno nie zrealizowało żadnej transakcji');
+            if ($fills) {
+                $paid = 0.0; $got = 0;
+                foreach ($fills as $f) { $paid += round($f['qty'] * $f['price'], 2); $got += (int) $f['qty']; }
+                $this->moneyEq($cashB4 - $this->cash($uid), round($paid, 2), 'pkc.buy_cash', 'PKC: gotówka nie spadła dokładnie o sumę transakcji');
+                $qtyAf = (int) (Engine::one("SELECT qty FROM wallets WHERE user_id=? AND stock_id=?", [$uid, $sid]) ?: 0);
+                $this->check($qtyAf === $qtyB4 + $got, 'pkc.buy_qty', "PKC: akcje oczekiwano " . ($qtyB4 + $got) . ", jest $qtyAf");
+                // brak wiszącej reszty: PKC nie może zostawić aktywnego zlecenia
+                $rest = (int) Engine::one("SELECT COUNT(*) FROM orders WHERE user_id=? AND status='active'", [$uid]);
+                $this->check($rest <= $restB4, 'pkc.no_resting', "PKC zostawiło aktywne zlecenie (przed: $restB4, po: $rest)");
+
+                // 5c) PKC sprzedaż: wpływ = suma (wartość − prowizja) per transakcja
+                if ($got > 0 && Engine::one("SELECT COUNT(*) FROM orders WHERE stock_id=? AND side='buy' AND status='active' AND user_id<>?", [$sid, $uid])) {
+                    $txMax2 = (int) (Engine::one("SELECT COALESCE(MAX(id),0) FROM transactions") ?: 0);
+                    $cashB5 = $this->cash($uid);
+                    $this->http('POST', '/place_order.php', ['stock_id' => $sid, 'side' => 'sell', 'type' => 'market', 'qty' => $got, 'price' => '', 'sl_price' => '', 'tp_price' => '']);
+                    $fills2 = Engine::all("SELECT qty, price FROM transactions WHERE seller_id=? AND stock_id=? AND id>?", [$uid, $sid, $txMax2]);
+                    $this->check(count($fills2) > 0, 'pkc.sell_fill', 'PKC sprzedaż nie zrealizowała żadnej transakcji');
+                    if ($fills2) {
+                        $in = 0.0;
+                        foreach ($fills2 as $f) { $v = round($f['qty'] * $f['price'], 2); $in += $v - round($v * Engine::feeRate(), 2); }
+                        $this->moneyEq($this->cash($uid) - $cashB5, round($in, 2), 'pkc.sell_fee', 'PKC: wpływ ze sprzedaży ≠ wartość minus prowizje');
+                    }
+                }
+            }
+        } else {
+            Log::write('warn', 'qa', 'qa.skip', 'brak ofert w arkuszu — pominięto test PKC');
+        }
+
         // 6) SL/TP: zapis i czyszczenie
         $this->http('POST', '/set_sltp.php', ['stock_id' => $sid, 'sl_price' => '1.23', 'tp_price' => '999.99']);
         $w = Engine::row("SELECT sl_price, tp_price FROM wallets WHERE user_id=? AND stock_id=?", [$uid, $sid]);

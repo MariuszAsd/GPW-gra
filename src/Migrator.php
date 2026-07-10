@@ -57,6 +57,17 @@ final class Migrator
                 )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
                 "CREATE INDEX ix_index_t ON index_history (t)",
             ],
+            // v7: ważność zleceń (sesyjne/bezterminowe) + historia kapitału graczy (wykres portfela)
+            7 => [
+                "ALTER TABLE orders ADD COLUMN expires_session INT NULL",
+                "CREATE TABLE equity_history (
+                    id " . (Db::driver() === 'mysql' ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT') . ",
+                    user_id INT NOT NULL,
+                    t INT NOT NULL,
+                    equity DECIMAL(15,2) NOT NULL
+                )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
+                "CREATE INDEX ix_equity ON equity_history (user_id, t)",
+            ],
         ];
     }
 

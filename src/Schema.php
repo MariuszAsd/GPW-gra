@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 6;   // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 7;   // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -100,6 +100,7 @@ final class Schema
                 qty          INT NOT NULL,
                 price    $money NOT NULL,
                 status   VARCHAR(10) NOT NULL DEFAULT 'active',
+                expires_session INT NULL,             -- ważność: NULL = bezterminowe, N = do końca sesji N
                 created_at VARCHAR(19) NOT NULL
             )",
 
@@ -186,6 +187,14 @@ final class Schema
                 value DECIMAL(12,2) NOT NULL
             )",
 
+            // --- HISTORIA KAPITAŁU GRACZY (wykres wartości portfela; tylko ludzie) ---
+            "equity_history" => "CREATE TABLE equity_history (
+                id $pk,
+                user_id INT NOT NULL,
+                t INT NOT NULL,
+                equity $money NOT NULL
+            )",
+
             // --- DZIENNIK LOGÓW (dane do analizy błędów; pisany przez QA, silnik i akcje graczy) ---
             "logs" => "CREATE TABLE logs (
                 id $pk,
@@ -212,6 +221,7 @@ final class Schema
             "CREATE INDEX ix_news_live ON news (scope, target_id, expire_tick)",
             "CREATE INDEX ix_logs ON logs (level, id)",
             "CREATE INDEX ix_index_t ON index_history (t)",
+            "CREATE INDEX ix_equity ON equity_history (user_id, t)",
         ];
     }
 }
