@@ -24,6 +24,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($a === 'invite') {
         Engine::setState('invite_code', trim($_POST['invite_code'] ?? ''));
         flash(trim($_POST['invite_code'] ?? '') === '' ? 'Rejestracja otwarta (bez kodu).' : 'Ustawiono kod zaproszenia.');
+    } elseif ($a === 'fee') {
+        Engine::setState('fee_rate', (string) max(0, min(5, (float) str_replace(',', '.', $_POST['fee_rate'] ?? '0.5'))));
+        flash('Ustawiono prowizję od obrotu.');
     } elseif ($a === 'stock') {
         $pdo->prepare("UPDATE stocks SET bias=?, volatility=?, profit_trend=? WHERE id=?")->execute([
             (float) str_replace(',', '.', $_POST['bias'] ?? '0'),
@@ -72,6 +75,9 @@ $goalTarget = (float) (Engine::one("SELECT v FROM game_state WHERE k='goal_targe
 $goalSessions = (int) (Engine::one("SELECT v FROM game_state WHERE k='goal_sessions'") ?: 60);
 $inviteCode = (string) (Engine::one("SELECT v FROM game_state WHERE k='invite_code'") ?: '');
 $playerCount = (int) Engine::one("SELECT COUNT(*) FROM users WHERE is_bot=0 AND role='player'");
+$treasury = (float) (Engine::one("SELECT v FROM game_state WHERE k='treasury'") ?: 0);
+$feeRatePct = Engine::one("SELECT v FROM game_state WHERE k='fee_rate'");
+$feeRatePct = ($feeRatePct === false || $feeRatePct === null) ? 0.5 : (float) $feeRatePct;
 [$sessionNo, $ticksLeft, $tps] = Engine::sessionInfo();
 $stocks = Engine::all("SELECT * FROM stocks ORDER BY ticker");
 $sectors = Engine::all("SELECT * FROM sectors ORDER BY symbol");
@@ -116,6 +122,14 @@ layout_header('Panel GM', $user, 'gm');
     <form method="post" class="inline">
       <input type="hidden" name="action" value="botact">
       <input type="number" step="0.1" min="0" max="3" name="bot_activity" value="<?= rtrim(rtrim((string)$botact,'0'),'.') ?: '0' ?>" style="width:120px">
+      <button class="btn sm">Ustaw</button>
+    </form>
+    <h2 style="margin-top:18px">💰 Skarbiec gry: <span class="up mono"><?= money($treasury) ?> PLN</span></h2>
+    <p class="muted">Zebrane prowizje od obrotu (płaci sprzedający przy każdej transakcji — gracze i boty). Do wykorzystania na eventy / market making.</p>
+    <form method="post" class="inline">
+      <input type="hidden" name="action" value="fee">
+      <label style="display:inline">Prowizja (% wartości):</label>
+      <input type="number" step="0.05" min="0" max="5" name="fee_rate" value="<?= rtrim(rtrim((string)$feeRatePct,'0'),'.') ?: '0' ?>" style="width:90px">
       <button class="btn sm">Ustaw</button>
     </form>
   </section>

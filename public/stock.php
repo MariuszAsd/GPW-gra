@@ -141,7 +141,8 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
       </div>
       <button class="btn buy" id="submit" style="margin-top:14px">Kup <?= h($s['ticker']) ?></button>
     </form>
-    <p class="muted" style="margin-top:10px;font-size:12px">SL/TP są egzekwowane przez silnik: co tick sprawdza kurs i zamyka pozycję.</p>
+    <?php $feePct = Engine::one("SELECT v FROM game_state WHERE k='fee_rate'"); $feePct = ($feePct === false || $feePct === null) ? 0.5 : (float) $feePct; ?>
+    <p class="muted" style="margin-top:10px;font-size:12px">Prowizja <?= rtrim(rtrim(number_format($feePct, 2, ',', ''), '0'), ',') ?>% wartości pobierana przy sprzedaży. SL/TP są egzekwowane przez silnik: co tick sprawdza kurs i zamyka pozycję.</p>
   </aside>
 </div>
 

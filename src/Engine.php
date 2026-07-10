@@ -59,11 +59,30 @@ final class Engine
         }
     }
 
+    /* ---------- Prowizja od obrotu (skarbiec gry) ---------- */
+
+    /** Stawka prowizji jako ułamek (w game_state trzymana w %, np. '0.5'). */
+    public static function feeRate(): float
+    {
+        $v = self::one("SELECT v FROM game_state WHERE k='fee_rate'");
+        return ($v === false || $v === null) ? 0.005 : max(0, (float) $v) / 100;
+    }
+
+    /** Dopisz prowizję do skarbca (arytmetyka po stronie SQL — odporna na współbieżność). */
+    private static function addTreasury(float $amount): void
+    {
+        $pdo = Db::pdo();
+        $st = $pdo->prepare("UPDATE game_state SET v = ROUND(v + ?, 2) WHERE k='treasury'");
+        $st->execute([$amount]);
+        if ($st->rowCount() === 0) $pdo->prepare("INSERT INTO game_state (k, v) VALUES ('treasury', ?)")->execute([(string) round($amount, 2)]);
+    }
+
     /* ---------- Kojarzenie zleceń (pełne rozliczenie księgi) ---------- */
 
     public static function matchBook(int $stockId, array &$tickTrades = []): int
     {
         $pdo = Db::pdo();
+        $feeRate = self::feeRate();
         $buys  = self::all("SELECT * FROM orders WHERE stock_id=? AND side='buy'  AND status='active' ORDER BY price DESC, id ASC", [$stockId]);
         $sells = self::all("SELECT * FROM orders WHERE stock_id=? AND side='sell' AND status='active' ORDER BY price ASC,  id ASC", [$stockId]);
         $trades = 0;
@@ -83,8 +102,10 @@ final class Engine
                 $refund = round($q * ($b['price'] - $p), 2);
                 $pdo->prepare("UPDATE users SET cash_reserved=cash_reserved-?, cash=cash+? WHERE id=?")
                     ->execute([round($q * $b['price'], 2), $refund, $b['user_id']]);
-                // sprzedający: dostaje gotówkę, zdejmij rezerwację akcji
-                $pdo->prepare("UPDATE users SET cash=cash+? WHERE id=?")->execute([$val, $s['user_id']]);
+                // sprzedający: dostaje gotówkę POMNIEJSZONĄ o prowizję od obrotu (trafia do skarbca gry)
+                $fee = round($val * $feeRate, 2);
+                $pdo->prepare("UPDATE users SET cash=cash+? WHERE id=?")->execute([$val - $fee, $s['user_id']]);
+                if ($fee > 0) self::addTreasury($fee);
                 $pdo->prepare("UPDATE wallets SET qty_reserved=qty_reserved-? WHERE user_id=? AND stock_id=?")->execute([$q, $s['user_id'], $stockId]);
                 // kupujący: dopisz akcje + poprawna średnia cena
                 self::ensureWallet($b['user_id'], $stockId);
