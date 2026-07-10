@@ -1,0 +1,92 @@
+name: Trace (śledztwo na żywym serwerze)
+
+# Narzędzie diagnostyczne: wyciąga z dziennika logów akcje wskazanego gracza
+# (plik .trace, pierwsza linia = login), kontekst spółek których dotyczyły
+# (notowania, wiadomości, raporty, transakcje) i stan zdrowia gry (QA).
+# Tylko czyta — niczego nie zmienia na serwerze.
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths: ['.trace']
+
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    env:
+      APP_URL: ${{ secrets.APP_URL || 'https://gra.mppp.com.pl/public' }}
+      ADMIN_PASS: ${{ secrets.ADMIN_PASS || 'admin123' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Logowanie jako admin
+        run: |
+          JAR=$(mktemp)
+          echo "JAR=$JAR" >> "$GITHUB_ENV"
+          curl -sS -c "$JAR" -d "username=admin&password=$ADMIN_PASS" "$APP_URL/login.php" -o /dev/null
+          CODE=$(curl -sS -b "$JAR" -o /dev/null -w '%{http_code}' "$APP_URL/gm_logs.php")
+          echo "gm_logs: HTTP $CODE"
+          [ "$CODE" = "200" ] || { echo "::error::Logowanie admina nie działa (gm_logs: $CODE)."; exit 1; }
+
+      - name: Akcje gracza z dziennika logów
+        run: |
+          WHO=$(head -1 .trace | tr -d '[:space:]')
+          [ -n "$WHO" ] || WHO=gracz
+          echo "=== Śledzę gracza: $WHO ==="
+          curl -sS -b "$JAR" "$APP_URL/gm_logs.php?source=player" -o /tmp/logs.html
+          python3 - "$WHO" <<'PY'
+          import re, sys, html
+          who = sys.argv[1]
+          raw = open('/tmp/logs.html').read()
+          rows = re.split(r'<tr>', raw)
+          hits = []
+          for r in rows:
+              if who in r:
+                  txt = html.unescape(re.sub(r'<[^>]+>', ' ', r))
+                  txt = re.sub(r'\s+', ' ', txt).strip()
+                  hits.append(txt[:400])
+          print(f"wpisów z '{who}': {len(hits)} (od najnowszych)")
+          for h in hits[:40]:
+              print(' *', h)
+          sids = sorted(set(re.findall(r'spółka #(\d+)', ' '.join(hits))))
+          print('SIDS=' + ','.join(sids))
+          open('/tmp/sids.txt', 'w').write(','.join(sids))
+          PY
+
+      - name: Kontekst spółek (kurs, wiadomości, raporty, transakcje)
+        run: |
+          for SID in $(tr ',' ' ' < /tmp/sids.txt); do
+            echo ""
+            echo "================ SPÓŁKA #$SID ================"
+            curl -sS -b "$JAR" "$APP_URL/stock.php?id=$SID" -o /tmp/stock.html
+            python3 <<'PY'
+          import re, html
+          raw = open('/tmp/stock.html').read()
+          strip = lambda s: re.sub(r'\s+', ' ', html.unescape(re.sub(r'<[^>]+>', ' ', s))).strip()
+          head = re.search(r'<div class="shead">(.*?)</div>\s*</div>', raw, re.S)
+          if head: print('NOTOWANIE:', strip(head.group(1))[:200])
+          for tab, label in [('tab-news', 'WIADOMOŚCI'), ('tab-reports', 'RAPORTY'), ('tab-trades', 'OSTATNIE TRANSAKCJE')]:
+              m = re.search(r'id="' + tab + r'">(.*?)<div class="tabpane"', raw, re.S) or re.search(r'id="' + tab + r'">(.*?)</div>\s*</div>\s*</div>', raw, re.S)
+              if not m: continue
+              print(f'--- {label} ---')
+              if tab == 'tab-news':
+                  for blk in re.findall(r'<div style="padding:9px[^"]*">(.*?)</div>\s*</div>', m.group(1), re.S)[:8]:
+                      print('  ', strip(blk)[:220])
+              else:
+                  for tr in re.findall(r'<tr>(.*?)</tr>', m.group(1), re.S)[:10]:
+                      print('  ', strip(tr)[:200])
+          PY
+          done
+
+      - name: Zdrowie gry (QA + błędy)
+        run: |
+          curl -sS -b "$JAR" "$APP_URL/gm.php" -o /tmp/gm.html
+          python3 <<'PY'
+          import re, html
+          raw = open('/tmp/gm.html').read()
+          m = re.search(r'Zdrowie gry(.*?)</div>\s*</div>', raw, re.S)
+          if m:
+              txt = re.sub(r'\s+', ' ', html.unescape(re.sub(r'<[^>]+>', ' ', m.group(1)))).strip()
+              print('ZDROWIE GRY:', txt[:500])
+          PY
