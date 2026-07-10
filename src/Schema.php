@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 7;   // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 8;   // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -97,7 +97,8 @@ final class Schema
                 user_id  INT NOT NULL,
                 stock_id INT NOT NULL,
                 side     VARCHAR(4) NOT NULL,
-                qty          INT NOT NULL,
+                qty          INT NOT NULL,            -- POZOSTAŁO do realizacji (maleje przy fill'ach)
+                qty_init     INT NOT NULL DEFAULT 0,  -- pierwotna wielkość zlecenia (archiwum: zrealizowano X/Y)
                 price    $money NOT NULL,
                 status   VARCHAR(10) NOT NULL DEFAULT 'active',
                 expires_session INT NULL,             -- ważność: NULL = bezterminowe, N = do końca sesji N

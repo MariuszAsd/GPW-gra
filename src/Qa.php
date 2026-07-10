@@ -84,6 +84,8 @@ final class Qa
             $this->check($c === 200 && str_contains($b, $needle), "page.$path", "code=$c, brak '$needle'");
             $this->check(!preg_match('/Fatal error|Parse error|Uncaught|Warning:/', $b), "php.$path", 'strona zawiera błąd PHP');
         }
+        [$c, $b] = $this->http('GET', "/api_chart.php?id=$sid&iv=5");
+        $this->check($c === 200 && str_contains($b, '"ok":true'), 'page.api_chart', "api_chart: code=$c lub brak ok:true");
 
         // 3) zlecenie oczekujące: rezerwacja i zwrot CO DO GROSZA
         $deep = max(0.01, round((float) $stock['price'] * 0.1, 2));   // 10% kursu — nie wypełni się

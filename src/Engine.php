@@ -33,8 +33,8 @@ final class Engine
             $pdo->prepare("UPDATE wallets SET qty=qty-?, qty_reserved=qty_reserved+? WHERE user_id=? AND stock_id=?")->execute([$qty, $qty, $userId, $stockId]);
         }
 
-        $pdo->prepare("INSERT INTO orders (user_id, stock_id, side, qty, price, status, expires_session, created_at) VALUES (?,?,?,?,?, 'active', ?, ?)")
-            ->execute([$userId, $stockId, $side, $qty, round($price, 2), $expiresSession, Db::now()]);
+        $pdo->prepare("INSERT INTO orders (user_id, stock_id, side, qty, qty_init, price, status, expires_session, created_at) VALUES (?,?,?,?,?,?, 'active', ?, ?)")
+            ->execute([$userId, $stockId, $side, $qty, $qty, round($price, 2), $expiresSession, Db::now()]);
         return [true, 'Zlecenie przyjęte.', (int) $pdo->lastInsertId()];
     }
 

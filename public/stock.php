@@ -10,6 +10,7 @@ $news = Engine::all("SELECT * FROM news WHERE (scope='COMPANY' AND target_id=?) 
 
 $ref = (float) $s['day_open_price'] > 0 ? (float) $s['day_open_price'] : (float) $s['price'];
 $chg = $ref > 0 ? ((float) $s['price'] - $ref) / $ref * 100 : 0;   // zmiana od otwarcia sesji
+[, , $tps] = Engine::sessionInfo();
 
 $candles = array_reverse(Engine::all("SELECT o,h,l,c FROM candles WHERE stock_id=? ORDER BY t DESC LIMIT 80", [$id]));
 
@@ -55,7 +56,21 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
 
 <div class="stock-grid">
   <div>
-    <div class="panel" style="padding:8px"><?= $chartSvg ?></div>
+    <div class="panel" style="padding:8px">
+      <div class="chartbar">
+        <div class="cgrp" id="cg-iv">
+          <button data-iv="1" class="on">1 tick</button>
+          <button data-iv="5">5 ticków</button>
+          <button data-iv="<?= (int) $tps ?>">Sesja</button>
+        </div>
+        <div class="cgrp" id="cg-type">
+          <button data-type="candles" class="on">Świece</button>
+          <button data-type="line">Linia</button>
+        </div>
+        <span class="muted" style="font-size:11px;margin-left:auto">1 świeca = 1 tick rynku (~1 min) · odświeża się co 5 s</span>
+      </div>
+      <div id="chartbox"><?= $chartSvg ?></div>
+    </div>
 
     <div class="panel" style="margin-top:16px">
       <div class="subtabs">
@@ -190,12 +205,48 @@ document.getElementById('tb-sell').onclick=()=>setSide('sell');
 document.getElementById('tt-limit').onclick=()=>setType('limit');
 document.getElementById('tt-pkc').onclick=()=>setType('market');
 qty.oninput=upd; price.oninput=upd; upd();
-// live kurs w nagłówku
+// wykres: rysowanie w przeglądarce (świece/linia, interwał) + auto-odświeżanie
+const chartBox=document.getElementById('chartbox');
+let cIv=1, cType='candles';
+async function drawChart(){ try{
+  const j=await (await fetch('api_chart.php?id=<?= $id ?>&iv='+cIv)).json();
+  if(!j.ok||j.candles.length<2) return;
+  const W=680,H=240,pl=4,pr=4,pt=10,pb=10,cs=j.candles,n=cs.length;
+  let mn,mx;
+  if(cType==='line'){ const v=cs.map(c=>c.c); mn=Math.min(...v); mx=Math.max(...v); }
+  else { mn=Math.min(...cs.map(c=>c.l)); mx=Math.max(...cs.map(c=>c.h)); }
+  const rng=(mx-mn)||1, slot=(W-pl-pr)/n, bw=Math.max(1.4,slot*0.62);
+  const yv=v=>(pt+(1-(v-mn)/rng)*(H-pt-pb)).toFixed(1);
+  let s='<svg class="chart" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none">';
+  for(let g=0;g<=3;g++){ const gy=(pt+g/3*(H-pt-pb)).toFixed(1);
+    s+='<line x1="0" x2="'+W+'" y1="'+gy+'" y2="'+gy+'" stroke="var(--line)" stroke-width="1"/>'; }
+  if(cType==='line'){
+    const pts=cs.map((c,i)=>(pl+i*slot+slot/2).toFixed(1)+','+yv(c.c)).join(' ');
+    const col=cs[n-1].c>=cs[0].c?'var(--up)':'var(--down)';
+    s+='<polygon points="'+pl+','+H+' '+pts+' '+(W-pr)+','+H+'" fill="'+col+'" opacity="0.10"/>';
+    s+='<polyline points="'+pts+'" fill="none" stroke="'+col+'" stroke-width="1.6" stroke-linejoin="round"/>';
+  } else {
+    for(let i=0;i<n;i++){ const c=cs[i], x=pl+i*slot+slot/2, col=c.c>=c.o?'var(--up)':'var(--down)';
+      const top=+yv(Math.max(c.o,c.c)), bot=+yv(Math.min(c.o,c.c)), bh=Math.max(1,bot-top);
+      s+='<line x1="'+x.toFixed(1)+'" x2="'+x.toFixed(1)+'" y1="'+yv(c.h)+'" y2="'+yv(c.l)+'" stroke="'+col+'" stroke-width="1"/>';
+      s+='<rect x="'+(x-bw/2).toFixed(1)+'" y="'+top.toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+bh.toFixed(1)+'" fill="'+col+'"/>'; }
+  }
+  chartBox.innerHTML=s+'</svg>';
+}catch(e){} }
+document.querySelectorAll('#cg-iv button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#cg-iv button').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on'); cIv=parseInt(b.dataset.iv)||1; drawChart(); });
+document.querySelectorAll('#cg-type button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#cg-type button').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on'); cType=b.dataset.type; drawChart(); });
+drawChart();
+// live kurs w nagłówku + odświeżenie wykresu
 setInterval(async()=>{ try{
   const j=await (await fetch('api_market.php')).json(); if(!j.ok) return; const d=j.data[<?= $id ?>]; if(!d) return;
   const p=document.querySelector('[data-px]'); const c=document.querySelector('[data-chg]'); const up=d.chg>=0;
   if(p) p.innerHTML=Number(d.price).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' <span style="font-size:15px;color:var(--faint)">PLN</span>';
   if(c){ c.className='chg '+(up?'p':'n'); c.innerHTML='<span class="ar">'+(up?'▲':'▼')+'</span>'+Math.abs(d.chg).toFixed(2).replace('.',',')+'%'; }
+  drawChart();
 }catch(e){} },5000);
 </script>
 <?php layout_footer();

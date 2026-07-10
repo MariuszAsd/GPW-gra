@@ -41,7 +41,7 @@ layout_header('Rynek', $user, 'market');
     <span class="chg <?= $idxChg >= 0 ? 'p' : 'n' ?>" data-idx-chg><span class="ar"><?= $idxChg >= 0 ? '▲' : '▼' ?></span><?= number_format(abs($idxChg), 2, ',', ' ') ?>%</span>
     <span class="muted" style="font-size:12px">ważony kapitalizacją · baza 1000 pkt</span>
   </div>
-  <?= $idxSvg ?: "<p class='muted' style='margin:10px 0'>Historia indeksu buduje się z każdym tickiem rynku…</p>" ?>
+  <div id="idxbox"><?= $idxSvg ?: "<p class='muted' style='margin:10px 0'>Historia indeksu buduje się z każdym tickiem rynku…</p>" ?></div>
   <div class="chips" style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 4px">
     <?php foreach ($sectorRows as $sr): $sc = (float) $sr['op'] > 0 ? ((float) $sr['cur'] - (float) $sr['op']) / (float) $sr['op'] * 100 : 0; ?>
       <span class="tag" style="padding:4px 9px"><?= h($sr['name']) ?> <b class="<?= $sc >= 0 ? 'up' : 'down' ?> mono"><?= ($sc >= 0 ? '+' : '') . number_format($sc, 1, ',', ' ') ?>%</b></span>
@@ -78,6 +78,16 @@ setInterval(async () => {
         + ' <span style="font-size:13px;color:var(--faint)">pkt</span>';
       if (ic) { const up = j.index.chg >= 0; ic.className = 'chg ' + (up ? 'p' : 'n');
         ic.innerHTML = '<span class="ar">' + (up ? '▲' : '▼') + '</span>' + Math.abs(j.index.chg).toFixed(2).replace('.', ',') + '%'; }
+      const sr = j.index.series || [];
+      if (sr.length > 1) {   // przerysuj wykres indeksu
+        const W = 940, H = 120, p = 4, mn = Math.min(...sr), mx = Math.max(...sr), rng = (mx - mn) || 1, n = sr.length;
+        const pts = sr.map((v, i) => (p + i / (n - 1) * (W - 2 * p)).toFixed(1) + ',' + (p + (1 - (v - mn) / rng) * (H - 2 * p)).toFixed(1)).join(' ');
+        const col = sr[n - 1] >= sr[0] ? 'var(--up)' : 'var(--down)';
+        document.getElementById('idxbox').innerHTML =
+          '<svg class="idx-chart" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">'
+          + '<polygon points="' + p + ',' + H + ' ' + pts + ' ' + (W - p) + ',' + H + '" fill="' + col + '" opacity="0.10"/>'
+          + '<polyline points="' + pts + '" fill="none" stroke="' + col + '" stroke-width="1.6" stroke-linejoin="round"/></svg>';
+      }
     }
     for (const [id, d] of Object.entries(j.data)) {
       const px = document.querySelector(`[data-px="${id}"]`), cg = document.querySelector(`[data-chg="${id}"]`);

@@ -68,6 +68,11 @@ final class Migrator
                 )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
                 "CREATE INDEX ix_equity ON equity_history (user_id, t)",
             ],
+            // v8: pierwotna wielkość zlecenia (archiwum zleceń pokazuje "zrealizowano X/Y")
+            8 => [
+                "ALTER TABLE orders ADD COLUMN qty_init INT NOT NULL DEFAULT 0",
+                "UPDATE orders SET qty_init = qty WHERE qty_init = 0",
+            ],
         ];
     }
 

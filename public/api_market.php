@@ -9,8 +9,9 @@ foreach (Engine::all("SELECT id, price, day_open_price FROM stocks") as $s) {
     $out[$s['id']] = ['price' => number_format($s['price'], 2, '.', ''), 'chg' => round($chg, 2)];
 }
 [$sessionNo, , $tps] = Engine::sessionInfo();
-$idxNow = (float) (Engine::one("SELECT value FROM index_history ORDER BY t DESC LIMIT 1") ?: Engine::indexValue());
+$idxSeries = array_reverse(array_map(fn($v) => round((float) $v, 2), Engine::col("SELECT value FROM index_history ORDER BY t DESC LIMIT 120")));
+$idxNow = $idxSeries ? end($idxSeries) : Engine::indexValue();
 $idxOpen = (float) (Engine::one("SELECT value FROM index_history WHERE t >= ? ORDER BY t ASC LIMIT 1", [($sessionNo - 1) * $tps]) ?: $idxNow);
 $idxChg = $idxOpen > 0 ? ($idxNow - $idxOpen) / $idxOpen * 100 : 0;
 echo json_encode(['ok' => true, 'session' => $sessionNo, 'data' => $out,
-    'index' => ['value' => number_format($idxNow, 2, '.', ''), 'chg' => round($idxChg, 2)]]);
+    'index' => ['value' => number_format($idxNow, 2, '.', ''), 'chg' => round($idxChg, 2), 'series' => $idxSeries]]);

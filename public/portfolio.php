@@ -9,6 +9,8 @@ $orders = Engine::all("SELECT o.*, s.ticker FROM orders o JOIN stocks s ON s.id=
                        WHERE o.user_id=? AND o.status='active' ORDER BY o.id DESC", [$user['id']]);
 $history = Engine::all("SELECT t.*, s.ticker FROM transactions t JOIN stocks s ON s.id=t.stock_id
                         WHERE t.buyer_id=? OR t.seller_id=? ORDER BY t.id DESC LIMIT 30", [$user['id'], $user['id']]);
+$archive = Engine::all("SELECT o.*, s.ticker FROM orders o JOIN stocks s ON s.id=o.stock_id
+                        WHERE o.user_id=? AND o.status<>'active' ORDER BY o.id DESC LIMIT 30", [$user['id']]);
 
 // --- wykres kapitału (equity_history pisane co tick przez silnik) ---
 $eqSeries = array_reverse(array_map('floatval', Engine::col("SELECT equity FROM equity_history WHERE user_id=? ORDER BY t DESC LIMIT 150", [$user['id']])));
@@ -146,6 +148,33 @@ layout_header('Portfel', $user, 'portfolio');
           <td class="num"><?= money($v) ?></td>
         </tr>
       <?php endforeach; if (!$history) echo "<tr><td class='muted' colspan=6 style='padding:20px'>Jeszcze nic nie kupiłeś ani nie sprzedałeś.</td></tr>"; ?>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="panel" style="padding:0;overflow:hidden;margin-top:16px">
+  <div style="padding:14px 16px 0"><h2>Archiwum zleceń</h2></div>
+  <div class="tbl-scroll">
+    <table>
+      <thead><tr><th>Czas</th><th>Instrument</th><th>Strona</th><th class="num">Zrealizowano</th><th class="num">Cena limit</th><th>Status</th></tr></thead>
+      <tbody>
+      <?php
+      $stLabel = ['filled' => ['zrealizowane', 'up'], 'cancelled' => ['anulowane', 'muted'], 'expired' => ['wygasłe', 'muted']];
+      foreach ($archive as $o):
+          [$lbl, $cls] = $stLabel[$o['status']] ?? [$o['status'], 'muted'];
+          $init = (int) $o['qty_init']; $done = $init > 0 ? $init - (int) $o['qty'] : null;
+          if ($done !== null && $done > 0 && $o['status'] !== 'filled') { $lbl .= ' (część zrealizowana)'; $cls = 'soft'; }
+      ?>
+        <tr>
+          <td class="muted mono"><?= h(substr($o['created_at'], 5, 11)) ?></td>
+          <td class="tk"><?= h($o['ticker']) ?></td>
+          <td><span class="chg <?= $o['side'] === 'buy' ? 'p' : 'n' ?>"><?= $o['side'] === 'buy' ? 'KUPNO' : 'SPRZEDAŻ' ?></span></td>
+          <td class="num"><?= $done !== null ? "$done / $init szt." : ($o['status'] === 'filled' ? 'w całości' : '—') ?></td>
+          <td class="num"><?= money($o['price']) ?></td>
+          <td class="<?= $cls ?>"><?= h($lbl) ?></td>
+        </tr>
+      <?php endforeach; if (!$archive) echo "<tr><td class='muted' colspan=6 style='padding:20px'>Brak zakończonych zleceń.</td></tr>"; ?>
       </tbody>
     </table>
   </div>
