@@ -463,11 +463,20 @@ final class Engine
             $pdo->prepare("UPDATE stocks SET fundamental=?, last_profit=?, last_eps=?, next_report_tick=next_report_tick+? WHERE id=?")
                 ->execute([$newFund, $profit, $eps, $per, $sid]);
 
+            // dywidenda: spółka dzieli się zyskiem wg swojej polityki wypłat (payout% zysku / liczbę akcji)
+            $dps = 0.0;
+            $payout = (float) ($s['dividend_payout'] ?? 0);
+            if ($payout > 0 && $profit > 0) {
+                $dps = floor($payout * $profit / $shares * 100) / 100;   // w dół, do grosza
+                if ($dps >= 0.01) self::payDividend($sid, (string) $s['ticker'], $dps, $tick);
+                else $dps = 0.0;
+            }
+
             $period = 'Miesiąc ' . (int) round($tick / $globalPer);
             $rev = round($profit / 0.15, 2); $cost = round($rev - $profit, 2);
-            $pdo->prepare("INSERT INTO financial_reports (stock_id,tick,period,report_date,revenue,costs,net_profit,eps,expected_eps,surprise_pct)
-                           VALUES (?,?,?,?,?,?,?,?,?,?)")
-                ->execute([$sid, $tick, $period, Db::now(), $rev, $cost, $profit, $eps, round((float) $s['last_eps'], 4), round($surprise, 2)]);
+            $pdo->prepare("INSERT INTO financial_reports (stock_id,tick,period,report_date,revenue,costs,net_profit,eps,expected_eps,surprise_pct,dividend)
+                           VALUES (?,?,?,?,?,?,?,?,?,?,?)")
+                ->execute([$sid, $tick, $period, Db::now(), $rev, $cost, $profit, $eps, round((float) $s['last_eps'], 4), round($surprise, 2), $dps]);
 
             // news / ESPI z raportu (do wyświetlenia; ciągły wpływ newsów = kolejny krok)
             $type = $surprise >= 3 ? 'POS' : ($surprise <= -3 ? 'NEG' : 'NEU');
@@ -478,6 +487,46 @@ final class Engine
                            VALUES (?,?,?,?,?,1,?,?,?,?)")
                 ->execute([$head, 'Spółka opublikowała raport miesięczny.', $type, 'COMPANY', $sid, $impact, $tick, $tick + 8, Db::now()]);
         }
+    }
+
+    /**
+     * Wypłata dywidendy: gotówka dla każdego akcjonariusza (też za akcje w zleceniach),
+     * odcięcie kursu i fundamentu o wartość dywidendy (nie ma darmowych pieniędzy),
+     * news ESPI + dziennik (ludzcy gracze dostają osobny wpis "skąd ta kasa").
+     */
+    private static function payDividend(int $sid, string $ticker, float $dps, int $tick): void
+    {
+        $pdo = Db::pdo();
+        $holders = self::all("SELECT w.user_id, (w.qty + w.qty_reserved) AS n, u.is_bot
+                              FROM wallets w JOIN users u ON u.id = w.user_id
+                              WHERE w.stock_id = ? AND (w.qty + w.qty_reserved) > 0", [$sid]);
+        $total = 0.0;
+        foreach ($holders as $h) {
+            $amt = round($dps * (int) $h['n'], 2);
+            if ($amt <= 0) continue;
+            $pdo->prepare("UPDATE users SET cash = cash + ? WHERE id = ?")->execute([$amt, $h['user_id']]);
+            $total += $amt;
+            if (!(int) $h['is_bot']) {
+                Log::write('info', 'engine', 'dividend.received',
+                    "Dywidenda $ticker: +" . number_format($amt, 2, ',', ' ') . " PLN (" . (int) $h['n'] . " szt. × " . number_format($dps, 2, ',', ' ') . " PLN)",
+                    ['user_id' => (int) $h['user_id']]);
+            }
+        }
+        // odcięcie dywidendy (kurs, fundament i otwarcie dnia w dół o DPS)
+        $st = self::row("SELECT price, fundamental, day_open_price FROM stocks WHERE id=?", [$sid]);
+        $pdo->prepare("UPDATE stocks SET price=?, fundamental=?, day_open_price=? WHERE id=?")->execute([
+            max(1, round((float) $st['price'] - $dps, 2)),
+            max(1, round((float) $st['fundamental'] - $dps, 2)),
+            max(1, round((float) $st['day_open_price'] - $dps, 2)),
+            $sid,
+        ]);
+        self::setState('dividends_paid', (string) round((float) (self::one("SELECT v FROM game_state WHERE k='dividends_paid'") ?: 0) + $total, 2));
+        Log::write('info', 'engine', 'dividend.paid',
+            "$ticker: dywidenda " . number_format($dps, 2, ',', ' ') . " PLN/akcję — wypłacono " . number_format($total, 2, ',', ' ') . " PLN (" . count($holders) . " akcjonariuszy)");
+        $pdo->prepare("INSERT INTO news (headline,body,type,scope,target_id,is_espi,impact_strength,publish_tick,expire_tick,published_at)
+                       VALUES (?,?,'POS','COMPANY',?,1,0,?,?,?)")
+            ->execute(["💰 $ticker wypłaca dywidendę: " . number_format($dps, 2, ',', ' ') . " PLN na akcję",
+                       'Kurs został pomniejszony o wartość dywidendy (odcięcie).', $sid, $tick, $tick + 8, Db::now()]);
     }
 
     /* ---------- Newsy / ESPI (generowanie + ciągły wpływ) ---------- */

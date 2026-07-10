@@ -105,10 +105,10 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
       </div>
 
       <div class="tabpane" id="tab-reports">
-        <table><thead><tr><th>Okres</th><th class="num">Przychody</th><th class="num">Zysk netto</th><th class="num">EPS</th><th class="num">Niespodzianka</th></tr></thead><tbody>
-          <?php foreach ($reports as $r): $sp = (float) $r['surprise_pct']; ?>
-            <tr><td><?= h($r['period']) ?></td><td class="num"><?= money($r['revenue']) ?></td><td class="num"><?= money($r['net_profit']) ?></td><td class="num"><?= number_format($r['eps'], 2, ',', ' ') ?></td><td class="num <?= $sp >= 0 ? 'up' : 'down' ?>"><?= ($sp >= 0 ? '+' : '') . number_format($sp, 1, ',', ' ') ?>%</td></tr>
-          <?php endforeach; if (!$reports) echo "<tr><td class='muted' colspan=5>brak raportów</td></tr>"; ?>
+        <table><thead><tr><th>Okres</th><th class="num">Przychody</th><th class="num">Zysk netto</th><th class="num">EPS</th><th class="num">Niespodzianka</th><th class="num">Dywidenda<?= tip('Część zysku wypłacana akcjonariuszom za każdą akcję. W dniu wypłaty kurs jest pomniejszany o jej wartość (odcięcie).', 'dywidenda') ?></th></tr></thead><tbody>
+          <?php foreach ($reports as $r): $sp = (float) $r['surprise_pct']; $dv = (float) ($r['dividend'] ?? 0); ?>
+            <tr><td><?= h($r['period']) ?></td><td class="num"><?= money($r['revenue']) ?></td><td class="num"><?= money($r['net_profit']) ?></td><td class="num"><?= number_format($r['eps'], 2, ',', ' ') ?></td><td class="num <?= $sp >= 0 ? 'up' : 'down' ?>"><?= ($sp >= 0 ? '+' : '') . number_format($sp, 1, ',', ' ') ?>%</td><td class="num"><?= $dv > 0 ? '<b class="up">' . money($dv) . '</b>' : '<span class="muted">—</span>' ?></td></tr>
+          <?php endforeach; if (!$reports) echo "<tr><td class='muted' colspan=6>brak raportów</td></tr>"; ?>
         </tbody></table>
       </div>
 
@@ -131,6 +131,9 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
           <tr><td class="muted">Wartość fundamentalna</td><td class="num"><?= money($s['fundamental']) ?> PLN</td></tr>
           <tr><td class="muted">C/Z docelowe</td><td class="num"><?= number_format($s['pe_target'], 1, ',', ' ') ?></td></tr>
           <tr><td class="muted">EPS (roczny)</td><td class="num"><?= number_format($s['last_eps'], 2, ',', ' ') ?> PLN</td></tr>
+          <?php $po = (float) ($s['dividend_payout'] ?? 0); ?>
+          <tr><td class="muted">Polityka dywidendy<?= tip('Jaką część miesięcznego zysku spółka wypłaca akcjonariuszom. Wystarczy mieć akcje w dniu raportu.', 'dywidenda') ?></td>
+              <td class="num"><?= $po > 0 ? '<b class="up">' . number_format($po * 100, 0) . '% zysku</b> <span class="muted">(~' . number_format($po / max(1, (float) $s['pe_target']) * 100, 1, ',', ' ') . '% rocznie)</span>' : '<span class="muted">nie wypłaca (reinwestuje)</span>' ?></td></tr>
         </tbody></table>
       </div>
     </div>

@@ -12,6 +12,7 @@ layout_header('Pomoc', $user, 'help');
   <a href="#waznosc">Ważność zlecenia</a>
   <a href="#sl">Stop-Loss</a>
   <a href="#tp">Take-Profit</a>
+  <a href="#dywidenda">Dywidendy</a>
   <a href="#prowizja">Prowizja</a>
   <a href="#cel">Cel gry</a>
 </div>
@@ -93,6 +94,28 @@ layout_header('Pomoc', $user, 'help');
   </svg>
   <div class="help-ex">💡 SL i TP możesz ustawić razem na tym samym pakiecie — co pierwsze się wyzwoli, to sprzedaje.
      Oba widzisz w Portfelu jako zlecenie <b>OBRONNE</b> i możesz je anulować.</div>
+</div>
+
+<div class="panel help-sec" id="dywidenda">
+  <h3>💵 Dywidendy — spółka dzieli się zyskiem</h3>
+  <p>Część spółek co miesiąc (przy raporcie) wypłaca akcjonariuszom <b>dywidendę</b> — gotówkę za każdą
+     posiadaną akcję. Wystarczy mieć akcje w dniu raportu; pieniądze wpadają same (także za akcje
+     zamrożone w zleceniach). Ile spółka płaci, sprawdzisz na jej podstronie w zakładce <b>Info</b>
+     („Polityka dywidendy") i w <b>Raportach</b>.</p>
+  <svg class="help-svg" viewBox="0 0 560 145">
+    <rect x="40" y="30" width="150" height="64" rx="10" fill="rgba(47,123,255,.12)" stroke="var(--accent)"/>
+    <text x="115" y="57" fill="var(--ink)" font-size="13" font-weight="bold" text-anchor="middle">SPÓŁKA</text>
+    <text x="115" y="76" fill="var(--soft)" font-size="11" text-anchor="middle">zysk z raportu</text>
+    <g class="pulse"><path d="M 200 62 L 340 62" stroke="var(--up)" stroke-width="2"/><path d="M 332 54 L 346 62 L 332 70" fill="none" stroke="var(--up)" stroke-width="2"/>
+    <text x="270" y="50" fill="var(--up)" font-size="12" text-anchor="middle">0,45 PLN / akcję</text></g>
+    <rect x="360" y="30" width="160" height="64" rx="10" fill="rgba(22,199,132,.12)" stroke="var(--up)"/>
+    <text x="440" y="57" fill="var(--ink)" font-size="13" font-weight="bold" text-anchor="middle">TY 💰</text>
+    <text x="440" y="76" fill="var(--soft)" font-size="11" text-anchor="middle">100 szt. = +45 PLN</text>
+    <text x="280" y="118" fill="var(--soft)" font-size="12" text-anchor="middle">uwaga: w dniu wypłaty kurs spada o wartość dywidendy (odcięcie) —</text>
+    <text x="280" y="134" fill="var(--soft)" font-size="12" text-anchor="middle">to nie darmowe pieniądze, tylko zamiana części wyceny na gotówkę</text>
+  </svg>
+  <div class="help-ex">💡 Strategia dywidendowa: kup spokojne spółki, które dużo wypłacają (Info → „Polityka dywidendy"),
+     trzymaj długo i zbieraj gotówkę co miesiąc — mniej emocji niż spekulacja, stabilniejszy wynik.</div>
 </div>
 
 <div class="panel help-sec" id="prowizja">

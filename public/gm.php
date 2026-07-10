@@ -32,10 +32,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $r = Qa::run();
         flash($r['ok'] ? "✅ QA: wszystkie {$r['checks']} asercji OK." : '❌ QA znalazł błędy: ' . implode(' | ', array_slice($r['fails'], 0, 3)), $r['ok'] ? 'ok' : 'err');
     } elseif ($a === 'stock') {
-        $pdo->prepare("UPDATE stocks SET bias=?, volatility=?, profit_trend=? WHERE id=?")->execute([
+        $pdo->prepare("UPDATE stocks SET bias=?, volatility=?, profit_trend=?, dividend_payout=? WHERE id=?")->execute([
             (float) str_replace(',', '.', $_POST['bias'] ?? '0'),
             max(0.1, (float) str_replace(',', '.', $_POST['vol'] ?? '1')),
             (float) str_replace(',', '.', $_POST['profit_trend'] ?? '0'),
+            max(0, min(0.8, (float) str_replace(',', '.', $_POST['dividend'] ?? '0') / 100)),
             (int) $_POST['stock_id'],
         ]);
         flash('Zapisano sterowanie spółką.');
@@ -85,6 +86,7 @@ $goalSessions = (int) (Engine::one("SELECT v FROM game_state WHERE k='goal_sessi
 $inviteCode = (string) (Engine::one("SELECT v FROM game_state WHERE k='invite_code'") ?: '');
 $playerCount = (int) Engine::one("SELECT COUNT(*) FROM users WHERE is_bot=0 AND role='player'");
 $treasury = (float) (Engine::one("SELECT v FROM game_state WHERE k='treasury'") ?: 0);
+$divPaid = (float) (Engine::one("SELECT v FROM game_state WHERE k='dividends_paid'") ?: 0);
 $lastQa = Engine::row("SELECT ts, level, message FROM logs WHERE source='qa' AND event='qa.run' ORDER BY id DESC LIMIT 1");
 $errors24 = (int) Engine::one("SELECT COUNT(*) FROM logs WHERE level='error' AND ts >= ?", [date('Y-m-d H:i:s', time() - 86400)]);
 $feeRatePct = Engine::one("SELECT v FROM game_state WHERE k='fee_rate'");
@@ -136,7 +138,8 @@ layout_header('Panel GM', $user, 'gm');
       <button class="btn sm">Ustaw</button>
     </form>
     <h2 style="margin-top:18px">💰 Skarbiec gry: <span class="up mono"><?= money($treasury) ?> PLN</span></h2>
-    <p class="muted">Zebrane prowizje od obrotu (płaci sprzedający przy każdej transakcji — gracze i boty). Do wykorzystania na eventy / market making.</p>
+    <p class="muted">Zebrane prowizje od obrotu (płaci sprzedający przy każdej transakcji — gracze i boty). Do wykorzystania na eventy / market making.
+       Spółki wypłaciły dotąd <b class="mono"><?= money($divPaid) ?> PLN</b> dywidend (świeża gotówka w świecie gry).</p>
     <form method="post" class="inline">
       <input type="hidden" name="action" value="fee">
       <label style="display:inline">Prowizja (% wartości):</label>
@@ -174,7 +177,7 @@ layout_header('Panel GM', $user, 'gm');
   <h2>Sterowanie spółkami</h2>
   <div class="tbl-scroll">
   <table class="gm-table">
-    <thead><tr><th>Spółka</th><th class="num">Kurs</th><th class="num">Trend (bias %/tick)</th><th class="num">Zmienność</th><th class="num">Zysk (trend %/mies)</th><th>Zapisz</th><th>Event</th></tr></thead>
+    <thead><tr><th>Spółka</th><th class="num">Kurs</th><th class="num">Trend (bias %/tick)</th><th class="num">Zmienność</th><th class="num">Zysk (trend %/mies)</th><th class="num">Dyw. (% zysku)</th><th>Zapisz</th><th>Event</th></tr></thead>
     <tbody>
     <?php foreach ($stocks as $s): ?>
       <tr>
@@ -186,6 +189,7 @@ layout_header('Panel GM', $user, 'gm');
           <td class="num"><input type="number" step="0.05" name="bias" value="<?= $fmt($s['bias']) ?>" style="width:78px"></td>
           <td class="num"><input type="number" step="0.1" min="0.1" name="vol" value="<?= $fmt($s['volatility']) ?>" style="width:66px"></td>
           <td class="num"><input type="number" step="0.5" name="profit_trend" value="<?= $fmt($s['profit_trend']) ?>" style="width:80px"></td>
+          <td class="num"><input type="number" step="5" min="0" max="80" name="dividend" value="<?= rtrim(rtrim(number_format((float) ($s['dividend_payout'] ?? 0) * 100, 1, '.', ''), '0'), '.') ?: '0' ?>" style="width:64px"></td>
           <td><button class="btn sm">Zapisz</button></td>
         </form>
         <td class="events">

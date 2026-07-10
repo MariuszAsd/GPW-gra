@@ -92,6 +92,15 @@ final class Migrator
                 "CREATE INDEX ix_tx_buyorder ON transactions (buy_order_id)",
                 "CREATE INDEX ix_tx_sellorder ON transactions (sell_order_id)",
             ],
+            // v11: dywidendy — polityka wypłat spółki + zapis dywidendy w raporcie;
+            //      backfill: spółki wzrostowe płacą mało (5-21%), dojrzałe hojnie (30-60%)
+            11 => [
+                "ALTER TABLE stocks ADD COLUMN dividend_payout DECIMAL(4,2) NOT NULL DEFAULT 0",
+                "ALTER TABLE financial_reports ADD COLUMN dividend DECIMAL(10,2) NOT NULL DEFAULT 0",
+                "UPDATE stocks SET dividend_payout = CASE
+                    WHEN growth_potential >= 0.025 THEN ROUND(0.05 + (id % 3) * 0.08, 2)
+                    ELSE ROUND(0.30 + (id % 4) * 0.10, 2) END",
+            ],
         ];
     }
 

@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 10;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 11;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -71,6 +71,7 @@ final class Schema
                 -- sterowanie GM:
                 bias $f NOT NULL DEFAULT 0,
                 profit_trend $f NOT NULL DEFAULT 0,   -- ręczny miernik trendu zysków (%/miesiąc, edytowalny w GM)
+                dividend_payout DECIMAL(4,2) NOT NULL DEFAULT 0,  -- jaki % zysku spółka wypłaca akcjonariuszom (0-0.8)
                 -- fundamenty / raporty miesięczne:
                 base_profit  $big NOT NULL DEFAULT 0,   -- bazowy miesięczny zysk netto
                 last_profit  $big NOT NULL DEFAULT 0,   -- ostatni raportowany zysk (baza oczekiwań)
@@ -139,7 +140,8 @@ final class Schema
                 net_profit $big NOT NULL,
                 eps DECIMAL(10,4) NOT NULL,
                 expected_eps DECIMAL(10,4) NOT NULL,
-                surprise_pct DECIMAL(7,2) NOT NULL   -- niespodzianka vs oczekiwania
+                surprise_pct DECIMAL(7,2) NOT NULL,  -- niespodzianka vs oczekiwania
+                dividend DECIMAL(10,2) NOT NULL DEFAULT 0   -- wypłacona dywidenda na akcję (0 = brak)
             )",
 
             // --- NEWSY / ESPI ---

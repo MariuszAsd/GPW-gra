@@ -106,8 +106,8 @@ $makeTicker = function (string $name) use (&$usedTickers): string {
 $stStmt = $pdo->prepare("INSERT INTO stocks
     (ticker,name,sector_id,description,price,fundamental,day_open_price,total_shares,free_float,
      beta,volatility,liquidity,news_impact,news_frequency,financial_resilience,growth_potential,aggressiveness,
-     pe_target,base_profit,last_profit,last_eps,report_period,next_report_tick)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+     pe_target,base_profit,last_profit,last_eps,report_period,next_report_tick,dividend_payout)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
 $i = 0;
 foreach ($sectors as $sym => $sec) {
     [$secName, $mbeta, $mvol, , , $count, $peRange] = $sec;
@@ -123,11 +123,16 @@ foreach ($sectors as $sym => $sec) {
         $base = round($price * $shares / ($pe * 12), 2);       // miesięczny zysk spójny z ceną i C/Z
         $eps = round($base * 12 / $shares, 4);
         $desc = $descTpl[$sym] . ' Siedziba w ' . $cities[array_rand($cities)] . '.';
+        // polityka dywidendy: spółki wzrostowe reinwestują (0-25% zysku), dojrzałe płacą hojnie (30-65%)
+        $growth = rf(0, 0.04, 3);
+        $payout = $growth >= 0.025 ? rf(0, 0.25) : rf(0.30, 0.65);
+        if (mt_rand(1, 100) <= 15) $payout = 0;                 // część spółek w ogóle nie płaci
         $stStmt->execute([
             $ticker, $name, $secId[$sym], $desc, $price, $price, $price, $shares, rf(30, 95, 0),
             rf($mbeta - 0.3, $mbeta + 0.3), rf($mvol * 0.7, $mvol * 1.3), rf(0.7, 1.5), rf(0.8, 1.8),
-            rf(0.5, 2.0), rf(0.6, 1.4), rf(0, 0.04, 3), rf(0.7, 2.0),
+            rf(0.5, 2.0), rf(0.6, 1.4), $growth, rf(0.7, 2.0),
             $pe, $base, $base, $eps, 100, 5 + ($i * 2) % 100,   // raporty co miesiąc, rozłożone w czasie
+            $payout,
         ]);
         $i++;
     }
