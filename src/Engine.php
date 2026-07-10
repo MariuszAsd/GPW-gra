@@ -279,11 +279,12 @@ final class Engine
         // prefetch: historia zamknięć per spółka (raz na tick, nie raz na bota)
         $closes = [];
         foreach ($stocks as $st) $closes[$st['id']] = self::closes((int) $st['id'], 60);
-        // prefetch: świeże newsy/ESPI (ostatnie 4 ticki) -> sentyment per spółka i per sektor
-        $newsCo = []; $newsSec = [];
+        // prefetch: świeże newsy/ESPI (ostatnie 4 ticki) -> sentyment per spółka, sektor i cały rynek
+        $newsCo = []; $newsSec = []; $newsMkt = 0.0;
         foreach (self::all("SELECT scope, target_id, impact_strength FROM news WHERE publish_tick > ? AND impact_strength <> 0", [$tick - 4]) as $nw) {
             if ($nw['scope'] === 'COMPANY')     $newsCo[$nw['target_id']]  = ($newsCo[$nw['target_id']] ?? 0) + (float) $nw['impact_strength'];
             elseif ($nw['scope'] === 'SECTOR')  $newsSec[$nw['target_id']] = ($newsSec[$nw['target_id']] ?? 0) + (float) $nw['impact_strength'];
+            elseif ($nw['scope'] === 'MARKET')  $newsMkt += (float) $nw['impact_strength'];   // krach/hossa: panika i euforia botów
         }
 
         foreach ($bots as $bot) {
@@ -303,7 +304,7 @@ final class Engine
                 $have  = (int) ($wal[$uid][$sid]['qty'] ?? 0);
                 $avg   = (float) ($wal[$uid][$sid]['avg_price'] ?? 0);
                 $liq   = max(0.3, (float) $st['liquidity']);
-                $news  = ($newsCo[$sid] ?? 0) + 0.6 * ($newsSec[$st['sector_id']] ?? 0);   // świeży sentyment
+                $news  = ($newsCo[$sid] ?? 0) + 0.6 * ($newsSec[$st['sector_id']] ?? 0) + 0.4 * $newsMkt;   // świeży sentyment
 
                 // wspólny odruch (ze starej wersji): realizacja zysku — kurs > śr. zakupu +15%
                 if ($strat !== 'mm' && $have > 0 && $avg > 0 && $price > $avg * 1.15 && mt_rand(1, 100) <= 20) {
@@ -751,6 +752,7 @@ final class Engine
         }
         self::generateReports($t);   // raporty miesięczne -> skok wartości fundamentalnej + news/ESPI
         self::generateNews($t);      // losowe ESPI/newsy pozytywne i negatywne
+        self::maybeRandomEvent($t);  // rzadkie wydarzenia: krach / hossa / kryzys i boom sektorowy
         self::applyNewsImpact($t);   // aktywne newsy lekko ruszają fundamentem (z zanikiem)
 
         self::checkStops();
@@ -791,6 +793,67 @@ final class Engine
             $ag = ($ag * ($period - 1) + $cg) / $period; $al = ($al * ($period - 1) + $cl) / $period;
         }
         return $al == 0 ? 100 : 100 - 100 / (1 + $ag / $al);
+    }
+
+    /* ---------- Wydarzenia rynkowe (krach / hossa / kryzys i boom sektorowy) ---------- */
+
+    /** Katalog wydarzeń: wpływ %/tick (szczyt, zanika) + czas trwania w tickach. */
+    public static function eventCatalog(): array
+    {
+        return [
+            'krach'        => ['scope' => 'MARKET', 'type' => 'NEG', 'impact' => -1.5, 'duration' => 20,
+                               'head' => '🚨 KRACH NA GIEŁDZIE! Panika — inwestorzy masowo uciekają od akcji',
+                               'body' => 'Gwałtowna wyprzedaż na całym rynku. Fundamenty spółek pod silną presją przez najbliższe sesje.'],
+            'hossa'        => ['scope' => 'MARKET', 'type' => 'POS', 'impact' => 1.2, 'duration' => 20,
+                               'head' => '🚀 HOSSA! Euforia zakupów rozlewa się po całym rynku',
+                               'body' => 'Kapitał płynie na giełdę szerokim strumieniem. Wyceny rosną na wszystkich parkietach.'],
+            'sector_panic' => ['scope' => 'SECTOR', 'type' => 'NEG', 'impact' => -1.5, 'duration' => 15,
+                               'head' => '🔥 Kryzys w sektorze [T]! Afera i odpływ kapitału',
+                               'body' => 'Branża w ogniu krytyki — inwestorzy wycofują się z całego sektora.'],
+            'sector_boom'  => ['scope' => 'SECTOR', 'type' => 'POS', 'impact' => 1.3, 'duration' => 15,
+                               'head' => '⭐ Boom w sektorze [T]! Rynek wierzy w branżę',
+                               'body' => 'Przełomowe perspektywy dla całej branży przyciągają kapitał.'],
+        ];
+    }
+
+    /** Wyzwól wydarzenie (GM albo losowe). Zwraca nagłówek. */
+    public static function triggerEvent(string $kind, ?int $sectorId = null, string $source = 'gm'): string
+    {
+        $ev = self::eventCatalog()[$kind] ?? null;
+        if (!$ev) return '';
+        $tick = (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
+        $label = '';
+        if ($ev['scope'] === 'SECTOR') {
+            if ($sectorId === null) $sectorId = (int) self::one("SELECT id FROM sectors ORDER BY " . (Db::driver() === 'mysql' ? 'RAND()' : 'RANDOM()') . " LIMIT 1");
+            $label = (string) self::one("SELECT name FROM sectors WHERE id=?", [$sectorId]);
+        }
+        $head = str_replace('[T]', $label, $ev['head']);
+        Db::pdo()->prepare("INSERT INTO news (headline,body,type,scope,target_id,is_espi,impact_strength,publish_tick,expire_tick,published_at)
+                            VALUES (?,?,?,?,?,0,?,?,?,?)")
+            ->execute([$head, $ev['body'], $ev['type'], $ev['scope'], $ev['scope'] === 'SECTOR' ? $sectorId : null,
+                       $ev['impact'], $tick, $tick + $ev['duration'], Db::now()]);
+        self::setState('last_event_tick', (string) $tick);
+        Log::write('info', 'engine', 'event.' . $kind, $head . " (źródło: $source, wpływ {$ev['impact']}%/tick przez {$ev['duration']} ticków)");
+        foreach (self::humanIds() as $uid) {
+            self::notify($uid, 'event', ($ev['type'] === 'NEG' ? '🚨 ' : '🚀 ') . $head, 'market.php');
+        }
+        return $head;
+    }
+
+    /** Losowe wydarzenie: rzadkie, z cooldownem, wyłączalne w GM (events_enabled). */
+    private static function maybeRandomEvent(int $tick): void
+    {
+        $on = self::one("SELECT v FROM game_state WHERE k='events_enabled'");
+        if ($on !== false && $on !== null && (int) $on !== 1) return;   // brak klucza = włączone
+        $chance = max(50, (int) (self::one("SELECT v FROM game_state WHERE k='event_chance'") ?: 500));
+        if (mt_rand(1, $chance) !== 1) return;
+        $cooldown = (int) (self::one("SELECT v FROM game_state WHERE k='event_cooldown'") ?: 300);
+        $last = (int) (self::one("SELECT v FROM game_state WHERE k='last_event_tick'") ?: -100000);
+        if ($tick - $last < $cooldown) return;
+        // rozkład: wydarzenia sektorowe częstsze niż rynkowe
+        $r = mt_rand(1, 100);
+        $kind = $r <= 40 ? 'sector_panic' : ($r <= 80 ? 'sector_boom' : ($r <= 90 ? 'krach' : 'hossa'));
+        self::triggerEvent($kind, null, 'los');
     }
 
     /* ---------- Powiadomienia (dzwonek gracza) ---------- */

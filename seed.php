@@ -31,6 +31,9 @@ Engine::setState('goal_sessions', '60');       // ...w 60 sesji od dołączenia
 Engine::setState('fee_rate', '0.5');           // prowizja od obrotu (% wartości, płaci sprzedający)
 Engine::setState('treasury', '0');             // skarbiec gry (zebrane prowizje)
 Engine::setState('qa_every_ticks', '30');      // QA-bot testuje grę co N ticków (z crona)
+Engine::setState('events_enabled', '1');       // losowe wydarzenia rynkowe (krach/hossa/sektory)
+Engine::setState('event_chance', '500');       // szansa 1/N na tick (500 ≈ raz na ~8h przy cronie 1/min)
+Engine::setState('event_cooldown', '300');     // min. odstęp między wydarzeniami (ticki)
 $log("✔ konta: gracz/haslo123, admin/admin123 · cel gry: 1M PLN w 60 sesji");
 
 // --- SEKTORY (8 branż) ---

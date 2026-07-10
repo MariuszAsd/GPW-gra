@@ -67,6 +67,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             Log::write('error', 'engine', 'tick.exception', $e->getMessage(), ['file' => basename($e->getFile()), 'line' => $e->getLine()]);
             flash('Błąd ticka (zapisany w dzienniku): ' . $e->getMessage(), 'err');
         }
+    } elseif ($a === 'world_event') {
+        $kind = in_array($_POST['kind'] ?? '', ['krach', 'hossa'], true) ? $_POST['kind'] : 'krach';
+        $head = Engine::triggerEvent($kind);
+        Engine::runTick();
+        flash("Wydarzenie uruchomione: $head (+1 tick).");
+    } elseif ($a === 'sector_event') {
+        $kind = in_array($_POST['kind'] ?? '', ['sector_panic', 'sector_boom'], true) ? $_POST['kind'] : 'sector_panic';
+        $head = Engine::triggerEvent($kind, (int) $_POST['sector_id']);
+        Engine::runTick();
+        flash("Wydarzenie uruchomione: $head (+1 tick).");
+    } elseif ($a === 'events_toggle') {
+        $on = ($_POST['enabled'] ?? '1') === '1';
+        Engine::setState('events_enabled', $on ? '1' : '0');
+        flash($on ? 'Losowe wydarzenia WŁĄCZONE.' : 'Losowe wydarzenia wyłączone (ręczne nadal działają).');
     } elseif ($a === 'reset') {
         $pdo->exec("UPDATE stocks SET bias=0, volatility=1, profit_trend=0");
         $pdo->exec("UPDATE sectors SET trend=0, profit_climate=0");
@@ -172,6 +186,38 @@ layout_header('Panel GM', $user, 'gm');
     </div>
   </section>
 </div>
+
+<section class="panel" style="margin-top:16px">
+  <h2>🌪️ Wydarzenia specjalne</h2>
+  <?php
+    $evRaw = Engine::one("SELECT v FROM game_state WHERE k='events_enabled'");
+    $evOn = ($evRaw === false || $evRaw === null) ? true : (int) $evRaw === 1;   // brak klucza = włączone
+    $lastEv = Engine::row("SELECT ts, message FROM logs WHERE event LIKE 'event.%' ORDER BY id DESC LIMIT 1");
+  ?>
+  <p class="muted" style="margin:4px 0 10px">
+    Krach/hossa uderzają w cały rynek (±12-15% rozłożone na ~20 ticków), wydarzenia sektorowe w jedną branżę.
+    Wpływ zanika stopniowo — boty newsowe panikują/kupują, animatorzy podążają za fundamentem.
+    <?php if ($lastEv): ?><br>Ostatnie: <b><?= h($lastEv['message']) ?></b> (<?= h($lastEv['ts']) ?>)<?php endif; ?>
+  </p>
+  <div class="row" style="margin-bottom:10px">
+    <form method="post" class="inline" onsubmit="return confirm('Uruchomić KRACH na całym rynku?')"><input type="hidden" name="action" value="world_event"><input type="hidden" name="kind" value="krach"><button class="btn sm down">🚨 Krach rynkowy</button></form>
+    <form method="post" class="inline" onsubmit="return confirm('Uruchomić HOSSĘ na całym rynku?')"><input type="hidden" name="action" value="world_event"><input type="hidden" name="kind" value="hossa"><button class="btn sm up">🚀 Hossa rynkowa</button></form>
+    <form method="post" class="inline">
+      <input type="hidden" name="action" value="events_toggle">
+      <input type="hidden" name="enabled" value="<?= $evOn ? '0' : '1' ?>">
+      <button class="btn sm ghost"><?= $evOn ? '⏸ Wyłącz losowe wydarzenia' : '▶ Włącz losowe wydarzenia' ?></button>
+    </form>
+  </div>
+  <form method="post" class="row" style="align-items:flex-end">
+    <input type="hidden" name="action" value="sector_event">
+    <div><label>Sektor</label>
+      <select name="sector_id" style="width:200px">
+        <?php foreach ($sectors as $sec): ?><option value="<?= (int) $sec['id'] ?>"><?= h($sec['name']) ?></option><?php endforeach; ?>
+      </select></div>
+    <button class="btn sm down" name="kind" value="sector_panic">🔥 Kryzys sektora</button>
+    <button class="btn sm up" name="kind" value="sector_boom">⭐ Boom sektora</button>
+  </form>
+</section>
 
 <section class="panel" style="margin-top:16px">
   <h2>Sterowanie spółkami</h2>

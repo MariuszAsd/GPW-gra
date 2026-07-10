@@ -13,6 +13,7 @@ layout_header('Pomoc', $user, 'help');
   <a href="#sl">Stop-Loss</a>
   <a href="#tp">Take-Profit</a>
   <a href="#dywidenda">Dywidendy</a>
+  <a href="#wydarzenia">Wydarzenia</a>
   <a href="#prowizja">Prowizja</a>
   <a href="#cel">Cel gry</a>
 </div>
@@ -116,6 +117,16 @@ layout_header('Pomoc', $user, 'help');
   </svg>
   <div class="help-ex">💡 Strategia dywidendowa: kup spokojne spółki, które dużo wypłacają (Info → „Polityka dywidendy"),
      trzymaj długo i zbieraj gotówkę co miesiąc — mniej emocji niż spekulacja, stabilniejszy wynik.</div>
+</div>
+
+<div class="panel help-sec" id="wydarzenia">
+  <h3>🌪️ Wydarzenia rynkowe — krachy, hossy, kryzysy branż</h3>
+  <p>Od czasu do czasu rynkiem wstrząsa <b>wielkie wydarzenie</b>: krach lub hossa na całej giełdzie,
+     albo kryzys/boom w jednej branży. Zobaczysz wtedy baner na stronie Rynku i dostaniesz powiadomienie 🔔.
+     Siła wydarzenia jest największa na początku i <b>stopniowo wygasa</b> przez kilkanaście ticków.</p>
+  <div class="help-ex">💡 Krach to nie koniec świata — to okazja. Kursy spadają razem z falą paniki,
+     ale dobre spółki wracają do wycen z zysków. Kupowanie w dołku krachu (i trzymanie SL-a na wszelki
+     wypadek) bywa najlepszą transakcją w grze. Analogicznie: w euforii hossy warto pomyśleć o Take-Profit.</div>
 </div>
 
 <div class="panel help-sec" id="prowizja">

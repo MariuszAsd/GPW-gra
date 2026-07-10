@@ -24,6 +24,13 @@ if (count($idxSeries) > 1) {
         . "<polygon points='$pad,$H $line " . ($W - $pad) . ",$H' fill='$col' opacity='0.10'/>"
         . "<polyline points='$line' fill='none' stroke='$col' stroke-width='1.6' stroke-linejoin='round'/></svg>";
 }
+// aktywne wydarzenie rynkowe/sektorowe (krach, hossa, kryzys/boom) -> baner
+$tickNow = (int) (Engine::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
+$event = Engine::row("SELECT n.*, sec.name AS sector_name FROM news n
+                      LEFT JOIN sectors sec ON sec.id = n.target_id AND n.scope = 'SECTOR'
+                      WHERE n.expire_tick > ? AND ABS(n.impact_strength) >= 0.8 AND n.scope IN ('MARKET','SECTOR')
+                      ORDER BY n.id DESC LIMIT 1", [$tickNow]);
+
 // sektory: dzienna zmiana ważona kapitalizacją
 $sectorRows = Engine::all("SELECT sec.name, SUM(s.price*s.total_shares) cur, SUM(s.day_open_price*s.total_shares) op
                            FROM stocks s JOIN sectors sec ON sec.id=s.sector_id GROUP BY sec.id, sec.name ORDER BY sec.name");
@@ -34,6 +41,12 @@ layout_header('Rynek', $user, 'market');
 ?>
 <div class="page-head"><h1>Rynek</h1><span class="tag" style="color:var(--accent);border-color:var(--accent)">Sesja #<?= $sessionNo ?></span><span class="muted">zmiana liczona od otwarcia sesji · kliknij, aby handlować</span></div>
 
+<?php if ($event): $neg = $event['type'] === 'NEG'; $left = (int) $event['expire_tick'] - $tickNow; ?>
+<div class="panel" style="margin-bottom:16px;border-left:3px solid var(--<?= $neg ? 'down' : 'up' ?>);background:<?= $neg ? 'rgba(234,57,67,.07)' : 'rgba(22,199,132,.07)' ?>">
+  <b class="<?= $neg ? 'down' : 'up' ?>" style="font-size:15px"><?= h($event['headline']) ?></b>
+  <div class="muted" style="font-size:12px;margin-top:3px"><?= h($event['body']) ?> · siła wydarzenia wygasa za ~<?= max(1, $left) ?> ticków</div>
+</div>
+<?php endif; ?>
 <div class="panel" style="margin-bottom:16px;padding:14px 16px 10px">
   <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap">
     <h2 style="margin:0">Indeks GPW-gra</h2>
