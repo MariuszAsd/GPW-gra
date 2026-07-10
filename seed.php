@@ -135,6 +135,12 @@ foreach ($sectors as $sym => $sec) {
 $stockRows = Engine::all("SELECT id, price, base_profit, last_eps FROM stocks ORDER BY id");
 $log("✔ " . count($stockRows) . " spółek (nazwy generowane losowo)");
 
+// --- indeks giełdowy: baza = kapitalizacja startowa (indeks startuje z 1000 pkt) ---
+$baseMcap = (float) Engine::one("SELECT SUM(price * total_shares) FROM stocks");
+Engine::setState('index_base_mcap', (string) $baseMcap);
+$pdo->prepare("INSERT INTO index_history (t, value) VALUES (0, 1000)")->execute();
+$log("✔ indeks giełdowy: baza 1000 pkt (kapitalizacja " . number_format($baseMcap / 1e6, 0, ',', ' ') . " mln)");
+
 // --- historia startowa (płaskie świece) ---
 $cStmt = $pdo->prepare("INSERT INTO candles (stock_id,t,o,h,l,c,v) VALUES (?,?,?,?,?,?,0)");
 foreach ($stockRows as $st) for ($t = -25; $t < 0; $t++) $cStmt->execute([$st['id'], $t, $st['price'], $st['price'], $st['price'], $st['price']]);

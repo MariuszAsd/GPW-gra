@@ -427,6 +427,28 @@ final class Engine
         }
     }
 
+    /* ---------- Indeks giełdowy (ważony kapitalizacją, baza 1000 pkt) ---------- */
+
+    /** Bieżąca wartość indeksu = (kapitalizacja rynku / kapitalizacja bazowa) × 1000. */
+    public static function indexValue(): float
+    {
+        $mcap = (float) (self::one("SELECT SUM(price * total_shares) FROM stocks") ?: 0);
+        if ($mcap <= 0) return 1000.0;
+        $base = (float) (self::one("SELECT v FROM game_state WHERE k='index_base_mcap'") ?: 0);
+        if ($base <= 0) { $base = $mcap; self::setState('index_base_mcap', (string) $base); }   // leniwa baza (istniejące światy)
+        return round($mcap / $base * 1000, 2);
+    }
+
+    /** Zapis wartości indeksu po ticku (historia pod wykres). */
+    private static function recordIndex(int $t): void
+    {
+        Db::pdo()->prepare("INSERT INTO index_history (t, value) VALUES (?,?)")->execute([$t, self::indexValue()]);
+        if ($t % 500 === 0) {   // retencja: trzymaj ostatnie ~10k punktów
+            $max = (int) self::one("SELECT MAX(id) FROM index_history");
+            if ($max > 10000) Db::pdo()->exec("DELETE FROM index_history WHERE id <= " . ($max - 10000));
+        }
+    }
+
     /* ---------- Sesje giełdowe i cel gry ---------- */
 
     /** [numer sesji, ticków do końca sesji, długość sesji] dla danego ticku. */
@@ -513,6 +535,7 @@ final class Engine
         $tickTrades = [];
         foreach (self::all("SELECT id FROM stocks") as $st) self::matchBook((int) $st['id'], $tickTrades);
         self::recordCandles($t, $tickTrades);
+        self::recordIndex($t);   // indeks giełdowy (historia pod wykres)
         self::checkGoal($t);     // czy któryś gracz osiągnął cel gry
 
         self::setState('tick', (string) $t);

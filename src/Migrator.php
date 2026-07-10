@@ -48,6 +48,15 @@ final class Migrator
                 )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
                 "CREATE INDEX ix_logs ON logs (level, id)",
             ],
+            // v6: indeks giełdowy (historia wartości per tick)
+            6 => [
+                "CREATE TABLE index_history (
+                    id " . (Db::driver() === 'mysql' ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT') . ",
+                    t INT NOT NULL,
+                    value DECIMAL(12,2) NOT NULL
+                )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
+                "CREATE INDEX ix_index_t ON index_history (t)",
+            ],
         ];
     }
 
