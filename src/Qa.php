@@ -85,6 +85,10 @@ final class Qa
         }
         [$c, $b] = $this->http('GET', "/api_chart.php?id=$sid&iv=5");
         $this->check($c === 200 && str_contains($b, '"ok":true'), 'page.api_chart', "api_chart: code=$c lub brak ok:true");
+        [$c, $b] = $this->http('GET', '/powiadomienia.php');
+        $this->check($c === 200 && str_contains($b, 'Powiadomienia'), 'page.notifications', "powiadomienia.php: code=$c");
+        [$c, $b] = $this->http('GET', '/api_notifications.php');
+        $this->check($c === 200 && str_contains($b, '"ok":true'), 'page.api_notifications', "api_notifications: code=$c lub brak ok:true");
 
         // 3) zlecenie oczekujące: rezerwacja i zwrot CO DO GROSZA
         $deep = max(0.01, round((float) $stock['price'] * 0.1, 2));   // 10% kursu — nie wypełni się

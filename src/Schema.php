@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 11;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 12;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -202,6 +202,17 @@ final class Schema
                 equity $money NOT NULL
             )",
 
+            // --- POWIADOMIENIA (dzwonek gracza: dywidendy, SL/TP, raporty, realizacje zleceń) ---
+            "notifications" => "CREATE TABLE notifications (
+                id $pk,
+                user_id INT NOT NULL,
+                type VARCHAR(20) NOT NULL DEFAULT 'system',  -- dividend|stop|report|order|goal|system
+                message VARCHAR(255) NOT NULL,
+                link VARCHAR(100) NULL,                      -- dokąd prowadzi kliknięcie
+                created_at VARCHAR(19) NOT NULL,
+                read_at VARCHAR(19) NULL                     -- NULL = nieprzeczytane (licznik na dzwonku)
+            )",
+
             // --- DZIENNIK LOGÓW (dane do analizy błędów; pisany przez QA, silnik i akcje graczy) ---
             "logs" => "CREATE TABLE logs (
                 id $pk,
@@ -231,6 +242,7 @@ final class Schema
             "CREATE INDEX ix_equity ON equity_history (user_id, t)",
             "CREATE INDEX ix_tx_buyorder ON transactions (buy_order_id)",
             "CREATE INDEX ix_tx_sellorder ON transactions (sell_order_id)",
+            "CREATE INDEX ix_notif ON notifications (user_id, read_at)",
         ];
     }
 }

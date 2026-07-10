@@ -38,8 +38,13 @@ a{color:inherit;text-decoration:none}
 .topbar .bal b{font-family:var(--mono);font-size:14px}
 .topbar .bal small{display:block;color:var(--faint);font-size:11px}
 .topbar .gm{color:#ffd27a}
+.topbar .bell{position:relative;font-size:16px;padding:7px 10px !important}
+.bell-n{position:absolute;top:1px;right:1px;min-width:16px;height:16px;border-radius:8px;background:var(--down);
+  color:#fff;font-size:10px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;padding:0 4px}
+.bell-n.off{display:none}
 @media(max-width:760px){
   .topbar nav a{display:none}                 /* linki są w dolnej nawigacji */
+  .topbar nav a.bell{display:inline-flex}     /* dzwonek zostaje też na telefonie */
   .topbar .bal{padding-left:0;margin-left:auto;border-left:0}
   .topbar .bal b{font-size:13px}
   .brand{white-space:nowrap;font-size:16px;gap:6px}

@@ -12,6 +12,38 @@ $history = Engine::all("SELECT t.*, s.ticker FROM transactions t JOIN stocks s O
 $archive = Engine::all("SELECT o.*, s.ticker FROM orders o JOIN stocks s ON s.id=o.stock_id
                         WHERE o.user_id=? AND o.status<>'active' ORDER BY o.id DESC LIMIT 30", [$user['id']]);
 
+// --- zamknięte pozycje: zrealizowany wynik metodą średniego kosztu (odtworzenie z transakcji) ---
+$allTx = Engine::all("SELECT t.stock_id, t.qty, t.price, t.buyer_id, s.ticker, s.name
+                      FROM transactions t JOIN stocks s ON s.id=t.stock_id
+                      WHERE t.buyer_id=? OR t.seller_id=? ORDER BY t.id", [$user['id'], $user['id']]);
+$feeRate = Engine::feeRate();
+$closed = [];   // stock_id => [ticker, name, sold_qty, buy_value, sell_value_net, realized]
+$lots = [];     // stock_id => [qty, avg]
+foreach ($allTx as $t) {
+    $sid2 = (int) $t['stock_id']; $q2 = (int) $t['qty']; $p2 = (float) $t['price'];
+    if (!isset($lots[$sid2])) $lots[$sid2] = ['qty' => 0, 'avg' => 0.0];
+    $L = &$lots[$sid2];
+    if ((int) $t['buyer_id'] === (int) $user['id']) {
+        $L['avg'] = $L['qty'] + $q2 > 0 ? ($L['qty'] * $L['avg'] + $q2 * $p2) / ($L['qty'] + $q2) : 0;
+        $L['qty'] += $q2;
+    } else {
+        $sellQ = min($q2, $L['qty']);            // akcje spoza odtworzonej historii (np. pakiet startowy) pomijamy
+        if ($sellQ <= 0) continue;
+        $val = $sellQ * $p2;
+        $net = $val - round($val * $feeRate, 2);
+        if (!isset($closed[$sid2])) $closed[$sid2] = ['ticker' => $t['ticker'], 'name' => $t['name'], 'sold' => 0, 'cost' => 0.0, 'net' => 0.0];
+        $closed[$sid2]['sold'] += $sellQ;
+        $closed[$sid2]['cost'] += $sellQ * $L['avg'];
+        $closed[$sid2]['net']  += $net;
+        $L['qty'] -= $sellQ;
+    }
+    unset($L);
+}
+$realizedTotal = 0.0;
+foreach ($closed as &$c) { $c['pl'] = $c['net'] - $c['cost']; $realizedTotal += $c['pl']; }
+unset($c);
+uasort($closed, fn($a, $b) => $b['pl'] <=> $a['pl']);
+
 // --- wykres kapitału (equity_history pisane co tick przez silnik) ---
 $eqSeries = array_reverse(array_map('floatval', Engine::col("SELECT equity FROM equity_history WHERE user_id=? ORDER BY t DESC LIMIT 150", [$user['id']])));
 $eqSvg = '';
@@ -134,6 +166,29 @@ layout_header('Portfel', $user, 'portfolio');
     </table>
   </div>
 </div>
+
+<?php if ($closed): ?>
+<div class="panel" style="padding:0;overflow:hidden;margin-top:16px">
+  <div style="padding:14px 16px 0"><h2>Zamknięte pozycje <span class="muted" style="text-transform:none;letter-spacing:0">· na czym zarobiłeś, na czym straciłeś (po prowizji, bez dywidend)</span>
+    <span style="float:right" class="mono <?= $realizedTotal >= 0 ? 'up' : 'down' ?>"><?= ($realizedTotal >= 0 ? '+' : '') . money($realizedTotal) ?> PLN</span></h2></div>
+  <div class="tbl-scroll">
+    <table>
+      <thead><tr><th>Instrument</th><th class="num">Sprzedane</th><th class="num">Śr. koszt</th><th class="num">Śr. sprzedaż (netto)</th><th class="num">Zrealizowany wynik</th></tr></thead>
+      <tbody>
+      <?php foreach ($closed as $sid2 => $c): ?>
+        <tr class="rowlink" onclick="location='stock.php?id=<?= (int) $sid2 ?>'">
+          <td><div class="sym"><span class="tk"><?= h($c['ticker']) ?></span><span class="nm"><?= h($c['name']) ?></span></div></td>
+          <td class="num"><?= (int) $c['sold'] ?> szt.</td>
+          <td class="num"><?= money($c['cost'] / max(1, $c['sold'])) ?></td>
+          <td class="num"><?= money($c['net'] / max(1, $c['sold'])) ?></td>
+          <td class="num <?= $c['pl'] >= 0 ? 'up' : 'down' ?>"><b><?= ($c['pl'] >= 0 ? '+' : '') . money($c['pl']) ?></b></td>
+        </tr>
+      <?php endforeach; ?>
+      </tbody>
+    </table>
+  </div>
+</div>
+<?php endif; ?>
 
 <div class="panel" style="padding:0;overflow:hidden;margin-top:16px">
   <div style="padding:14px 16px 0"><h2>Historia transakcji</h2></div>

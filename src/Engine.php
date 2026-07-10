@@ -230,6 +230,20 @@ final class Engine
                 $pdo->prepare("UPDATE orders SET qty=?, status=? WHERE id=?")->execute([$b['qty'], $b['qty'] <= 0 ? 'filled' : 'active', $b['id']]);
                 $pdo->prepare("UPDATE orders SET qty=?, status=? WHERE id=?")->execute([$s['qty'], $s['qty'] <= 0 ? 'filled' : 'active', $s['id']]);
 
+                // powiadom człowieka, gdy jego CZEKAJĄCE zlecenie właśnie zrealizowało się w całości
+                // (tylko z crona; zlecenia z tej samej sekundy = natychmiastowe PKC/SL — te widać od razu)
+                if (php_sapi_name() === 'cli') {
+                    $nowTs = Db::now();
+                    foreach ([[$b, 'kupna'], [$s, 'sprzedaży']] as [$oo, $lbl]) {
+                        if ($oo['qty'] <= 0 && $oo['created_at'] !== $nowTs && in_array((int) $oo['user_id'], self::humanIds(), true)) {
+                            $tk = self::one("SELECT ticker FROM stocks WHERE id=?", [$stockId]);
+                            self::notify((int) $oo['user_id'], 'order',
+                                "✅ Zlecenie $lbl $tk zrealizowane w całości (" . (int) $oo['qty_init'] . " szt.)",
+                                'order.php?id=' . (int) $oo['id']);
+                        }
+                    }
+                }
+
                 // kurs = ostatnia cena transakcji + log
                 $pdo->prepare("UPDATE stocks SET price=? WHERE id=?")->execute([$p, $stockId]);
                 $pdo->prepare("INSERT INTO transactions (stock_id, buyer_id, seller_id, buy_order_id, sell_order_id, qty, price, created_at) VALUES (?,?,?,?,?,?,?,?)")
@@ -409,6 +423,11 @@ final class Engine
                     number_format((float) $o['cur'], 2, ',', ' '),
                     number_format((float) ($hitSL ? $o['sl_price'] : $o['tp_price']), 2, ',', ' '), $msg),
                 ['user_id' => (int) $o['user_id'], 'order_id' => (int) $o['id'], 'qty' => (int) $o['qty'], 'tx_from' => $txFrom, 'tx_to' => $txTo]);
+            if (in_array((int) $o['user_id'], self::humanIds(), true)) {
+                self::notify((int) $o['user_id'], 'stop',
+                    ($hitSL ? '🛡️ Stop-Loss ' : '💰 Take-Profit ') . $o['ticker'] . ' wyzwolony przy ' . number_format((float) $o['cur'], 2, ',', ' ') . ' PLN — ' . $msg,
+                    'order.php?id=' . (int) $o['id']);
+            }
         }
     }
 
@@ -478,6 +497,14 @@ final class Engine
                            VALUES (?,?,?,?,?,?,?,?,?,?,?)")
                 ->execute([$sid, $tick, $period, Db::now(), $rev, $cost, $profit, $eps, round((float) $s['last_eps'], 4), round($surprise, 2), $dps]);
 
+            // powiadom ludzkich akcjonariuszy o raporcie ich spółki
+            foreach (self::all("SELECT w.user_id FROM wallets w JOIN users u ON u.id=w.user_id
+                                WHERE w.stock_id=? AND u.is_bot=0 AND (w.qty + w.qty_reserved) > 0", [$sid]) as $hh) {
+                self::notify((int) $hh['user_id'], 'report',
+                    "📊 {$s['ticker']} opublikował raport: zysk " . number_format($profit, 0, ',', ' ') . " PLN, niespodzianka " . ($surprise >= 0 ? '+' : '') . number_format($surprise, 1, ',', ' ') . '%',
+                    "stock.php?id=$sid");
+            }
+
             // news / ESPI z raportu (do wyświetlenia; ciągły wpływ newsów = kolejny krok)
             $type = $surprise >= 3 ? 'POS' : ($surprise <= -3 ? 'NEG' : 'NEU');
             $head = sprintf('Wyniki %s: zysk %s PLN (niespodzianka %s%%)',
@@ -510,6 +537,9 @@ final class Engine
                 Log::write('info', 'engine', 'dividend.received',
                     "Dywidenda $ticker: +" . number_format($amt, 2, ',', ' ') . " PLN (" . (int) $h['n'] . " szt. × " . number_format($dps, 2, ',', ' ') . " PLN)",
                     ['user_id' => (int) $h['user_id']]);
+                self::notify((int) $h['user_id'], 'dividend',
+                    "💰 Dywidenda $ticker: +" . number_format($amt, 2, ',', ' ') . " PLN (" . (int) $h['n'] . " szt. × " . number_format($dps, 2, ',', ' ') . ")",
+                    "stock.php?id=$sid");
             }
         }
         // odcięcie dywidendy (kurs, fundament i otwarcie dnia w dół o DPS)
@@ -651,7 +681,12 @@ final class Engine
         Db::pdo()->exec("UPDATE stocks SET day_open_price = price");
 
         $expired = self::all("SELECT * FROM orders WHERE status='active' AND expires_session IS NOT NULL AND expires_session < ?", [$n]);
-        foreach ($expired as $o) self::release($o);
+        foreach ($expired as $o) {
+            self::release($o);
+            if (in_array((int) $o['user_id'], self::humanIds(), true)) {
+                self::notify((int) $o['user_id'], 'order', '⌛ Zlecenie #' . (int) $o['id'] . ' wygasło z końcem sesji — rezerwacja wróciła.', 'order.php?id=' . (int) $o['id']);
+            }
+        }
         if ($expired) {
             Db::pdo()->prepare("UPDATE orders SET status='expired' WHERE status='active' AND expires_session IS NOT NULL AND expires_session < ?")->execute([$n]);
             Log::write('info', 'engine', 'orders.expired', 'wygasło zleceń sesyjnych: ' . count($expired), ['session' => $n]);
@@ -674,6 +709,7 @@ final class Engine
             $equity = (float) $p['cash'] + (float) $p['cash_reserved'] + $stockVal;
             if ($equity >= $target) {
                 Db::pdo()->prepare("UPDATE users SET goal_session=? WHERE id=?")->execute([$session, $p['id']]);
+                self::notify((int) $p['id'], 'goal', '🏆 Cel gry osiągnięty! Twój kapitał przekroczył ' . number_format($target, 0, ',', ' ') . ' PLN w sesji #' . $session . '.', 'portfolio.php');
                 Db::pdo()->prepare("INSERT INTO news (headline,body,type,scope,target_id,is_espi,impact_strength,publish_tick,expire_tick,published_at)
                                     VALUES (?,?,'POS','MARKET',NULL,0,0,?,?,?)")
                     ->execute(['🏆 ' . $p['username'] . ' osiągnął cel gry: ' . number_format($target, 0, ',', ' ') . ' PLN!',
@@ -755,6 +791,31 @@ final class Engine
             $ag = ($ag * ($period - 1) + $cg) / $period; $al = ($al * ($period - 1) + $cl) / $period;
         }
         return $al == 0 ? 100 : 100 - 100 / (1 + $ag / $al);
+    }
+
+    /* ---------- Powiadomienia (dzwonek gracza) ---------- */
+
+    private static ?array $humanIds = null;
+
+    /** Id ludzkich kont (gracze/admin/qa) — memo na czas żądania/ticka. */
+    public static function humanIds(): array
+    {
+        if (self::$humanIds === null) {
+            self::$humanIds = array_map('intval', self::col("SELECT id FROM users WHERE is_bot = 0"));
+        }
+        return self::$humanIds;
+    }
+
+    /** Dodaj powiadomienie dla gracza (+ przytnij do ~50 najnowszych na gracza). */
+    public static function notify(int $userId, string $type, string $message, string $link = ''): void
+    {
+        try {
+            $pdo = Db::pdo();
+            $pdo->prepare("INSERT INTO notifications (user_id, type, message, link, created_at) VALUES (?,?,?,?,?)")
+                ->execute([$userId, $type, mb_substr($message, 0, 250), $link ?: null, Db::now()]);
+            $edge = self::one("SELECT id FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 1 OFFSET 50", [$userId]);
+            if ($edge) $pdo->prepare("DELETE FROM notifications WHERE user_id=? AND id <= ?")->execute([$userId, $edge]);
+        } catch (\Throwable $e) { /* powiadomienia nie mogą wywalić silnika */ }
     }
 
     /* ---------- Małe helpery bazodanowe ---------- */

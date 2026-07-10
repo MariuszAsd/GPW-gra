@@ -41,15 +41,21 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
     echo "<title>" . h($title) . " · GPW-gra</title><link rel='stylesheet' href='assets/app.css'></head><body>";
     echo "<header class='topbar'><a class='brand' href='market.php'><span class='mk'>G</span>GPW<span>-gra</span></a><nav>";
     if ($user) {
+        $unread = (int) Engine::one("SELECT COUNT(*) FROM notifications WHERE user_id=? AND read_at IS NULL", [$user['id']]);
         echo "<a class='" . trim($act('market')) . "' href='market.php'>Rynek</a>";
         echo "<a class='" . trim($act('ranking')) . "' href='ranking.php'>Ranking</a>";
         echo "<a class='" . trim($act('portfolio')) . "' href='portfolio.php'>Portfel</a>";
         echo "<a class='" . trim($act('help')) . "' href='pomoc.php'>Pomoc</a>";
         if ($isAdmin) echo "<a class='gm" . $act('gm') . "' href='gm.php'>GM</a>";
+        echo "<a class='bell" . $act('notif') . "' href='powiadomienia.php' title='Powiadomienia'>🔔<b class='bell-n" . ($unread > 0 ? '' : ' off') . "' data-bell>" . $unread . "</b></a>";
         echo "<span class='bal'><b>" . money($user['cash']) . " PLN</b><small>zamrożone +" . money($user['cash_reserved']) . "</small></span>";
         echo "<a class='hide-sm' href='logout.php' style='color:var(--faint)'>" . h($user['username']) . " ⏻</a>";
     }
     echo "</nav></header>";
+    if ($user) {
+        echo "<script>setInterval(async()=>{try{const j=await(await fetch('api_notifications.php')).json();" .
+             "const b=document.querySelector('[data-bell]');if(b&&j.ok){b.textContent=j.unread;b.classList.toggle('off',j.unread===0);}}catch(e){}},15000);</script>";
+    }
     if ($user) {
         echo "<nav class='bottomnav'>";
         echo "<a class='" . trim($act('market')) . "' href='market.php'><span class='ic'>▤</span>Rynek</a>";

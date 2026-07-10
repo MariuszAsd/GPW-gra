@@ -101,6 +101,19 @@ final class Migrator
                     WHEN growth_potential >= 0.025 THEN ROUND(0.05 + (id % 3) * 0.08, 2)
                     ELSE ROUND(0.30 + (id % 4) * 0.10, 2) END",
             ],
+            // v12: powiadomienia w grze (dzwonek: dywidendy, SL/TP, raporty, realizacje zleceń)
+            12 => [
+                "CREATE TABLE notifications (
+                    id " . (Db::driver() === 'mysql' ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT') . ",
+                    user_id INT NOT NULL,
+                    type VARCHAR(20) NOT NULL DEFAULT 'system',
+                    message VARCHAR(255) NOT NULL,
+                    link VARCHAR(100) NULL,
+                    created_at VARCHAR(19) NOT NULL,
+                    read_at VARCHAR(19) NULL
+                )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
+                "CREATE INDEX ix_notif ON notifications (user_id, read_at)",
+            ],
         ];
     }
 
