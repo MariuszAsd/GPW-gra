@@ -16,6 +16,12 @@ function money($v): string { return number_format((float) $v, 2, ',', ' '); }
 function flash(string $msg, string $type = 'ok'): void { $_SESSION['flash'] = ['m' => $msg, 't' => $type]; }
 function redirect(string $u): void { header("Location: $u"); exit; }
 
+/** Dymek pomocy: znak zapytania z wyjaśnieniem po najechaniu/tapnięciu + link do Pomocy. */
+function tip(string $text, string $anchor = ''): string {
+    $more = $anchor !== '' ? " <a href='pomoc.php#" . h($anchor) . "'>Dowiedz się więcej →</a>" : '';
+    return "<span class='tip' tabindex='0'>?<span class='tipbox'>" . h($text) . $more . "</span></span>";
+}
+
 function current_user(): ?array {
     if (empty($_SESSION['uid'])) return null;
     return Engine::row("SELECT id, username, role, cash, cash_reserved FROM users WHERE id=?", [$_SESSION['uid']]);
@@ -38,6 +44,7 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
         echo "<a class='" . trim($act('market')) . "' href='market.php'>Rynek</a>";
         echo "<a class='" . trim($act('ranking')) . "' href='ranking.php'>Ranking</a>";
         echo "<a class='" . trim($act('portfolio')) . "' href='portfolio.php'>Portfel</a>";
+        echo "<a class='" . trim($act('help')) . "' href='pomoc.php'>Pomoc</a>";
         if ($isAdmin) echo "<a class='gm" . $act('gm') . "' href='gm.php'>GM</a>";
         echo "<span class='bal'><b>" . money($user['cash']) . " PLN</b><small>zamrożone +" . money($user['cash_reserved']) . "</small></span>";
         echo "<a class='hide-sm' href='logout.php' style='color:var(--faint)'>" . h($user['username']) . " ⏻</a>";
@@ -48,6 +55,7 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
         echo "<a class='" . trim($act('market')) . "' href='market.php'><span class='ic'>▤</span>Rynek</a>";
         echo "<a class='" . trim($act('ranking')) . "' href='ranking.php'><span class='ic'>🏆</span>Ranking</a>";
         echo "<a class='" . trim($act('portfolio')) . "' href='portfolio.php'><span class='ic'>◈</span>Portfel</a>";
+        echo "<a class='" . trim($act('help')) . "' href='pomoc.php'><span class='ic'>❓</span>Pomoc</a>";
         if ($isAdmin) echo "<a class='" . trim($act('gm')) . "' href='gm.php'><span class='ic'>⚙</span>GM</a>";
         echo "<a href='logout.php'><span class='ic'>⏻</span>Wyjście</a>";
         echo "</nav>";

@@ -232,8 +232,8 @@ final class Engine
 
                 // kurs = ostatnia cena transakcji + log
                 $pdo->prepare("UPDATE stocks SET price=? WHERE id=?")->execute([$p, $stockId]);
-                $pdo->prepare("INSERT INTO transactions (stock_id, buyer_id, seller_id, qty, price, created_at) VALUES (?,?,?,?,?,?)")
-                    ->execute([$stockId, $b['user_id'], $s['user_id'], $q, $p, Db::now()]);
+                $pdo->prepare("INSERT INTO transactions (stock_id, buyer_id, seller_id, buy_order_id, sell_order_id, qty, price, created_at) VALUES (?,?,?,?,?,?,?,?)")
+                    ->execute([$stockId, $b['user_id'], $s['user_id'], $b['id'], $s['id'], $q, $p, Db::now()]);
                 $tickTrades[$stockId][] = ['p' => $p, 'q' => $q];
                 $trades++;
                 if ($b['qty'] <= 0) break;
@@ -401,12 +401,14 @@ final class Engine
             // nie po sztywnym limicie pod kursem — gracz dostaje to, co stoi w bidach
             self::release($o);
             $pdo->prepare("UPDATE orders SET status='triggered' WHERE id=?")->execute([$o['id']]);
+            $txFrom = (int) (self::one("SELECT MAX(id) FROM transactions") ?: 0);
             [$ok, $msg] = self::marketOrder((int) $o['user_id'], (int) $o['stock_id'], 'sell', (int) $o['qty']);
+            $txTo = (int) (self::one("SELECT MAX(id) FROM transactions") ?: 0);
             Log::write($ok ? 'info' : 'warn', 'engine', $hitSL ? 'stops.sl' : 'stops.tp',
                 sprintf('%s %s: kurs %s przekroczył próg %s — %s', $hitSL ? 'Stop-Loss' : 'Take-Profit', $o['ticker'],
                     number_format((float) $o['cur'], 2, ',', ' '),
                     number_format((float) ($hitSL ? $o['sl_price'] : $o['tp_price']), 2, ',', ' '), $msg),
-                ['user_id' => (int) $o['user_id'], 'order_id' => (int) $o['id'], 'qty' => (int) $o['qty']]);
+                ['user_id' => (int) $o['user_id'], 'order_id' => (int) $o['id'], 'qty' => (int) $o['qty'], 'tx_from' => $txFrom, 'tx_to' => $txTo]);
         }
     }
 

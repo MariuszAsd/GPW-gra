@@ -78,7 +78,7 @@ final class Qa
         // 2) przegląd stron (200 + treść + brak błędów PHP)
         $stock = Engine::row("SELECT id, price FROM stocks ORDER BY price ASC LIMIT 1");   // najtańsza spółka do testów
         $sid = (int) $stock['id'];
-        foreach ([['/market.php', 'Rynek'], ['/ranking.php', 'Ranking'], ['/portfolio.php', 'Portfel'], ["/stock.php?id=$sid", 'Zlecenie']] as [$path, $needle]) {
+        foreach ([['/market.php', 'Rynek'], ['/ranking.php', 'Ranking'], ['/portfolio.php', 'Portfel'], ['/pomoc.php', 'Stop-Loss'], ["/stock.php?id=$sid", 'Zlecenie']] as [$path, $needle]) {
             [$c, $b] = $this->http('GET', $path);
             $this->check($c === 200 && str_contains($b, $needle), "page.$path", "code=$c, brak '$needle'");
             $this->check(!preg_match('/Fatal error|Parse error|Uncaught|Warning:/', $b), "php.$path", 'strona zawiera błąd PHP');
@@ -97,6 +97,9 @@ final class Qa
             $this->moneyEq($cash0 - $this->cash($uid), $expect, 'escrow.reserve', 'rezerwacja gotówki ≠ wartość zlecenia');
             $this->http('POST', '/cancel_order.php', ['order_id' => (int) $order['id']]);
             $this->moneyEq($this->cash($uid), $cash0, 'escrow.refund', 'po anulowaniu gotówka nie wróciła co do grosza');
+            // szczegóły zlecenia (oś czasu) działają
+            [$c, $b] = $this->http('GET', '/order.php?id=' . (int) $order['id']);
+            $this->check($c === 200 && str_contains($b, 'Oś czasu'), 'page.order_detail', "order.php: code=$c lub brak osi czasu");
         }
 
         // 4) zakup z realizacją: cena transakcji zdjęta z gotówki dokładnie

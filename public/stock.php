@@ -146,9 +146,10 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
         <button type="button" class="buy on" id="tb-buy">KUP</button>
         <button type="button" class="sell" id="tb-sell">SPRZEDAJ</button>
       </div>
-      <div class="seg" style="margin-top:0">
+      <div class="seg" style="margin-top:0;align-items:center">
         <button type="button" class="on" id="tt-limit" title="Zlecenie z limitem ceny — czeka w arkuszu">LIMIT</button>
         <button type="button" id="tt-pkc" title="Po każdej cenie — kupuje/sprzedaje natychmiast z arkusza">PKC</button>
+        <?= tip('LIMIT: podajesz swoją cenę i czekasz na realizację. PKC: bierzesz od razu to, co jest w arkuszu.', 'limit') ?>
       </div>
       <label>Ilość <span class="muted">(masz: <?= $owned ?> szt.)</span></label>
       <input type="number" name="qty" id="qty" min="1" value="10" required>
@@ -157,7 +158,7 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
         <input type="number" step="0.01" name="price" id="price" value="<?= number_format($s['price'], 2, '.', '') ?>" required>
       </div>
       <div id="f-validity">
-        <label>Ważność zlecenia</label>
+        <label>Ważność zlecenia<?= tip('Bezterminowe czeka aż je anulujesz. Sesyjne samo znika z końcem sesji, a rezerwacja wraca.', 'waznosc') ?></label>
         <select name="validity">
           <option value="gtc">Bezterminowe</option>
           <option value="session">Do końca sesji</option>
@@ -166,8 +167,8 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
       <div class="summary"><span id="val-label">Wartość zlecenia</span><b id="val">—</b></div>
       <div id="f-sltp">
         <div class="adv">
-          <div><label>Stop-Loss</label><input type="number" step="0.01" name="sl_price" placeholder="—"></div>
-          <div><label>Take-Profit</label><input type="number" step="0.01" name="tp_price" placeholder="—"></div>
+          <div><label>Stop-Loss<?= tip('Automatyczny hamulec strat: gdy kurs SPADNIE do progu, gra sama sprzeda ten pakiet.', 'sl') ?></label><input type="number" step="0.01" name="sl_price" placeholder="—"></div>
+          <div><label>Take-Profit<?= tip('Automatyczna kasa zysku: gdy kurs WZROŚNIE do progu, gra sama sprzeda ten pakiet.', 'tp') ?></label><input type="number" step="0.01" name="tp_price" placeholder="—"></div>
         </div>
         <p class="muted" style="font-size:11px;margin:6px 0 0">Utworzy zlecenie obronne na kupowany pakiet — widoczne i anulowalne w Portfelu.</p>
       </div>

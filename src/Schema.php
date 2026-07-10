@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 9;   // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 10;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -112,6 +112,8 @@ final class Schema
                 stock_id INT NOT NULL,
                 buyer_id INT NOT NULL,
                 seller_id INT NOT NULL,
+                buy_order_id  INT NULL,   -- powiązanie ze zleceniem (szczegóły/oś czasu zlecenia)
+                sell_order_id INT NULL,
                 qty   INT NOT NULL,
                 price $money NOT NULL,
                 created_at VARCHAR(19) NOT NULL
@@ -225,6 +227,8 @@ final class Schema
             "CREATE INDEX ix_logs ON logs (level, id)",
             "CREATE INDEX ix_index_t ON index_history (t)",
             "CREATE INDEX ix_equity ON equity_history (user_id, t)",
+            "CREATE INDEX ix_tx_buyorder ON transactions (buy_order_id)",
+            "CREATE INDEX ix_tx_sellorder ON transactions (sell_order_id)",
         ];
     }
 }

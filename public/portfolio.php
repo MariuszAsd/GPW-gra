@@ -86,7 +86,7 @@ layout_header('Portfel', $user, 'portfolio');
   <div style="padding:14px 16px 0"><h2>Pozycje</h2></div>
   <div class="tbl-scroll">
     <table>
-      <thead><tr><th>Instrument</th><th class="num">Ilość</th><th class="num">Śr. cena</th><th class="num">Kurs</th><th class="num">Wynik</th><th>SL / TP</th></tr></thead>
+      <thead><tr><th>Instrument</th><th class="num">Ilość</th><th class="num">Śr. cena</th><th class="num">Kurs</th><th class="num">Wartość</th><th class="num">Wynik</th><th>SL / TP<?= tip('Zlecenie obronne: podaj ilość i próg — gra sama sprzeda pakiet, gdy kurs spadnie do SL (ucina stratę) lub wzrośnie do TP (zgarnia zysk).', 'sl') ?></th></tr></thead>
       <tbody>
       <?php foreach ($pos as $p): $q = $p['qty'] + $p['qty_reserved']; $ppl = $q * ($p['price'] - $p['avg_price']); ?>
         <tr>
@@ -95,6 +95,7 @@ layout_header('Portfel', $user, 'portfolio');
           <td class="num"><?= (int) $q ?></td>
           <td class="num"><?= money($p['avg_price']) ?></td>
           <td class="num"><?= money($p['price']) ?></td>
+          <td class="num"><?= money($q * $p['price']) ?></td>
           <td class="num <?= $ppl >= 0 ? 'up' : 'down' ?>"><?= ($ppl >= 0 ? '+' : '') . money($ppl) ?></td>
           <td>
             <form method="post" action="set_sltp.php" style="display:flex;gap:6px;align-items:center" title="Zlecenie obronne: sprzeda podaną ilość, gdy kurs spadnie do SL lub wzrośnie do TP">
@@ -106,27 +107,27 @@ layout_header('Portfel', $user, 'portfolio');
             </form>
           </td>
         </tr>
-      <?php endforeach; if (!$pos) echo "<tr><td class='muted' colspan=6 style='padding:20px'>Brak pozycji — kup coś na Rynku.</td></tr>"; ?>
+      <?php endforeach; if (!$pos) echo "<tr><td class='muted' colspan=7 style='padding:20px'>Brak pozycji — kup coś na Rynku.</td></tr>"; ?>
       </tbody>
     </table>
   </div>
 </div>
 
 <div class="panel" style="padding:0;overflow:hidden;margin-top:16px">
-  <div style="padding:14px 16px 0"><h2>Aktywne zlecenia</h2></div>
+  <div style="padding:14px 16px 0"><h2>Aktywne zlecenia <span class="muted" style="text-transform:none;letter-spacing:0">· kliknij wiersz, aby zobaczyć szczegóły</span></h2></div>
   <div class="tbl-scroll">
     <table>
       <thead><tr><th>Instrument</th><th>Typ</th><th class="num">Ilość</th><th class="num">Cena</th><th>Ważność</th><th></th></tr></thead>
       <tbody>
       <?php foreach ($orders as $o): $isStop = $o['status'] === 'pending'; ?>
-        <tr>
+        <tr class="rowlink" onclick="location='order.php?id=<?= (int) $o['id'] ?>'" title="Kliknij — szczegóły zlecenia">
           <td class="tk"><?= h($o['ticker']) ?></td>
           <td><?php if ($isStop): ?><span class="chg" style="color:#ffd27a;background:rgba(255,210,122,.12)">OBRONNE</span>
               <?php else: ?><span class="chg <?= $o['side'] === 'buy' ? 'p' : 'n' ?>"><?= $o['side'] === 'buy' ? 'KUPNO' : 'SPRZEDAŻ' ?></span><?php endif; ?></td>
           <td class="num"><?= (int) $o['qty'] ?></td>
           <td class="num"><?php if ($isStop): ?><span class="mono" style="font-size:12px"><?= $o['sl_price'] !== null ? 'SL ' . money($o['sl_price']) : '' ?><?= $o['sl_price'] !== null && $o['tp_price'] !== null ? ' · ' : '' ?><?= $o['tp_price'] !== null ? 'TP ' . money($o['tp_price']) : '' ?></span><?php else: ?><?= money($o['price']) ?><?php endif; ?></td>
           <td class="muted"><?= $isStop ? 'do wyzwolenia' : ($o['expires_session'] !== null ? 'sesja #' . (int) $o['expires_session'] : 'bezterm.') ?></td>
-          <td style="text-align:right"><form method="post" action="cancel_order.php"><input type="hidden" name="order_id" value="<?= (int) $o['id'] ?>"><button class="btn sm ghost">Anuluj</button></form></td>
+          <td style="text-align:right"><form method="post" action="cancel_order.php" onclick="event.stopPropagation()"><input type="hidden" name="order_id" value="<?= (int) $o['id'] ?>"><button class="btn sm ghost">Anuluj</button></form></td>
         </tr>
       <?php endforeach; if (!$orders) echo "<tr><td class='muted' colspan=6 style='padding:20px'>Brak aktywnych zleceń.</td></tr>"; ?>
       </tbody>
@@ -140,8 +141,9 @@ layout_header('Portfel', $user, 'portfolio');
     <table>
       <thead><tr><th>Czas</th><th>Instrument</th><th>Strona</th><th class="num">Ilość</th><th class="num">Kurs</th><th class="num">Wartość</th></tr></thead>
       <tbody>
-      <?php foreach ($history as $t): $isBuy = (int) $t['buyer_id'] === (int) $user['id']; $v = $t['qty'] * $t['price']; ?>
-        <tr>
+      <?php foreach ($history as $t): $isBuy = (int) $t['buyer_id'] === (int) $user['id']; $v = $t['qty'] * $t['price'];
+            $myOrder = $isBuy ? ($t['buy_order_id'] ?? null) : ($t['sell_order_id'] ?? null); ?>
+        <tr<?= $myOrder ? " class='rowlink' onclick=\"location='order.php?id=" . (int) $myOrder . "'\" title='Kliknij — szczegóły zlecenia'" : '' ?>>
           <td class="muted mono"><?= h(substr($t['created_at'], 5, 11)) ?></td>
           <td class="tk"><?= h($t['ticker']) ?></td>
           <td><span class="chg <?= $isBuy ? 'p' : 'n' ?>"><?= $isBuy ? 'KUPNO' : 'SPRZEDAŻ' ?></span></td>
@@ -156,7 +158,7 @@ layout_header('Portfel', $user, 'portfolio');
 </div>
 
 <div class="panel" style="padding:0;overflow:hidden;margin-top:16px">
-  <div style="padding:14px 16px 0"><h2>Archiwum zleceń</h2></div>
+  <div style="padding:14px 16px 0"><h2>Archiwum zleceń <span class="muted" style="text-transform:none;letter-spacing:0">· kliknij wiersz — pełna oś czasu: co, kiedy i dlaczego</span></h2></div>
   <div class="tbl-scroll">
     <table>
       <thead><tr><th>Czas</th><th>Instrument</th><th>Strona</th><th class="num">Zrealizowano</th><th class="num">Cena limit</th><th>Status</th></tr></thead>
@@ -169,7 +171,7 @@ layout_header('Portfel', $user, 'portfolio');
           $init = (int) $o['qty_init']; $done = $init > 0 ? $init - (int) $o['qty'] : null;
           if ($done !== null && $done > 0 && $o['status'] !== 'filled' && $o['status'] !== 'triggered') { $lbl .= ' (część zrealizowana)'; $cls = 'soft'; }
       ?>
-        <tr>
+        <tr class="rowlink" onclick="location='order.php?id=<?= (int) $o['id'] ?>'" title="Kliknij — szczegóły i oś czasu zlecenia">
           <td class="muted mono"><?= h(substr($o['created_at'], 5, 11)) ?></td>
           <td class="tk"><?= h($o['ticker']) ?></td>
           <td><span class="chg <?= $o['side'] === 'buy' ? 'p' : 'n' ?>"><?= $o['side'] === 'buy' ? 'KUPNO' : 'SPRZEDAŻ' ?></span></td>

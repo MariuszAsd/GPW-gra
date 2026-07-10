@@ -1,0 +1,111 @@
+<?php
+require __DIR__ . '/_boot.php';
+$user = require_login();
+layout_header('Pomoc', $user, 'help');
+?>
+<div class="page-head"><h1>Jak grać — proste wyjaśnienia</h1></div>
+
+<div class="help-toc">
+  <a href="#arkusz">Arkusz zleceń</a>
+  <a href="#limit">Zlecenie LIMIT</a>
+  <a href="#pkc">Zlecenie PKC</a>
+  <a href="#waznosc">Ważność zlecenia</a>
+  <a href="#sl">Stop-Loss</a>
+  <a href="#tp">Take-Profit</a>
+  <a href="#prowizja">Prowizja</a>
+  <a href="#cel">Cel gry</a>
+</div>
+
+<div class="panel help-sec" id="arkusz">
+  <h3>📖 Arkusz zleceń — gdzie spotykają się kupujący i sprzedający</h3>
+  <p>Giełda to lista ofert. Po lewej <b class="up">KUPNO (bid)</b> — ile ktoś chce zapłacić.
+     Po prawej <b class="down">SPRZEDAŻ (ask)</b> — za ile ktoś chce sprzedać.
+     Transakcja następuje, gdy te ceny się spotkają. Różnica między najlepszym kupnem a sprzedażą to <b>spread</b>.</p>
+  <svg class="help-svg" viewBox="0 0 560 150">
+    <text x="120" y="22" fill="var(--up)" font-size="13" font-weight="bold" text-anchor="middle">KUPNO (bid)</text>
+    <text x="440" y="22" fill="var(--down)" font-size="13" font-weight="bold" text-anchor="middle">SPRZEDAŻ (ask)</text>
+    <rect x="30" y="34" width="180" height="24" rx="5" fill="rgba(22,199,132,.15)"/><text x="45" y="51" fill="var(--up)" font-size="13" font-family="monospace">99,50</text><text x="195" y="51" fill="var(--soft)" font-size="12" font-family="monospace" text-anchor="end">40 szt.</text>
+    <rect x="30" y="64" width="150" height="24" rx="5" fill="rgba(22,199,132,.10)"/><text x="45" y="81" fill="var(--up)" font-size="13" font-family="monospace">99,00</text><text x="165" y="81" fill="var(--soft)" font-size="12" font-family="monospace" text-anchor="end">25 szt.</text>
+    <rect x="350" y="34" width="180" height="24" rx="5" fill="rgba(234,57,67,.15)"/><text x="365" y="51" fill="var(--down)" font-size="13" font-family="monospace">100,50</text><text x="515" y="51" fill="var(--soft)" font-size="12" font-family="monospace" text-anchor="end">35 szt.</text>
+    <rect x="350" y="64" width="150" height="24" rx="5" fill="rgba(234,57,67,.10)"/><text x="365" y="81" fill="var(--down)" font-size="13" font-family="monospace">101,00</text><text x="485" y="81" fill="var(--soft)" font-size="12" font-family="monospace" text-anchor="end">20 szt.</text>
+    <path d="M 218 46 L 342 46" stroke="var(--line2)" stroke-width="1.5" stroke-dasharray="4 4"/>
+    <text x="280" y="40" fill="var(--faint)" font-size="11" text-anchor="middle" class="pulse">spread 1,00</text>
+    <text x="280" y="125" fill="var(--soft)" font-size="12" text-anchor="middle">kupisz od ręki po 100,50 · sprzedasz od ręki po 99,50</text>
+  </svg>
+</div>
+
+<div class="panel help-sec" id="limit">
+  <h3>🎯 Zlecenie LIMIT — „kupię/sprzedam po mojej cenie albo lepiej"</h3>
+  <p>Podajesz cenę graniczną. <b>Kupno:</b> zapłacisz najwyżej tyle. <b>Sprzedaż:</b> dostaniesz co najmniej tyle.
+     Jeśli w arkuszu nie ma pasującej oferty, zlecenie <b>czeka</b>, aż ktoś przyjdzie z drugiej strony.</p>
+  <p>Gdy Twoje czekające zlecenie zostanie zrealizowane, transakcja idzie <b>po Twojej cenie</b> —
+     tak działa prawdziwa giełda: kto czeka w arkuszu, handluje po swojej cenie.</p>
+  <div class="help-ex">💡 Przykład: kurs 100. Wystawiasz kupno z limitem 98. Nic się nie dzieje, dopóki ktoś nie
+     zechce sprzedać po 98 lub taniej. Wtedy kupujesz dokładnie po 98.</div>
+</div>
+
+<div class="panel help-sec" id="pkc">
+  <h3>⚡ Zlecenie PKC — „po każdej cenie, byle teraz"</h3>
+  <p>Nie podajesz ceny — bierzesz to, co <b>stoi w arkuszu</b>, natychmiast. Kupno zgarnia najtańsze oferty
+     sprzedaży (od najlepszej w górę), sprzedaż trafia w najwyższe oferty kupna (od najlepszej w dół).</p>
+  <p><b>Uwaga:</b> przy dużej ilości „zjadasz" kolejne poziomy cen — średnia może być gorsza niż kurs na ekranie.
+     To się nazywa <b>poślizg</b>. Na spokojnym rynku przy małych ilościach jest pomijalny.</p>
+  <div class="help-ex">💡 PKC = szybkość kosztem ceny. LIMIT = cena kosztem czekania.</div>
+</div>
+
+<div class="panel help-sec" id="waznosc">
+  <h3>⏳ Ważność zlecenia</h3>
+  <p><b>Bezterminowe</b> — czeka w arkuszu, aż je zrealizujesz lub anulujesz.
+     <b>Do końca sesji</b> — jeśli do końca bieżącej sesji się nie zrealizuje, samo zniknie,
+     a zarezerwowana gotówka/akcje wrócą do Ciebie.</p>
+</div>
+
+<div class="panel help-sec" id="sl">
+  <h3>🛡️ Stop-Loss (SL) — automatyczny hamulec strat</h3>
+  <p>Ustawiasz próg <b>poniżej</b> obecnego kursu. Jeśli kurs spadnie do progu, gra <b>sama sprzedaje</b>
+     wskazaną ilość akcji po najlepszych cenach z arkusza. Chroni Cię, gdy nie patrzysz na notowania.</p>
+  <svg class="help-svg" viewBox="0 0 560 170">
+    <line x1="20" y1="140" x2="540" y2="140" stroke="var(--line)"/>
+    <polyline points="30,60 90,52 150,66 210,58 270,72 330,64" fill="none" stroke="var(--up)" stroke-width="2"/>
+    <g class="drop"><polyline points="330,64 390,80 450,96" fill="none" stroke="var(--down)" stroke-width="2"/>
+      <circle cx="450" cy="96" r="5" fill="var(--down)"/></g>
+    <line x1="20" y1="110" x2="540" y2="110" stroke="#ffd27a" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <text x="28" y="104" fill="#ffd27a" font-size="12" font-weight="bold">próg Stop-Loss</text>
+    <text x="470" y="128" fill="var(--down)" font-size="12" class="pulse">SPRZEDAŻ! 🛡️</text>
+    <text x="280" y="160" fill="var(--soft)" font-size="12" text-anchor="middle">kurs spada do progu → gra sprzedaje za Ciebie → strata ucięta</text>
+  </svg>
+  <div class="help-ex">💡 Kupiłeś po 100 i nie chcesz stracić więcej niż ~5%? Ustaw SL na 95.
+     W grze SL obejmuje <b>konkretny pakiet</b> (np. 10 szt.) — resztę akcji zostawia w spokoju.</div>
+</div>
+
+<div class="panel help-sec" id="tp">
+  <h3>💰 Take-Profit (TP) — automatyczna kasa zysku</h3>
+  <p>Lustrzane odbicie SL: próg <b>powyżej</b> kursu. Gdy kurs urośnie do progu, gra <b>sama sprzedaje</b>
+     i zamienia papierowy zysk na gotówkę — zanim rynek zdąży go zabrać.</p>
+  <svg class="help-svg" viewBox="0 0 560 150">
+    <line x1="20" y1="120" x2="540" y2="120" stroke="var(--line)"/>
+    <polyline points="30,100 110,92 190,96 270,80 350,66 430,50" fill="none" stroke="var(--up)" stroke-width="2"/>
+    <circle cx="430" cy="50" r="5" fill="var(--up)" class="pulse"/>
+    <line x1="20" y1="50" x2="540" y2="50" stroke="var(--up)" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <text x="28" y="44" fill="var(--up)" font-size="12" font-weight="bold">próg Take-Profit</text>
+    <text x="450" y="44" fill="var(--up)" font-size="12">SPRZEDAŻ! 💰</text>
+    <text x="280" y="142" fill="var(--soft)" font-size="12" text-anchor="middle">kurs rośnie do progu → zysk trafia do kieszeni automatycznie</text>
+  </svg>
+  <div class="help-ex">💡 SL i TP możesz ustawić razem na tym samym pakiecie — co pierwsze się wyzwoli, to sprzedaje.
+     Oba widzisz w Portfelu jako zlecenie <b>OBRONNE</b> i możesz je anulować.</div>
+</div>
+
+<div class="panel help-sec" id="prowizja">
+  <h3>🧾 Prowizja</h3>
+  <p>Przy <b>sprzedaży</b> akcji giełda pobiera prowizję (<?php $f = Engine::one("SELECT v FROM game_state WHERE k='fee_rate'"); echo rtrim(rtrim(number_format($f === false || $f === null ? 0.5 : (float) $f, 2, ',', ''), '0'), ','); ?>% wartości transakcji).
+     Kupno jest bez opłat. Wniosek: częste wchodzenie i wychodzenie kosztuje — każda rundka to prowizja.</p>
+</div>
+
+<div class="panel help-sec" id="cel">
+  <h3>🏆 Cel gry</h3>
+  <p>Zaczynasz ze 100 000 PLN. Twoim zadaniem jest zbudować <b>1 000 000 PLN</b> w limicie sesji
+     (patrz pasek postępu w Portfelu). Sesja to „dzień giełdowy" gry — kursy żyją cały czas,
+     spółki publikują <b>raporty miesięczne</b>, pojawiają się komunikaty <b>ESPI</b>, a sektorami rządzą trendy.
+     Czytaj wiadomości i raporty na podstronach spółek — tam często widać, czemu kurs się rusza.</p>
+</div>
+<?php layout_footer();

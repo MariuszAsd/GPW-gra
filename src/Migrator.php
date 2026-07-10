@@ -85,6 +85,13 @@ final class Migrator
                  WHERE (sl_price IS NOT NULL OR tp_price IS NOT NULL) AND qty > 0",
                 "UPDATE wallets SET sl_price = NULL, tp_price = NULL WHERE sl_price IS NOT NULL OR tp_price IS NOT NULL",
             ],
+            // v10: powiązanie transakcji ze zleceniami (strona szczegółów zlecenia z osią czasu)
+            10 => [
+                "ALTER TABLE transactions ADD COLUMN buy_order_id INT NULL",
+                "ALTER TABLE transactions ADD COLUMN sell_order_id INT NULL",
+                "CREATE INDEX ix_tx_buyorder ON transactions (buy_order_id)",
+                "CREATE INDEX ix_tx_sellorder ON transactions (sell_order_id)",
+            ],
         ];
     }
 
