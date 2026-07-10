@@ -181,8 +181,10 @@ final class Engine
                     $short = self::sma(array_slice($c, -max(3, (int) round($hor / 4))));
                     $long  = self::sma(array_slice($c, -$hor));
                     $th = 0.01 / $sens;
-                    if ($short > $long * (1 + $th) && $have < 400 * $risk)  self::place($uid, $sid, 'buy',  max(1, (int) round(50 * $risk * $act)), round($price * 1.02, 2));
-                    elseif ($short < $long * (1 - $th) && $have > 0)         self::place($uid, $sid, 'sell', min((int) round(100 * $risk * $act) + 1, $have), round($price * 0.98, 2));
+                    // kalibracja: ciasne limity (~0,5% od kursu) zamiast 2% — bot trendowy
+                    // przestaje płacić ~4% "prowizji" na każdej rundce (bankrutował ~-26%/15 sesji)
+                    if ($short > $long * (1 + $th) && $have < 400 * $risk)  self::place($uid, $sid, 'buy',  max(1, (int) round(50 * $risk * $act)), round($price * 1.005, 2));
+                    elseif ($short < $long * (1 - $th) && $have > 0)         self::place($uid, $sid, 'sell', min((int) round(100 * $risk * $act) + 1, $have), round($price * 0.995, 2));
                 } elseif ($strat === 'rsi') {
                     // kontrarianin: kupuje wyprzedanie, sprzedaje wykupienie (progi z czułości)
                     $c = $closes[$sid];
@@ -472,9 +474,11 @@ final class Engine
             $drift = ( $market * (float) $st['beta']
                      + (float) $st['sector_trend'] * (float) $st['sector_beta']
                      + (float) $st['bias'] ) / 100.0;
-            $noise = (mt_rand(-12, 12) / 1000) * $vol;
+            // kalibracja: szum tła niski (~4-6% na sesję) — duże ruchy mają pochodzić
+            // z WYDARZEŃ (raporty, ESPI, sterowanie GM), nie z losowego tła
+            $noise = (mt_rand(-5, 5) / 1000) * $vol;
             $f = (float) $st['fundamental'] * (1 + $drift + $noise);
-            if (mt_rand(1, 100) <= 10) $f *= 1 + (mt_rand(-70, 70) / 1000) * $vol;   // drobne szoki (pełne newsy w kolejnym kroku)
+            if (mt_rand(1, 100) <= 6) $f *= 1 + (mt_rand(-50, 50) / 1000) * $vol;    // rzadkie, umiarkowane szoki
             $pdo->prepare("UPDATE stocks SET fundamental=? WHERE id=?")->execute([max(1, round($f, 2)), $st['id']]);
         }
         self::generateReports($t);   // raporty miesięczne -> skok wartości fundamentalnej + news/ESPI
