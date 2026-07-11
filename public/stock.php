@@ -268,6 +268,7 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
   </div>
 
   <aside class="panel orderpanel">
+    <button type="button" class="sheet-close" onclick="closeSheet()" title="Zamknij">✕</button>
     <h2>Zlecenie</h2>
     <?php if (!Engine::marketIsOpen() && !in_array($user['role'] ?? '', ['admin', 'qa'], true)): [, $mhO, $mhC] = Engine::marketHours(); ?>
       <p class="flash info" style="margin:0 0 10px">Giełda zamknięta — handel trwa <?= h($mhO) ?>–<?= h($mhC) ?>. Zlecenia złożysz po otwarciu.</p>
@@ -406,12 +407,17 @@ setInterval(async()=>{ try{
 </script>
 <!-- mobilny pasek handlu (nad dolną nawigacją): ceny na żywo, klik ustawia stronę i zwija do formularza -->
 <div class="tradebar">
-  <button type="button" class="sell" onclick="setSide('sell');document.querySelector('.orderpanel').scrollIntoView({behavior:'smooth'})" <?= $owned <= 0 ? 'disabled' : '' ?>>
+  <button type="button" class="sell" onclick="setSide('sell');openSheet()" <?= $owned <= 0 ? 'disabled' : '' ?>>
     <span class="lbl">SPRZEDAJ</span><span class="pr"><?= $bestBid !== null ? money($bestBid) : '—' ?></span>
   </button>
-  <button type="button" class="buy" onclick="setSide('buy');document.querySelector('.orderpanel').scrollIntoView({behavior:'smooth'})">
+  <button type="button" class="buy" onclick="setSide('buy');openSheet()">
     <span class="lbl">KUP</span><span class="pr"><?= $bestAsk !== null ? money($bestAsk) : '—' ?></span>
   </button>
 </div>
-<script>document.body.classList.add('has-tradebar');</script>
+<div class="sheet-backdrop" onclick="closeSheet()"></div>
+<script>
+document.body.classList.add('has-tradebar');
+function openSheet(){ document.body.classList.add('sheet-open'); }
+function closeSheet(){ document.body.classList.remove('sheet-open'); }
+</script>
 <?php layout_footer();

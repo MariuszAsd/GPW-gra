@@ -447,6 +447,16 @@ td.nowrap{white-space:nowrap}
   .badges{grid-template-columns:1fr}
   .foot{margin-top:20px}
 
+  /* arkusz zlecenia = wysuwana karta (bottom sheet) otwierana z paska handlu */
+  .orderpanel{position:fixed;left:0;right:0;bottom:0;z-index:40;margin:0;
+    border-radius:18px 18px 0 0;border-bottom:0;max-height:84vh;overflow-y:auto;
+    padding-bottom:calc(18px + env(safe-area-inset-bottom));
+    transform:translateY(105%);transition:transform .28s cubic-bezier(.3,.9,.3,1);
+    box-shadow:var(--shadow);visibility:hidden}
+  body.sheet-open .orderpanel{transform:translateY(0);visibility:visible}
+  body.sheet-open .sheet-backdrop{display:block}
+  .sheet-close{display:inline-flex}
+
   /* przyklejony pasek handlu na karcie spółki (nad dolną nawigacją) */
   .tradebar{display:flex;gap:10px;position:fixed;left:0;right:0;z-index:29;
     bottom:calc(62px + env(safe-area-inset-bottom));padding:10px 12px;
@@ -461,3 +471,10 @@ td.nowrap{white-space:nowrap}
   .tradebar button:disabled{opacity:.4}
   body.has-tradebar{padding-bottom:calc(150px + env(safe-area-inset-bottom))}
 }
+
+/* tło i uchwyt zamykania arkusza zlecenia (aktywne tylko na mobile) */
+.sheet-backdrop{display:none;position:fixed;inset:0;background:rgba(8,10,16,.45);z-index:39}
+.sheet-close{display:none;position:absolute;top:12px;right:12px;width:32px;height:32px;border-radius:50%;
+  border:0;background:var(--bg3);color:var(--soft);font-size:15px;cursor:pointer;
+  align-items:center;justify-content:center;font-family:inherit}
+@media(max-width:760px){ .sheet-close{display:inline-flex} }   /* po regule bazowej — kolejność ma znaczenie */
