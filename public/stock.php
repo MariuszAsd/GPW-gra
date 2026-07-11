@@ -5,6 +5,28 @@ $user = acting_user(require_login());
 $id = (int) ($_GET['id'] ?? 0);
 $s = Engine::row("SELECT s.*, sec.name AS sector FROM stocks s JOIN sectors sec ON sec.id=s.sector_id WHERE s.id=?", [$id]);
 if (!$s) { flash('Nie ma takiej spółki.', 'err'); redirect('market.php'); }
+
+// FORUM SPÓŁKI: wpis (anty-spam 15 s) i moderacja GM
+$uidForum = (int) ($user['owner_id'] ?? $user['id']);
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['comment'])) {
+    $msg = trim((string) $_POST['comment']);
+    if ($msg === '' || mb_strlen($msg) > 300) flash('Wpis musi mieć 1–300 znaków.', 'err');
+    else {
+        $cutoff = date('Y-m-d H:i:s', time() - 15);
+        $st = Db::pdo()->prepare("INSERT INTO stock_comments (stock_id, user_id, message, created_at)
+                                  SELECT ?,?,?,? FROM (SELECT 1 AS one) t
+                                  WHERE NOT EXISTS (SELECT 1 FROM stock_comments WHERE user_id=? AND created_at > ?)");
+        $st->execute([$id, $uidForum, $msg, Db::now(), $uidForum, $cutoff]);
+        flash($st->rowCount() > 0 ? 'Wpis dodany do dyskusji.' : 'Nie tak szybko — odczekaj chwilę między wpisami.', $st->rowCount() > 0 ? 'ok' : 'err');
+    }
+    redirect("stock.php?id=$id&tab=forum");
+}
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['del_comment']) && ($user['role'] ?? '') === 'admin') {
+    Db::pdo()->prepare("UPDATE stock_comments SET deleted=1 WHERE id=?")->execute([(int) $_POST['del_comment']]);
+    Log::write('info', 'gm', 'forum.delete', 'ukryto wpis #' . (int) $_POST['del_comment'] . " na spółce #$id");
+    flash('Wpis ukryty.');
+    redirect("stock.php?id=$id&tab=forum");
+}
 $reports = Engine::all("SELECT * FROM financial_reports WHERE stock_id=? ORDER BY id DESC LIMIT 12", [$id]);
 $news = Engine::all("SELECT * FROM news WHERE (scope='COMPANY' AND target_id=?) OR (scope='SECTOR' AND target_id=?) OR scope='MARKET' ORDER BY id DESC LIMIT 15", [$id, (int) $s['sector_id']]);
 
@@ -37,6 +59,12 @@ $taW = Technical::weights($id);
 $taComp = Technical::composite($id);
 [$taVerdict, $taCls] = Technical::verdict($taComp);
 $taAff = (float) ($s['tech_affinity'] ?? 0.5);
+
+// forum spółki: 40 najnowszych wpisów graczy
+$comments = Engine::all("SELECT c.*, u.username, u.chat_color, u.role AS urole, u.title AS utitle
+                         FROM stock_comments c JOIN users u ON u.id = c.user_id
+                         WHERE c.stock_id=? AND c.deleted=0 ORDER BY c.id DESC LIMIT 40", [$id]);
+$openTab = in_array($_GET['tab'] ?? '', ['forum'], true) ? $_GET['tab'] : '';
 
 // obserwowane + Raport Premium (pakiety liczą się na koncie głównym, także w trybie wyzwania)
 $uidReal = (int) ($user['owner_id'] ?? $user['id']);
@@ -118,6 +146,7 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
         <button data-tab="news">Wiadomości</button>
         <button data-tab="ta">Analiza</button>
         <button data-tab="raport">Raport DM<?= $hasRaport ? '' : ' 🔒' ?></button>
+        <button data-tab="forum">Dyskusja<?= $comments ? ' (' . count($comments) . ')' : '' ?></button>
         <button data-tab="info">Info</button>
       </div>
 
@@ -243,6 +272,33 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
         <?php endif; ?>
       </div>
 
+      <div class="tabpane" id="tab-forum">
+        <h3 style="margin:4px 0 10px;font-size:14px;font-weight:700">Dyskusja o <?= h($s['ticker']) ?>
+          <?= tip('Forum spółki: opinie, pytania, plotki graczy. Nicki prowadzą do profili. Pamiętaj — wpisy innych to opinie, nie rekomendacje. GM moderuje.', '') ?>
+        </h3>
+        <form method="post" style="display:flex;gap:8px;margin-bottom:12px">
+          <input name="comment" maxlength="300" placeholder="Co myślisz o <?= h($s['ticker']) ?>? (max 300 znaków)" style="flex:1" required>
+          <button class="btn sm" style="width:auto">Dodaj wpis</button>
+        </form>
+        <?php foreach ($comments as $c):
+            $col = preg_match('/^#[0-9a-f]{6}$/i', (string) $c['chat_color']) ? $c['chat_color'] : 'var(--accent)'; ?>
+          <div style="padding:9px 2px;border-bottom:1px solid var(--line)">
+            <div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap">
+              <?php if ($c['urole'] === 'player'): ?>
+                <a href="gracz.php?id=<?= (int) $c['user_id'] ?>" style="font-weight:700;color:<?= h($col) ?>"><?= h($c['username']) ?></a>
+              <?php else: ?><b style="color:var(--gold)"><?= h($c['username']) ?></b><?php endif; ?>
+              <?php if (trim((string) $c['utitle']) !== ''): ?><span class="tag" style="color:var(--gold);border-color:var(--gold-border);font-size:10px"><?= h($c['utitle']) ?></span><?php endif; ?>
+              <span class="muted" style="font-size:11px"><?= h(substr($c['created_at'], 5, 11)) ?></span>
+              <?php if (($user['role'] ?? '') === 'admin'): ?>
+                <form method="post" class="inline" style="margin-left:auto"><input type="hidden" name="del_comment" value="<?= (int) $c['id'] ?>"><button class="btn sm ghost" style="padding:2px 8px;font-size:11px">Ukryj</button></form>
+              <?php endif; ?>
+            </div>
+            <div style="font-size:13.5px;margin-top:2px"><?= h($c['message']) ?></div>
+          </div>
+        <?php endforeach; if (!$comments) echo "<p class='muted' style='padding:12px 2px'>Jeszcze cicho — zacznij dyskusję o tej spółce jako pierwszy!</p>"; ?>
+        <p class="muted" style="margin:10px 0 0;font-size:11.5px">Wpisy graczy to opinie, nie rekomendacje inwestycyjne. Forum trzyma 40 ostatnich wpisów.</p>
+      </div>
+
       <div class="tabpane" id="tab-info">
         <?php if (!empty($s['description'])): ?><p class="soft" style="margin:4px 0 12px"><?= h($s['description']) ?></p><?php endif; ?>
         <table><tbody>
@@ -331,12 +387,13 @@ document.querySelectorAll('[data-watch]').forEach(b => b.onclick = async () => {
     if (j.ok) { b.classList.toggle('on', j.on); const t = b.querySelector('span'); if (t) t.textContent = j.on ? 'Obserwujesz' : 'Obserwuj'; }
     else if (j.err) alert(j.err); } catch (e) {}
 });
-// zakładki
+// zakładki (+ auto-otwarcie z ?tab=, np. po dodaniu wpisu na forum)
 document.querySelectorAll('.subtabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.subtabs button').forEach(x => x.classList.remove('on'));
   document.querySelectorAll('.tabpane').forEach(x => x.classList.remove('on'));
   b.classList.add('on'); document.getElementById('tab-' + b.dataset.tab).classList.add('on');
 });
+<?php if ($openTab !== ''): ?>document.querySelector('.subtabs button[data-tab=<?= h($openTab) ?>]')?.click();<?php endif; ?>
 // panel zleceń
 const side=document.getElementById('side'), qty=document.getElementById('qty'), price=document.getElementById('price');
 const val=document.getElementById('val'), sub=document.getElementById('submit'), type=document.getElementById('type');

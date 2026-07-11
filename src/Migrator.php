@@ -354,6 +354,18 @@ final class Migrator
             24 => [
                 "ALTER TABLE news ADD COLUMN kind VARCHAR(12) NOT NULL DEFAULT 'fundamental'",
             ],
+            // v25: forum spółki — dyskusje graczy na karcie spółki
+            25 => [
+                "CREATE TABLE stock_comments (
+                    id " . (Db::driver() === 'mysql' ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT') . ",
+                    stock_id INT NOT NULL,
+                    user_id  INT NOT NULL,
+                    message VARCHAR(300) NOT NULL,
+                    created_at VARCHAR(19) NOT NULL,
+                    deleted TINYINT NOT NULL DEFAULT 0
+                )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
+                "CREATE INDEX ix_scomments ON stock_comments (stock_id, deleted, id)",
+            ],
         ];
     }
 

@@ -1158,11 +1158,18 @@ final class Engine
             $newsTarget = $stockId;
         }
 
+        // realizm: LOSOWE wydarzenia respektują cooldowny historii (odstęp na celu +
+        // blokada powtórki/sprzeczności tego samego tematu); GM, kaskady i
+        // rozstrzygnięcia plotek przechodzą zawsze — to kontynuacje, nie nowe historie
+        if (!class_exists('Newsroom')) require_once __DIR__ . '/Newsroom.php';
+        $topic = (string) ($ev['topic'] ?? 'inne');
+        if ($source === 'los' && !Newsroom::storyAllowed($newsScope, $newsTarget, $topic, $tick)) return '';
+
         $head = str_replace('[T]', $label, $ev['head']);
         $body = str_replace('[T]', $label, $ev['body']);
-        Db::pdo()->prepare("INSERT INTO news (headline,body,type,kind,scope,target_id,is_espi,impact_strength,publish_tick,expire_tick,published_at)
-                            VALUES (?,?,?,?,?,?,0,?,?,?,?)")
-            ->execute([$head, $body, $ev['type'], $ev['kind'] ?? 'fundamental', $newsScope, $newsTarget, $ev['impact'], $tick, $tick + $ev['duration'], Db::now()]);
+        Db::pdo()->prepare("INSERT INTO news (template_id,headline,body,type,kind,scope,target_id,is_espi,impact_strength,publish_tick,expire_tick,published_at)
+                            VALUES (?,?,?,?,?,?,?,0,?,?,?,?)")
+            ->execute([Newsroom::topicHash($topic), $head, $body, $ev['type'], $ev['kind'] ?? 'fundamental', $newsScope, $newsTarget, $ev['impact'], $tick, $tick + $ev['duration'], Db::now()]);
 
         // modyfikatory czasowe (nakładki na bazę — same wygasają)
         foreach ($ev['effects'] ?? [] as [$target, $field, $delta, $dur]) {

@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 24;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 25;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -417,6 +417,16 @@ final class Schema
                 UNIQUE (user_id, day, code)
             )",
 
+            // --- FORUM SPÓŁKI (dyskusje graczy na karcie spółki; GM moderuje) ---
+            "stock_comments" => "CREATE TABLE stock_comments (
+                id $pk,
+                stock_id INT NOT NULL,
+                user_id  INT NOT NULL,
+                message VARCHAR(300) NOT NULL,
+                created_at VARCHAR(19) NOT NULL,
+                deleted TINYINT NOT NULL DEFAULT 0
+            )",
+
             // --- DZIENNIK GRACZA (oś czasu konta: zlecenia, SL/TP, dywidendy, wyzwania, odznaki) ---
             "player_journal" => "CREATE TABLE player_journal (
                 id $pk,
@@ -473,6 +483,7 @@ final class Schema
             "CREATE INDEX ix_reco ON recommendations (session)",
             "CREATE INDEX ix_pay_user ON payment_orders (user_id, id)",
             "CREATE INDEX ix_season ON season_progress (series_id, points)",
+            "CREATE INDEX ix_scomments ON stock_comments (stock_id, deleted, id)",
             "CREATE UNIQUE INDEX ux_users_email ON users (email)",
             "CREATE INDEX ix_pwreset ON password_resets (token_hash)",
         ];
