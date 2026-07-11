@@ -127,6 +127,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($a === 'series_del') {
         $pdo->prepare("DELETE FROM challenge_series WHERE id=?")->execute([(int) $_POST['series_id']]);
         flash('Usunięto serię (już wydane edycje zostają).');
+    } elseif ($a === 'ipo_now') {
+        $sym = ($_POST['ipo_sector'] ?? 'auto') === 'auto' ? null : (string) $_POST['ipo_sector'];
+        $t = (int) (Engine::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
+        $res = Ipo::debut($sym, $t);
+        flash($res ? "📈 Debiut: {$res[1]} ({$res[0]})." : 'Nie udało się wygenerować spółki (pula nazw branży wyczerpana?).', $res ? 'ok' : 'err');
+    } elseif ($a === 'ipo_cfg') {
+        Engine::setState('ipo_every_sessions', (string) max(0, (int) ($_POST['ipo_every'] ?? Ipo::DEFAULT_EVERY)));
+        Engine::setState('ipo_target', (string) max(1, (int) ($_POST['ipo_target'] ?? Ipo::DEFAULT_TARGET)));
+        flash('Zapisano rytm debiutów.');
     } elseif ($a === 'reset') {
         $pdo->exec("UPDATE stocks SET bias=0, volatility=1, profit_trend=0");
         $pdo->exec("UPDATE sectors SET trend=0, profit_climate=0");
@@ -238,6 +247,30 @@ layout_header('Panel GM', $user, 'gm');
     <div><label>Czas trwania</label><input type="number" min="1" name="s_dur" value="14" style="width:80px"></div>
     <div><label>Min. graczy</label><input type="number" min="2" name="s_min" value="3" style="width:70px"></div>
     <button class="btn sm">Utwórz serię</button>
+  </form>
+
+  <?php
+    $ipoCount = (int) Engine::one("SELECT COUNT(*) FROM stocks");
+    $ipoEvery = (int) (Engine::one("SELECT v FROM game_state WHERE k='ipo_every_sessions'") ?: Ipo::DEFAULT_EVERY);
+    $ipoTarget = (int) (Engine::one("SELECT v FROM game_state WHERE k='ipo_target'") ?: Ipo::DEFAULT_TARGET);
+  ?>
+  <h2 style="margin-top:18px">📈 Debiuty giełdowe — spółek: <?= $ipoCount ?> / cel <?= $ipoTarget ?></h2>
+  <p class="muted" style="margin:4px 0 8px">Nowe spółki wchodzą same co <?= $ipoEvery ?: '— (automat wyłączony)' ?> sesji (do najmniej licznego sektora), z newsem debiutu i pakietami dla botów. Indeks nie skacze — baza koryguje się jak dzielnik WIG.</p>
+  <form method="post" class="inline">
+    <input type="hidden" name="action" value="ipo_now">
+    <select name="ipo_sector" style="width:190px">
+      <option value="auto">sektor: automatycznie</option>
+      <?php foreach ($sectors as $se): ?><option value="<?= h($se['symbol']) ?>"><?= h($se['name']) ?></option><?php endforeach; ?>
+    </select>
+    <button class="btn sm">Debiutuj spółkę teraz</button>
+  </form>
+  <form method="post" class="inline" style="margin-left:8px">
+    <input type="hidden" name="action" value="ipo_cfg">
+    <label style="display:inline">co ile sesji (0 = stop):</label>
+    <input type="number" min="0" name="ipo_every" value="<?= $ipoEvery ?>" style="width:70px">
+    <label style="display:inline">cel spółek:</label>
+    <input type="number" min="1" name="ipo_target" value="<?= $ipoTarget ?>" style="width:80px">
+    <button class="btn sm">Zapisz</button>
   </form>
 
   <h2 style="margin-top:18px">Rejestracja (graczy: <?= $playerCount ?>)</h2>

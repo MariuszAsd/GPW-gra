@@ -763,6 +763,11 @@ final class Engine
             if (!class_exists('Challenges')) require_once __DIR__ . '/Challenges.php';
             Challenges::onRoll($n, $tick);
         } catch (\Throwable $e) { Log::write('error', 'engine', 'challenge.roll', $e->getMessage()); }
+        // debiuty giełdowe: nowa spółka co N sesji, aż rynek osiągnie cel
+        try {
+            if (!class_exists('Ipo')) require_once __DIR__ . '/Ipo.php';
+            Ipo::onRoll($n, $tick);
+        } catch (\Throwable $e) { Log::write('error', 'engine', 'ipo.roll', $e->getMessage()); }
         self::setState('session', (string) $n);
     }
 
