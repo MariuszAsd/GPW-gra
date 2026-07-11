@@ -38,7 +38,7 @@ $strats = Engine::all(
      WHERE u.is_bot = 1 AND u.start_equity > 0
      GROUP BY b.strategy ORDER BY avg_ret DESC"
 );
-$stratName = ['mm' => 'Animator rynku', 'trend' => 'Podążający za trendem', 'rsi' => 'Kontrarianin (RSI)', 'fundamental' => 'Fundamentalny', 'news' => 'Gracz newsowy'];
+$stratName = ['mm' => 'Animator rynku', 'trend' => 'Podążający za trendem', 'rsi' => 'Kontrarianin (RSI)', 'fundamental' => 'Fundamentalny', 'news' => 'Gracz newsowy', 'tech' => 'Techniczny (AT)'];
 
 layout_header('Ranking', $user, 'ranking');
 $medals = ['🥇', '🥈', '🥉'];

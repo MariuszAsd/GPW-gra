@@ -271,9 +271,14 @@ final class Engine
         $act = (float) (self::one("SELECT v FROM game_state WHERE k='bot_activity'") ?? 1);
         if ($act <= 0) return;
 
+        self::ensureTechBots();   // istniejące światy dostają botów AT bez resetu (jednorazowo)
+        if (!class_exists('Technical')) require_once __DIR__ . '/Technical.php';
+        $taInfV = self::one("SELECT v FROM game_state WHERE k='ta_influence'");                  // GM: 0 = AT bez wpływu
+        $taInf = ($taInfV === false || $taInfV === null) ? 1.0 : (float) $taInfV;
+
         $bots = self::all("SELECT u.id, b.strategy, b.news_reactivity, b.technical_sensitivity, b.risk_appetite, b.horizon
                            FROM users u JOIN bots b ON b.user_id = u.id WHERE u.is_bot = 1");
-        $stocks = self::all("SELECT id, sector_id, price, fundamental, pe_target, last_eps, liquidity, dividend_payout FROM stocks");
+        $stocks = self::all("SELECT id, sector_id, price, fundamental, pe_target, last_eps, liquidity, dividend_payout, tech_affinity FROM stocks");
         $tick = (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
         $mods = self::activeMods($tick);   // boty fundamentalne rozumieja skutki wydarzen
 
@@ -348,8 +353,10 @@ final class Engine
                     $th = 0.01 / $sens;
                     // kalibracja: ciasne limity (~0,5% od kursu) zamiast 2% — bot trendowy
                     // przestaje płacić ~4% "prowizji" na każdej rundce (bankrutował ~-26%/15 sesji)
-                    if ($short > $long * (1 + $th) && $have < 400 * $risk)  self::place($uid, $sid, 'buy',  max(1, (int) round(50 * $risk * $act)), round($price * 1.005, 2));
-                    elseif ($short < $long * (1 - $th) && $have > 0)         self::place($uid, $sid, 'sell', min((int) round(100 * $risk * $act) + 1, $have), round($price * 0.995, 2));
+                    // przechył AT: zgodny sygnał techniczny powiększa pozycję (do +60%), przeciwny nie blokuje
+                    $tilt = $taInf > 0 ? Technical::composite($sid) * $taInf * (float) $st['tech_affinity'] * $sens * 0.6 : 0.0;
+                    if ($short > $long * (1 + $th) && $have < 400 * $risk)  self::place($uid, $sid, 'buy',  max(1, (int) round(50 * $risk * $act * (1 + max(0, $tilt)))), round($price * 1.005, 2));
+                    elseif ($short < $long * (1 - $th) && $have > 0)         self::place($uid, $sid, 'sell', min((int) round(100 * $risk * $act * (1 + max(0, -$tilt))) + 1, $have), round($price * 0.995, 2));
                 } elseif ($strat === 'rsi') {
                     // kontrarianin: kupuje wyprzedanie, sprzedaje wykupienie (progi z czułości)
                     $c = $closes[$sid];
@@ -378,6 +385,24 @@ final class Engine
                     $margin = 0.08 / $risk;
                     if ($price < $fair * (1 - $margin) && $have < 500 * $risk)  self::place($uid, $sid, 'buy',  max(1, (int) round(40 * $risk * $act)), round($price * 1.02, 2));
                     elseif ($price > $fair * (1 + $margin) && $have > 0)         self::place($uid, $sid, 'sell', min((int) round(80 * $risk * $act) + 1, $have), round($price * 0.98, 2));
+                } elseif ($strat === 'tech') {
+                    // gracz TECHNICZNY: handluje niemal wyłącznie na zbiorczym sygnale AT.
+                    // Siła = sygnał x wpływ globalny (GM) x podatność spółki x czułość bota —
+                    // nic nie jest zero-jedynkowe: mocniejszy sygnał = większa pozycja.
+                    if ($taInf <= 0) continue;
+                    $aff = max(0.0, min(1.0, (float) $st['tech_affinity']));
+                    $sigT = Technical::composite($sid) * $taInf * (0.4 + 1.2 * $aff) * $sens;
+                    if ($have > 0 && $avg > 0 && $price < $avg * 0.90) {   // twardy stop bota AT: -10%
+                        self::place($uid, $sid, 'sell', $have, round($price * 0.995, 2));
+                        continue;
+                    }
+                    if ($sigT > 0.12 && $have < 450 * $risk) {
+                        $q = max(1, (int) round(55 * $risk * $act * min(1.6, $sigT * 2)));
+                        self::place($uid, $sid, 'buy', $q, round($price * 1.008, 2));
+                    } elseif ($sigT < -0.12 && $have > 0) {
+                        $q = min((int) round(90 * $risk * $act * min(1.6, -$sigT * 2)) + 1, $have);
+                        self::place($uid, $sid, 'sell', $q, round($price * 0.992, 2));
+                    }
                 } elseif ($strat === 'news') {
                     // gracz newsowy: wchodzi za świeżym ESPI (momentum), siła zależna od reaktywności
                     if (abs($news) < 0.05) {
@@ -394,6 +419,36 @@ final class Engine
                 }
             }
         }
+    }
+
+    /** Jednorazowe dosianie botów TECHNICZNYCH do istniejącego świata (bez resetu). */
+    private static function ensureTechBots(): void
+    {
+        if ((int) (self::one("SELECT v FROM game_state WHERE k='tech_bots_added'") ?: 0) === 1) return;
+        self::setState('tech_bots_added', '1');
+        try {
+            $pdo = Db::pdo();
+            $stocks = self::all("SELECT id, price FROM stocks");
+            $n = (int) self::one("SELECT COUNT(*) FROM users WHERE username LIKE 'bot_tech_%'");
+            $uStmt = $pdo->prepare("INSERT INTO users (username, password_hash, is_bot, role, cash, start_equity) VALUES (?,?,1,'tech',?,?)");
+            $dStmt = $pdo->prepare("INSERT INTO bots (user_id, strategy, news_reactivity, technical_sensitivity, risk_appetite, horizon) VALUES (?,'tech',?,?,?,?)");
+            $wStmt = $pdo->prepare("INSERT INTO wallets (user_id, stock_id, qty, avg_price) VALUES (?,?,300,?)");
+            $rf = fn(float $a, float $b) => round($a + mt_rand() / mt_getrandmax() * ($b - $a), 2);
+            $sumPrices = array_sum(array_map(fn($st) => (float) $st['price'], $stocks));
+            for ($i = 1; $i <= 6; $i++) {
+                $uStmt->execute(['bot_tech_' . ($n + $i), password_hash(bin2hex(random_bytes(6)), PASSWORD_DEFAULT), 1500000, 1500000 + 300 * $sumPrices]);
+                $uid = (int) $pdo->lastInsertId();
+                $dStmt->execute([$uid, $rf(0.5, 2.0), $rf(1.2, 2.2), $rf(0.5, 2.0), mt_rand(5, 30)]);
+                foreach ($stocks as $st) $wStmt->execute([$uid, (int) $st['id'], (float) $st['price']]);
+            }
+            $t = (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
+            $pdo->prepare("INSERT INTO news (headline,body,type,scope,target_id,is_espi,impact_strength,publish_tick,expire_tick,published_at)
+                           VALUES (?,?,'NEU','MARKET',NULL,0,0,?,?,?)")
+                ->execute(['Na parkiet wchodzą algorytmy — ruszają fundusze analizy technicznej',
+                           'Sześć nowych funduszy handluje wyłącznie na wskaźnikach AT. Sygnały techniczne będą teraz realnie ruszać kursami — sprawdź zakładkę Analiza na karcie spółki.',
+                           $t, $t + 30, Db::now()]);
+            Log::write('info', 'engine', 'bots.tech', 'dodano 6 botów technicznych (AT)');
+        } catch (\Throwable $e) { Log::write('error', 'engine', 'bots.tech', $e->getMessage()); }
     }
 
     private static function cancelAllFor(int $uid): void

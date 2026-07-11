@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 18;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 19;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -68,6 +68,7 @@ final class Schema
                 financial_resilience $f NOT NULL DEFAULT 1,
                 growth_potential     $f NOT NULL DEFAULT 0,
                 aggressiveness       $f NOT NULL DEFAULT 1,
+                tech_affinity        DECIMAL(4,2) NOT NULL DEFAULT 0.5,  -- podatność na analizę techniczną (0=fundamentalna, 1=techniczna)
                 -- sterowanie GM:
                 bias $f NOT NULL DEFAULT 0,
                 profit_trend $f NOT NULL DEFAULT 0,   -- ręczny miernik trendu zysków (%/miesiąc, edytowalny w GM)

@@ -227,6 +227,12 @@ final class Migrator
                 )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
                 "CREATE INDEX ix_cd ON candles_daily (stock_id, session)",
             ],
+            // v19: analiza techniczna — podatność spółki na sygnały AT (0=fundamentalna, 1=techniczna);
+            //      backfill deterministyczny z id (spójny na SQLite i MySQL)
+            19 => [
+                "ALTER TABLE stocks ADD COLUMN tech_affinity DECIMAL(4,2) NOT NULL DEFAULT 0.5",
+                "UPDATE stocks SET tech_affinity = 0.2 + (id * 37 % 61) / 100.0",
+            ],
         ];
     }
 

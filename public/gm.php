@@ -85,6 +85,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($a === 'tempo') {
         Engine::setState('sub_rounds', (string) max(0, min(3, (int) ($_POST['sub_rounds'] ?? 2))));
         flash('Ustawiono tempo handlu.');
+    } elseif ($a === 'ta') {
+        Engine::setState('ta_influence', (string) max(0, min(2, (float) str_replace(',', '.', $_POST['ta_influence'] ?? '1'))));
+        flash('Ustawiono wpływ analizy technicznej na boty.');
     } elseif ($a === 'events_toggle') {
         $on = ($_POST['enabled'] ?? '1') === '1';
         Engine::setState('events_enabled', $on ? '1' : '0');
@@ -350,6 +353,15 @@ layout_header('Panel GM', $user, 'gm');
           <option value="<?= $v ?>" <?= $sr === $v ? 'selected' : '' ?>><?= $lbl ?></option>
         <?php endforeach; ?>
       </select>
+      <button class="btn sm">Ustaw</button>
+    </form>
+
+    <h2 style="margin-top:18px">Analiza techniczna</h2>
+    <?php $taV = Engine::one("SELECT v FROM game_state WHERE k='ta_influence'"); $taV = ($taV === false || $taV === null) ? 1.0 : (float) $taV; ?>
+    <p class="muted" style="margin:4px 0 8px">Jak mocno sygnały AT sterują botami (0 = wcale, 1 = normalnie, 2 = rynek stadny). Boty techniczne i przechył trendowych.</p>
+    <form method="post" class="inline">
+      <input type="hidden" name="action" value="ta">
+      <input type="number" step="0.1" min="0" max="2" name="ta_influence" value="<?= rtrim(rtrim((string) $taV, '0'), '.') ?: '0' ?>" style="width:90px">
       <button class="btn sm">Ustaw</button>
     </form>
 

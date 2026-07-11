@@ -114,8 +114,8 @@ $makeTicker = function (string $name) use (&$usedTickers): string {
 $stStmt = $pdo->prepare("INSERT INTO stocks
     (ticker,name,sector_id,description,price,fundamental,day_open_price,total_shares,free_float,
      beta,volatility,liquidity,news_impact,news_frequency,financial_resilience,growth_potential,aggressiveness,
-     pe_target,base_profit,last_profit,last_eps,report_period,next_report_tick,dividend_payout)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+     pe_target,base_profit,last_profit,last_eps,report_period,next_report_tick,dividend_payout,tech_affinity)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
 $i = 0;
 foreach ($sectors as $sym => $sec) {
     [$secName, $mbeta, $mvol, , , $count, $peRange] = $sec;
@@ -140,7 +140,7 @@ foreach ($sectors as $sym => $sec) {
             rf($mbeta - 0.3, $mbeta + 0.3), rf($mvol * 0.7, $mvol * 1.3), rf(0.7, 1.5), rf(0.8, 1.8),
             rf(0.5, 2.0), rf(0.6, 1.4), $growth, rf(0.7, 2.0),
             $pe, $base, $base, $eps, 100, 5 + ($i * 2) % 100,   // raporty co miesiąc, rozłożone w czasie
-            $payout,
+            $payout, rf(0.15, 0.85),
         ]);
         $i++;
     }
@@ -204,8 +204,10 @@ $mk('trend', 8, 1500000, 300);
 $mk('rsi', 8, 1500000, 300);
 $mk('fundamental', 8, 2000000, 300);
 $mk('news', 6, 1500000, 200);
+$mk('tech', 6, 1500000, 300);
 Engine::setState('bot_activity', '1');
-$log("✔ 40 botów (10 mm, 8 trend, 8 RSI, 8 fundamentalnych, 6 newsowych) + DNA");
+Engine::setState('tech_bots_added', '1');   // świeży świat ma boty AT od razu (istniejące dostają je lazy w silniku)
+$log("✔ 46 botów (10 mm, 8 trend, 8 RSI, 8 fundamentalnych, 6 newsowych, 6 technicznych) + DNA");
 
 // --- gracz dostaje akcje na start (doliczone do kapitału startowego) ---
 Engine::ensureWallet(1, (int) $stockRows[0]['id']);

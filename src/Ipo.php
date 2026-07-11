@@ -128,14 +128,14 @@ final class Ipo
         $pdo->prepare("INSERT INTO stocks
             (ticker,name,sector_id,description,price,fundamental,day_open_price,total_shares,free_float,
              beta,volatility,liquidity,news_impact,news_frequency,financial_resilience,growth_potential,aggressiveness,
-             pe_target,base_profit,last_profit,last_eps,report_period,next_report_tick,dividend_payout)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")->execute([
+             pe_target,base_profit,last_profit,last_eps,report_period,next_report_tick,dividend_payout,tech_affinity)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")->execute([
             $ticker, $name, $secId, self::DESC[$sectorSym] . ' Siedziba w ' . self::CITIES[array_rand(self::CITIES)] . '. Debiut giełdowy.',
             $price, $price, $price, $shares, self::rf(30, 95, 0),
             self::rf((float) $sec['market_beta'] - 0.3, (float) $sec['market_beta'] + 0.3),
             self::rf((float) $sec['volatility'] * 0.7, (float) $sec['volatility'] * 1.3),
             self::rf(0.7, 1.5), self::rf(0.8, 1.8), self::rf(0.5, 2.0), self::rf(0.6, 1.4), $growth, self::rf(0.7, 2.0),
-            $pe, $base, $base, $eps, $period, $tick + $period, $payout,
+            $pe, $base, $base, $eps, $period, $tick + $period, $payout, self::rf(0.15, 0.85),
         ]);
         $sid = (int) $pdo->lastInsertId();
 
@@ -146,7 +146,7 @@ final class Ipo
         }
 
         // pakiety dla botów po cenie debiutu (animatorzy najwięcej) + korekta ich kapitału startowego
-        $packet = ['mm' => 3000, 'trend' => 300, 'rsi' => 300, 'fundamental' => 300, 'news' => 200];
+        $packet = ['mm' => 3000, 'trend' => 300, 'rsi' => 300, 'fundamental' => 300, 'news' => 200, 'tech' => 300];
         $wIns = $pdo->prepare("INSERT INTO wallets (user_id, stock_id, qty, avg_price) VALUES (?,?,?,?)");
         $uUp  = $pdo->prepare("UPDATE users SET start_equity = start_equity + ? WHERE id=?");
         foreach (Engine::all("SELECT u.id, b.strategy FROM users u JOIN bots b ON b.user_id = u.id WHERE u.is_bot = 1") as $b) {

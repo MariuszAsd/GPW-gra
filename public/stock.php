@@ -31,6 +31,13 @@ $heldTotal = max(1, (int) (Engine::one("SELECT SUM(w.qty + w.qty_reserved) FROM 
 $trades = Engine::all("SELECT qty, price, created_at FROM transactions WHERE stock_id=? ORDER BY id DESC LIMIT 14", [$id]);
 $mcap = (float) $s['price'] * (float) $s['total_shares'];
 
+// analiza techniczna: sygnały, wagi tej spółki, sygnał zbiorczy i charakter
+$taSig = Technical::signals($id);
+$taW = Technical::weights($id);
+$taComp = Technical::composite($id);
+[$taVerdict, $taCls] = Technical::verdict($taComp);
+$taAff = (float) ($s['tech_affinity'] ?? 0.5);
+
 // --- świece (inline SVG) ---
 $chartSvg = "<div style='padding:40px;text-align:center;color:var(--faint)'>Zbieram dane do wykresu…</div>";
 if (count($candles) > 1) {
@@ -102,6 +109,7 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
         <button data-tab="trades">Transakcje</button>
         <button data-tab="reports">Raporty</button>
         <button data-tab="news">Wiadomości</button>
+        <button data-tab="ta">Analiza</button>
         <button data-tab="info">Info</button>
       </div>
 
@@ -144,6 +152,36 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
             <div class="muted" style="font-size:12px;margin-top:2px"><?= h(substr($nw['published_at'], 0, 16)) ?> · <?= h($nw['scope']) ?></div>
           </div>
         <?php endforeach; if (!$news) echo "<div class='muted' style='padding:8px'>brak wiadomości</div>"; ?>
+      </div>
+
+      <div class="tabpane" id="tab-ta">
+        <h3 style="margin:4px 0 10px;font-size:14px;font-weight:700">Analiza techniczna
+          <?= tip('10 klasycznych wskaźników liczonych z wykresu tej spółki. Każdy daje sygnał od -1 (sprzedaj) do +1 (kupuj), a sygnał zbiorczy to średnia ważona — wagi są RÓŻNE dla każdej spółki. Boty techniczne widzą dokładnie ten sam sygnał co Ty.', '') ?>
+        </h3>
+        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:6px">
+          <span class="chg <?= $taCls ?>" style="font-size:15px;padding:6px 14px"><?= h($taVerdict) ?></span>
+          <span class="muted">sygnał zbiorczy: <b class="num <?= $taComp >= 0 ? 'up' : 'down' ?>"><?= ($taComp >= 0 ? '+' : '') . number_format($taComp, 2, ',', ' ') ?></b> (od −1 do +1)</span>
+        </div>
+        <div class="ta-gauge"><i style="left:<?= round(($taComp + 1) / 2 * 100, 1) ?>%"></i></div>
+        <p class="muted" style="margin:8px 0 12px">Charakter spółki: <b style="color:var(--ink)"><?= h(Technical::character($taAff)) ?></b>
+          <?= tip('Każda spółka ma DNA podatności na technikę. Techniczne mocniej reagują na sygnały AT (boty grają je odważniej), fundamentalne słuchają raportów i zysków.', '') ?></p>
+        <table>
+          <thead><tr><th>Wskaźnik</th><th>Typ</th><th class="num">Waga u tej spółki</th><th class="num">Sygnał</th><th class="num">Odczyt</th></tr></thead>
+          <tbody>
+          <?php foreach (Technical::CATALOG as $k => [$nm, $typ]): $v = $taSig[$k]; ?>
+            <tr>
+              <td><?= h($nm) ?></td>
+              <td class="muted" style="font-size:12px"><?= $typ === 'trend' ? 'trend' : 'odwrócenie' ?></td>
+              <td class="num muted">×<?= number_format($taW[$k], 2, ',', ' ') ?></td>
+              <td class="num">
+                <span class="ta-bar"><i class="<?= $v >= 0 ? 'p' : 'n' ?>" style="width:<?= round(abs($v) * 50, 1) ?>%;<?= $v >= 0 ? 'left:50%' : 'right:50%' ?>"></i></span>
+              </td>
+              <td class="num"><span class="chg <?= $v > 0.08 ? 'p' : ($v < -0.08 ? 'n' : '') ?>"><?= $v > 0.08 ? 'kupuj' : ($v < -0.08 ? 'sprzedaj' : 'neutralnie') ?> <?= ($v >= 0 ? '+' : '') . number_format($v, 2, ',', ' ') ?></span></td>
+            </tr>
+          <?php endforeach; ?>
+          </tbody>
+        </table>
+        <p class="muted" style="margin:10px 0 0;font-size:12px">Wskaźniki liczone ze świec tickowych (bieżąca sesja i ostatnie ~2 godziny handlu). Młode spółki bez historii pokazują sygnały neutralne.</p>
       </div>
 
       <div class="tabpane" id="tab-info">

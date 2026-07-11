@@ -359,3 +359,13 @@ td.nowrap{white-space:nowrap}
 
 /* przycisk niedostępny (np. SPRZEDAJ bez posiadanych akcji) */
 .orderpanel .seg button:disabled{opacity:.35;cursor:not-allowed;filter:grayscale(.6)}
+
+/* ---------- Analiza techniczna ---------- */
+.ta-gauge{position:relative;height:10px;border-radius:6px;max-width:520px;
+  background:linear-gradient(90deg,var(--down) 0%,var(--bg3) 42%,var(--bg3) 58%,var(--up) 100%);opacity:.9}
+.ta-gauge i{position:absolute;top:-4px;width:4px;height:18px;border-radius:2px;background:var(--ink);
+  transform:translateX(-50%);box-shadow:0 0 0 2px var(--bg2)}
+.ta-bar{position:relative;display:inline-block;width:110px;height:8px;background:var(--bg3);border-radius:4px;overflow:hidden;vertical-align:middle}
+.ta-bar::after{content:'';position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--line2)}
+.ta-bar i{position:absolute;top:0;bottom:0}
+.ta-bar i.p{background:var(--up)} .ta-bar i.n{background:var(--down)}

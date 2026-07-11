@@ -83,6 +83,8 @@ final class Qa
             $this->check($c === 200 && str_contains($b, $needle), "page.$path", "code=$c, brak '$needle'");
             $this->check(!preg_match('/Fatal error|Parse error|Uncaught|Warning:/', $b), "php.$path", 'strona zawiera błąd PHP');
         }
+        [$c, $b] = $this->http('GET', "/stock.php?id=$sid");
+        $this->check($c === 200 && str_contains($b, 'Analiza techniczna'), 'page.ta', "brak zakładki Analiza techniczna (code=$c)");
         [$c, $b] = $this->http('GET', "/api_chart.php?id=$sid&iv=5");
         $this->check($c === 200 && str_contains($b, '"ok":true'), 'page.api_chart', "api_chart: code=$c lub brak ok:true");
         [$c, $b] = $this->http('GET', '/powiadomienia.php');
