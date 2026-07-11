@@ -300,13 +300,15 @@ final class Engine
 
             foreach ($stocks as $st) {
                 $sid = (int) $st['id'];
-                // każdy bot pokrywa ~1/3 spółek (deterministycznie) — tick nie puchnie przy 50 spółkach
-                if ((($sid + $uid) % 3) !== 0) continue;
+                $liq = max(0.3, (float) $st['liquidity']);
+                // pokrycie botami zależne od PŁYNNOŚCI spółki: płynne handluje ~połowa botów,
+                // niepłynne co piąty — obrót i częstotliwość transakcji różnicują się naturalnie
+                $span = $liq >= 1.2 ? 2 : ($liq >= 0.95 ? 3 : 5);
+                if ((($sid + $uid) % $span) !== 0) continue;
 
                 $price = (float) $st['price'];
                 $have  = (int) ($wal[$uid][$sid]['qty'] ?? 0);
                 $avg   = (float) ($wal[$uid][$sid]['avg_price'] ?? 0);
-                $liq   = max(0.3, (float) $st['liquidity']);
                 $news  = ($newsCo[$sid] ?? 0) + 0.6 * ($newsSec[$st['sector_id']] ?? 0) + 0.4 * $newsMkt;   // świeży sentyment
 
                 // wspólny odruch (ze starej wersji): realizacja zysku — kurs > śr. zakupu +15%
