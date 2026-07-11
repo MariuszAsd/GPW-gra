@@ -11,12 +11,17 @@ $price = (float) str_replace(',', '.', $_POST['price'] ?? '0');
 $sl    = ($_POST['sl_price'] ?? '') !== '' ? (float) str_replace(',', '.', $_POST['sl_price']) : null;
 $tp    = ($_POST['tp_price'] ?? '') !== '' ? (float) str_replace(',', '.', $_POST['tp_price']) : null;
 
+$filledAny = false;
 if ($type === 'market') {
     [$ok, $msg] = Engine::marketOrder((int) $user['id'], $sid, $side, $qty);
+    $filledAny = $ok;   // PKC = realizacja natychmiast albo błąd
 } else {
     $exp = ($_POST['validity'] ?? 'gtc') === 'session' ? Engine::sessionInfo()[0] : null;
-    [$ok, $msg] = Engine::place((int) $user['id'], $sid, $side, $qty, $price, $exp);
-    if ($ok) Engine::matchBook($sid);              // spróbuj skojarzyć od razu
+    [$ok, $msg, $oid] = Engine::place((int) $user['id'], $sid, $side, $qty, $price, $exp) + [2 => 0];
+    if ($ok) {
+        Engine::matchBook($sid);                   // spróbuj skojarzyć od razu
+        $filledAny = $oid > 0 && (int) Engine::one("SELECT qty FROM orders WHERE id=?", [$oid]) < $qty;
+    }
 }
 Log::write($ok ? 'info' : 'warn', 'player', 'order.place', ($ok ? 'przyjęte' : 'odrzucone') . ": $type $side {$qty}szt" . ($type === 'limit' ? " @ $price" : '') . " (spółka #$sid)",
     ['user' => $user['username'], 'msg' => $msg]);
@@ -32,6 +37,12 @@ if ($ok && $side === 'buy' && ($sl !== null || $tp !== null)) {
     } else {
         $msg .= ' SL/TP nie ustawione — zlecenie kupna czeka w arkuszu (ustaw je w Portfelu po realizacji).';
     }
+}
+if ($ok && $side === 'buy' && $filledAny) {
+    // odznaka: kupował, gdy lała się krew (kupno ZREALIZOWANE w trakcie krachu)
+    $tk = (int) (Engine::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
+    $crash = Engine::one("SELECT id FROM news WHERE scope='MARKET' AND type='NEG' AND impact_strength <= -0.8 AND expire_tick > ?", [$tk]);
+    if ($crash) Engine::award((int) $user['id'], 'kupil_w_krachu');
 }
 flash($msg, $ok ? 'ok' : 'err');
 redirect('stock.php?id=' . $sid);

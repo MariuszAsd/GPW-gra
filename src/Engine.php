@@ -10,6 +10,7 @@
  *   - działająca egzekucja Stop-Loss / Take-Profit.
  */
 require_once __DIR__ . '/EventCatalog.php';
+require_once __DIR__ . '/Achievements.php';
 
 final class Engine
 {
@@ -196,7 +197,7 @@ final class Engine
         $feeRate = self::feeRate();
         $buys  = self::all("SELECT * FROM orders WHERE stock_id=? AND side='buy'  AND status='active' ORDER BY price DESC, id ASC", [$stockId]);
         $sells = self::all("SELECT * FROM orders WHERE stock_id=? AND side='sell' AND status='active' ORDER BY price ASC,  id ASC", [$stockId]);
-        $trades = 0;
+        $trades = 0; $achUids = [];
 
         foreach ($buys as &$b) {
             if ($b['qty'] <= 0) continue;
@@ -250,11 +251,15 @@ final class Engine
                 $pdo->prepare("UPDATE stocks SET price=? WHERE id=?")->execute([$p, $stockId]);
                 $pdo->prepare("INSERT INTO transactions (stock_id, buyer_id, seller_id, buy_order_id, sell_order_id, qty, price, created_at) VALUES (?,?,?,?,?,?,?,?)")
                     ->execute([$stockId, $b['user_id'], $s['user_id'], $b['id'], $s['id'], $q, $p, Db::now()]);
+                foreach ([(int) $b['user_id'], (int) $s['user_id']] as $huid) {   // odznaki: zbierz, sprawdź RAZ po pętli
+                    if (in_array($huid, self::humanIds(), true)) $achUids[$huid] = true;
+                }
                 $tickTrades[$stockId][] = ['p' => $p, 'q' => $q];
                 $trades++;
                 if ($b['qty'] <= 0) break;
             }
         }
+        foreach (array_keys($achUids) as $huid) self::checkTradeAchievements($huid);
         return $trades;
     }
 
@@ -451,6 +456,7 @@ final class Engine
                 self::notify((int) $o['user_id'], 'stop',
                     ($hitSL ? '🛡️ Stop-Loss ' : '💰 Take-Profit ') . $o['ticker'] . ' wyzwolony przy ' . number_format((float) $o['cur'], 2, ',', ' ') . ' PLN — ' . $msg,
                     'order.php?id=' . (int) $o['id']);
+                self::award((int) $o['user_id'], $hitSL ? 'sl_zadzialal' : 'tp_zadzialal');
             }
         }
     }
@@ -574,6 +580,10 @@ final class Engine
                 self::notify((int) $h['user_id'], 'dividend',
                     "💰 Dywidenda $ticker: +" . number_format($amt, 2, ',', ' ') . " PLN (" . (int) $h['n'] . " szt. × " . number_format($dps, 2, ',', ' ') . ")",
                     "stock.php?id=$sid");
+                self::award((int) $h['user_id'], 'pierwsza_dywidenda');
+                $divCo = (int) self::one("SELECT COUNT(DISTINCT w.stock_id) FROM wallets w JOIN stocks st ON st.id=w.stock_id
+                                          WHERE w.user_id=? AND (w.qty + w.qty_reserved) > 0 AND st.dividend_payout > 0", [$h['user_id']]);
+                if ($divCo >= 5) self::award((int) $h['user_id'], 'rentier');
             }
         }
         // odcięcie dywidendy (kurs, fundament i otwarcie dnia w dół o DPS)
@@ -725,6 +735,21 @@ final class Engine
             Db::pdo()->prepare("UPDATE orders SET status='expired' WHERE status='active' AND expires_session IS NOT NULL AND expires_session < ?")->execute([$n]);
             Log::write('info', 'engine', 'orders.expired', 'wygasło zleceń sesyjnych: ' . count($expired), ['session' => $n]);
         }
+        // odznaki sesyjne: ±10% kapitału w zamkniętej właśnie sesji (z equity_history)
+        try {
+            [$nn, , $tps2] = self::sessionInfo($tick);
+            $t0 = ($nn - 2) * $tps2; $t1 = ($nn - 1) * $tps2;
+            if ($t0 >= 0) {
+                foreach (self::all("SELECT id FROM users WHERE is_bot=0 AND role='player'") as $hu) {
+                    $e0 = (float) (self::one("SELECT equity FROM equity_history WHERE user_id=? AND t >= ? ORDER BY t ASC LIMIT 1", [$hu['id'], $t0]) ?: 0);
+                    $e1 = (float) (self::one("SELECT equity FROM equity_history WHERE user_id=? AND t <= ? ORDER BY t DESC LIMIT 1", [$hu['id'], $t1]) ?: 0);
+                    if ($e0 > 0 && $e1 > 0) {
+                        if ($e1 >= $e0 * 1.10) self::award((int) $hu['id'], 'rajd_10');
+                        if ($e1 <= $e0 * 0.90) self::award((int) $hu['id'], 'lekcja_pokory');
+                    }
+                }
+            }
+        } catch (\Throwable $e) { /* odznaki nie psują sesji */ }
         self::setState('session', (string) $n);
     }
 
@@ -744,6 +769,7 @@ final class Engine
             if ($equity >= $target) {
                 Db::pdo()->prepare("UPDATE users SET goal_session=? WHERE id=?")->execute([$session, $p['id']]);
                 self::notify((int) $p['id'], 'goal', '🏆 Cel gry osiągnięty! Twój kapitał przekroczył ' . number_format($target, 0, ',', ' ') . ' PLN w sesji #' . $session . '.', 'portfolio.php');
+                self::award((int) $p['id'], 'milioner');
                 Db::pdo()->prepare("INSERT INTO news (headline,body,type,scope,target_id,is_espi,impact_strength,publish_tick,expire_tick,published_at)
                                     VALUES (?,?,'POS','MARKET',NULL,0,0,?,?,?)")
                     ->execute(['🏆 ' . $p['username'] . ' osiągnął cel gry: ' . number_format($target, 0, ',', ' ') . ' PLN!',
@@ -1030,6 +1056,57 @@ final class Engine
             $code = EventCatalog::pickRandom(mt_rand(1, 100) <= 65 ? 'COMPANY' : 'SECTOR');
             if ($code) { self::triggerEvent($code, null, null, 'los'); self::setState('last_minor_event_tick', (string) $tick); }
         }
+    }
+
+    /* ---------- Osiągnięcia (odznaki) ---------- */
+
+    private static array $achCache = [];   // uid => set zdobytych kodów (na czas żądania)
+
+    private static function hasAch(int $userId, string $code): bool
+    {
+        if (!isset(self::$achCache[$userId])) {
+            self::$achCache[$userId] = array_fill_keys(self::col("SELECT code FROM achievements WHERE user_id=?", [$userId]), true);
+        }
+        return isset(self::$achCache[$userId][$code]);
+    }
+
+    /** Przyznaj odznakę (raz na gracza). Zwraca true, gdy przyznano po raz pierwszy. */
+    public static function award(int $userId, string $code): bool
+    {
+        $a = Achievements::get($code);
+        if (!$a || self::hasAch($userId, $code)) return false;
+        try {
+            Db::pdo()->prepare("INSERT INTO achievements (user_id, code, earned_at) VALUES (?,?,?)")
+                ->execute([$userId, $code, Db::now()]);
+        } catch (\PDOException $e) {
+            if ((string) $e->getCode() !== '23000') Log::write('warn', 'engine', 'achievement.fail', $code . ': ' . $e->getMessage());
+            return false;   // duplikat/wyścig — już ma
+        }
+        self::$achCache[$userId][$code] = true;
+        self::notify($userId, 'achievement', "🎖️ Nowa odznaka: {$a[0]} {$a[1]} — {$a[2]}", 'gracz.php?id=' . $userId);
+        Log::write('info', 'engine', 'achievement', "odznaka $code dla gracza #$userId");
+        return true;
+    }
+
+    /** Odznaki transakcyjne — RAZ po rundzie kojarzenia (nie per fill), po indeksach. */
+    public static function checkTradeAchievements(int $uid): void
+    {
+        try {
+            self::award($uid, 'pierwsza_transakcja');
+            if (!self::hasAch($uid, 'trader_100')) {
+                $n = (int) self::one("SELECT COUNT(*) FROM transactions WHERE buyer_id=?", [$uid])
+                   + (int) self::one("SELECT COUNT(*) FROM transactions WHERE seller_id=?", [$uid]);
+                if ($n >= 100) self::award($uid, 'trader_100');
+            }
+            // day trader: sesja trwa (tick - start_sesji) ticków ≈ tyle minut zegarowych (cron 1/min)
+            [$sess, , $tps] = self::sessionInfo();
+            $into = min($tps, max(1, (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?: 0) - ($sess - 1) * $tps));
+            $cutoff = date('Y-m-d H:i:s', time() - $into * 60);
+            $inSess = (int) self::one("SELECT COUNT(*) FROM transactions WHERE (buyer_id=? OR seller_id=?) AND created_at >= ?", [$uid, $uid, $cutoff]);
+            if ($inSess >= 20) self::award($uid, 'day_trader');
+            $div = (int) self::one("SELECT COUNT(DISTINCT stock_id) FROM wallets WHERE user_id=? AND (qty + qty_reserved) > 0", [$uid]);
+            if ($div >= 10) self::award($uid, 'dywersyfikacja');
+        } catch (\Throwable $e) { /* odznaki nie mogą psuć handlu */ }
     }
 
     /* ---------- Powiadomienia (dzwonek gracza) ---------- */

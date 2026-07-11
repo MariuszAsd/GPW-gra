@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 13;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 14;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -235,6 +235,24 @@ final class Schema
                 read_at VARCHAR(19) NULL                     -- NULL = nieprzeczytane (licznik na dzwonku)
             )",
 
+            // --- CZAT RYNKOWY (rozmowy graczy; GM może ukrywać wpisy) ---
+            "chat_messages" => "CREATE TABLE chat_messages (
+                id $pk,
+                user_id INT NOT NULL,
+                message VARCHAR(300) NOT NULL,
+                created_at VARCHAR(19) NOT NULL,
+                deleted TINYINT NOT NULL DEFAULT 0
+            )",
+
+            // --- OSIĄGNIĘCIA (odznaki graczy; katalog w src/Achievements.php) ---
+            "achievements" => "CREATE TABLE achievements (
+                id $pk,
+                user_id INT NOT NULL,
+                code VARCHAR(40) NOT NULL,
+                earned_at VARCHAR(19) NOT NULL,
+                UNIQUE (user_id, code)
+            )",
+
             // --- DZIENNIK LOGÓW (dane do analizy błędów; pisany przez QA, silnik i akcje graczy) ---
             "logs" => "CREATE TABLE logs (
                 id $pk,
@@ -267,6 +285,10 @@ final class Schema
             "CREATE INDEX ix_notif ON notifications (user_id, read_at)",
             "CREATE INDEX ix_effects ON active_effects (expire_tick)",
             "CREATE INDEX ix_sched ON scheduled_events (fired, due_tick)",
+            "CREATE INDEX ix_chat ON chat_messages (deleted, id)",
+            "CREATE INDEX ix_ach_user ON achievements (user_id)",
+            "CREATE INDEX ix_tx_buyer ON transactions (buyer_id)",
+            "CREATE INDEX ix_tx_seller ON transactions (seller_id)",
         ];
     }
 }

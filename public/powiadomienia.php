@@ -6,7 +6,7 @@ $user = require_login();
 $rows = Engine::all("SELECT * FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 50", [$user['id']]);
 Db::pdo()->prepare("UPDATE notifications SET read_at=? WHERE user_id=? AND read_at IS NULL")->execute([Db::now(), $user['id']]);
 
-$icon = ['dividend' => '💰', 'stop' => '🛡️', 'report' => '📊', 'order' => '✅', 'goal' => '🏆', 'event' => '🌪️', 'system' => 'ℹ️'];
+$icon = ['dividend' => '💰', 'stop' => '🛡️', 'report' => '📊', 'order' => '✅', 'goal' => '🏆', 'event' => '🌪️', 'achievement' => '🎖️', 'system' => 'ℹ️'];
 layout_header('Powiadomienia', $user, 'notif');
 ?>
 <div class="page-head"><h1>Powiadomienia</h1><span class="muted">50 ostatnich · nieprzeczytane są podświetlone</span></div>

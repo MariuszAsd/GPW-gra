@@ -57,14 +57,14 @@ $medals = ['🥇', '🥈', '🥉'];
           $left = $deadline - $sessionNo; ?>
         <tr <?= (int) $p['id'] === (int) $user['id'] ? 'style="background:var(--info-bg)"' : '' ?>>
           <td class="mono" style="font-size:16px"><?= $medals[$i] ?? ($i + 1) ?></td>
-          <td><b><?= h($p['username']) ?></b><?= (int) $p['id'] === (int) $user['id'] ? ' <span class="tag" style="color:var(--accent);border-color:var(--accent)">Ty</span>' : '' ?></td>
+          <td><a href="gracz.php?id=<?= (int) $p['id'] ?>" style="font-weight:700;color:var(--accent)"><?= h($p['username']) ?></a><?php $bn = (int) Engine::one("SELECT COUNT(*) FROM achievements WHERE user_id=?", [$p['id']]); ?><?= $bn > 0 ? " <span class='tag' title='zdobyte odznaki: $bn z " . count(Achievements::all()) . "'>🎖️$bn</span>" : '' ?><?= (int) $p['id'] === (int) $user['id'] ? ' <span class="tag" style="color:var(--accent);border-color:var(--accent)">Ty</span>' : '' ?></td>
           <td class="num mono"><?= money($p['equity']) ?></td>
           <td class="num"><?php if ($p['ret'] === null): ?><span class="muted">—</span>
             <?php else: ?><span class="chg <?= $p['ret'] >= 0 ? 'p' : 'n' ?>"><span class="ar"><?= $p['ret'] >= 0 ? '▲' : '▼' ?></span><?= number_format(abs($p['ret']), 1, ',', ' ') ?>%</span><?php endif; ?></td>
           <td>
             <?php if ($p['won']): ?><span class="up">🏆 w <?= $p['speed'] ?> sesji</span>
             <?php elseif ($goalTarget <= 0): ?><span class="muted">—</span>
-            <?php elseif ($left >= 0): ?><span class="soft">w grze · zostało <?= $left ?></span>
+            <?php elseif ($left >= 0): ?><span class="soft">w grze · zostało sesji: <?= $left ?></span>
             <?php else: ?><span class="muted">czas minął</span><?php endif; ?>
           </td>
           <td class="num muted">#<?= (int) $p['joined_session'] ?></td>

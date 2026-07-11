@@ -6,6 +6,7 @@ require_once __DIR__ . '/../src/Migrator.php';
 require_once __DIR__ . '/../src/Engine.php';
 require_once __DIR__ . '/../src/Log.php';
 
+session_set_cookie_params(['samesite' => 'Lax', 'httponly' => true]);
 session_start();
 
 // Auto-migracja: po deployu baza sama dołoży nowe kolumny/tabele (bez utraty danych).

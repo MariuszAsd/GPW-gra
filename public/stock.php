@@ -22,6 +22,12 @@ $asks = Engine::all("SELECT price, SUM(qty) q FROM orders WHERE stock_id=? AND s
 $maxDepth = max(1, ...array_map(fn($r) => (int) $r['q'], array_merge($bids, $asks) ?: [['q' => 1]]));
 
 $owned = (int) (Engine::one("SELECT qty FROM wallets WHERE user_id=? AND stock_id=?", [$user['id'], $id]) ?: 0);
+$holders = Engine::all("SELECT u.id AS uid, u.username, u.is_bot, u.role, (w.qty + w.qty_reserved) AS n
+                        FROM wallets w JOIN users u ON u.id = w.user_id
+                        WHERE w.stock_id=? AND (w.qty + w.qty_reserved) > 0 AND u.role <> 'qa'
+                        ORDER BY n DESC LIMIT 10", [$id]);
+$heldTotal = max(1, (int) (Engine::one("SELECT SUM(w.qty + w.qty_reserved) FROM wallets w JOIN users u ON u.id = w.user_id
+                                        WHERE w.stock_id=? AND u.role <> 'qa'", [$id]) ?: 1));
 $trades = Engine::all("SELECT qty, price, created_at FROM transactions WHERE stock_id=? ORDER BY id DESC LIMIT 14", [$id]);
 $mcap = (float) $s['price'] * (float) $s['total_shares'];
 
@@ -147,6 +153,18 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
           <?php $po = (float) ($s['dividend_payout'] ?? 0); ?>
           <tr><td class="muted">Polityka dywidendy<?= tip('Jaką część miesięcznego zysku spółka wypłaca akcjonariuszom. Wystarczy mieć akcje w dniu raportu.', 'dywidenda') ?></td>
               <td class="num"><?= $po > 0 ? '<b class="up">' . number_format($po * 100, 0) . '% zysku</b> <span class="muted">(~' . number_format($po / max(1, (float) $s['pe_target']) * 100, 1, ',', ' ') . '% rocznie)</span>' : '<span class="muted">nie wypłaca (reinwestuje)</span>' ?></td></tr>
+        </tbody></table>
+
+        <h2 style="margin-top:16px">🏛️ Najwięksi akcjonariusze<?= tip('Kto trzyma najwięcej akcji tej spółki. Gracze (ludzie) są podświetleni — możesz kliknąć i podejrzeć ich profil.', '') ?></h2>
+        <table><thead><tr><th>#</th><th>Akcjonariusz</th><th class="num">Akcje</th><th class="num">Udział</th></tr></thead><tbody>
+          <?php foreach ($holders as $i => $hd): $human = !(int) $hd['is_bot']; $linkable = $human && $hd['role'] === 'player'; ?>
+            <tr<?= $linkable ? " class='rowlink' onclick=\"location='gracz.php?id=" . (int) $hd['uid'] . "'\"" : '' ?>>
+              <td class="muted"><?= $i + 1 ?></td>
+              <td><?= $human ? '<b style="color:var(--accent)">👤 ' . h($hd['username']) . '</b>' : '<span class="muted">🤖 ' . h($hd['username']) . '</span>' ?></td>
+              <td class="num"><?= number_format($hd['n'], 0, ',', ' ') ?></td>
+              <td class="num mono"><?= number_format($hd['n'] / $heldTotal * 100, 1, ',', ' ') ?>%</td>
+            </tr>
+          <?php endforeach; if (!$holders) echo "<tr><td class='muted' colspan=4>nikt nie trzyma akcji</td></tr>"; ?>
         </tbody></table>
       </div>
     </div>

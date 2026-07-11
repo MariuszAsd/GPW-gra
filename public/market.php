@@ -64,6 +64,8 @@ layout_header('Rynek', $user, 'market');
     <?php endforeach; ?>
   </div>
 </div>
+<div class="market-grid">
+<div>
 <div class="panel" style="padding:0;overflow:hidden">
   <div class="tbl-scroll">
     <table class="mw">
@@ -79,13 +81,76 @@ layout_header('Rynek', $user, 'market');
           <td class="num"><span class="chg <?= $chg >= 0 ? 'p' : 'n' ?>" data-chg="<?= $id ?>"><span class="ar"><?= $chg >= 0 ? '▲' : '▼' ?></span><?= number_format(abs($chg), 2, ',', ' ') ?>%</span></td>
           <td class="num bid"><?= isset($bid[$id]) ? money($bid[$id]) : '—' ?></td>
           <td class="num ask"><?= isset($ask[$id]) ? money($ask[$id]) : '—' ?></td>
-          <td class="num"><span class="mono" data-vol="<?= $id ?>"><?= money_short((float) $s['turnover']) ?></span> <span class="liq <?= $liqCls ?>" title="<?= $liqTxt ?>">●</span></td>
+          <td class="num nowrap"><span class="mono" data-vol="<?= $id ?>"><?= money_short((float) $s['turnover']) ?></span> <span class="liq <?= $liqCls ?>" title="<?= $liqTxt ?>">●</span></td>
         </tr>
       <?php endforeach; ?>
       </tbody>
     </table>
   </div>
 </div>
+</div>
+
+<aside class="panel chatbox">
+  <h2 style="margin-bottom:8px">💬 Czat rynkowy<?= tip('Rozmowy graczy na żywo. Plotki bywają prawdziwe… albo i nie — jak na prawdziwym parkiecie. GM widzi wszystko.', '') ?></h2>
+  <div id="chat-list" class="chat-list"><p class="muted" style="padding:8px">Ładowanie…</p></div>
+  <form id="chat-form" class="chat-form" autocomplete="off">
+    <input type="text" id="chat-msg" maxlength="300" placeholder="Napisz coś…">
+    <button class="btn sm">➤</button>
+  </form>
+</aside>
+</div>
+<script>
+// --- czat rynkowy ---
+let chatSince = 0, chatAdmin = 0; const myUid = <?= (int) $user['id'] ?>;
+const chatList = document.getElementById('chat-list');
+function chatRow(m) {
+  const del = chatAdmin ? ` <a href="#" class="chat-del" data-id="${m.id}" title="Ukryj wpis">✕</a>` : '';
+  const who = m.pl ? `<a class="chat-u" href="gracz.php?id=${m.uid}">${esc(m.u)}</a>`
+                   : `<span class="chat-u${m.gm ? ' gm' : ''}">${esc(m.u)}</span>`;   // GM/QA bez linku do profilu
+  return `<div class="chat-msg${m.uid === myUid ? ' own' : ''}" data-mid="${m.id}"><span class="chat-t">${m.t}</span> ${who}: ${esc(m.m)}${del}</div>`;
+}
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+let chatBusy = false;
+async function chatPoll(first) {
+  if (chatBusy) return;   // nie nakładaj równoległych polli (duplikaty)
+  chatBusy = true;
+  try {
+    const j = await (await fetch('api_chat.php?since=' + chatSince)).json();
+    if (!j.ok) return;
+    chatAdmin = j.admin;
+    if (first) chatList.innerHTML = j.msgs.length ? '' : '<p class="muted" style="padding:8px">Cisza na parkiecie — napisz coś pierwszy!</p>';
+    if (j.msgs.length) {
+      if (first || chatSince === 0) chatList.innerHTML = '';
+      for (const m of j.msgs) {
+        if (chatList.querySelector(`[data-mid="${m.id}"]`)) continue;   // dedup po id
+        chatList.insertAdjacentHTML('beforeend', chatRow(m));
+        chatSince = Math.max(chatSince, m.id);
+      }
+      chatList.scrollTop = chatList.scrollHeight;
+    }
+    for (const hid of (j.hidden || [])) {   // moderacja GM znika u wszystkich na żywo
+      const el = chatList.querySelector(`[data-mid="${hid}"]`); if (el) el.remove();
+    }
+  } catch (e) {} finally { chatBusy = false; }
+}
+document.getElementById('chat-form').onsubmit = async (ev) => {
+  ev.preventDefault();
+  const inp = document.getElementById('chat-msg'), v = inp.value.trim();
+  if (!v) return;
+  const fd = new FormData(); fd.append('msg', v);
+  const j = await (await fetch('api_chat.php', { method: 'POST', body: fd })).json();
+  if (j.ok) { inp.value = ''; chatPoll(false); } else if (j.err) alert(j.err);
+};
+chatList.addEventListener('click', async (ev) => {
+  const del = ev.target.closest('.chat-del'); if (!del) return;
+  ev.preventDefault();
+  const fd = new FormData(); fd.append('del', del.dataset.id);
+  await fetch('api_chat.php', { method: 'POST', body: fd });
+  del.closest('.chat-msg').remove();
+});
+chatPoll(true);
+setInterval(() => chatPoll(false), 5000);
+</script>
 <script>
 setInterval(async () => {
   try {

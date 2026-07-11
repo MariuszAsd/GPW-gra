@@ -137,6 +137,27 @@ final class Migrator
                 "CREATE INDEX ix_effects ON active_effects (expire_tick)",
                 "CREATE INDEX ix_sched ON scheduled_events (fired, due_tick)",
             ],
+            // v14: czat rynkowy + osiągnięcia (odznaki)
+            14 => [
+                "CREATE TABLE chat_messages (
+                    id " . (Db::driver() === 'mysql' ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT') . ",
+                    user_id INT NOT NULL,
+                    message VARCHAR(300) NOT NULL,
+                    created_at VARCHAR(19) NOT NULL,
+                    deleted TINYINT NOT NULL DEFAULT 0
+                )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
+                "CREATE TABLE achievements (
+                    id " . (Db::driver() === 'mysql' ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT') . ",
+                    user_id INT NOT NULL,
+                    code VARCHAR(40) NOT NULL,
+                    earned_at VARCHAR(19) NOT NULL,
+                    UNIQUE (user_id, code)
+                )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
+                "CREATE INDEX ix_chat ON chat_messages (deleted, id)",
+                "CREATE INDEX ix_ach_user ON achievements (user_id)",
+                "CREATE INDEX ix_tx_buyer ON transactions (buyer_id)",
+                "CREATE INDEX ix_tx_seller ON transactions (seller_id)",
+            ],
         ];
     }
 

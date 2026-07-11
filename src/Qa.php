@@ -89,6 +89,17 @@ final class Qa
         $this->check($c === 200 && str_contains($b, 'Powiadomienia'), 'page.notifications', "powiadomienia.php: code=$c");
         [$c, $b] = $this->http('GET', '/api_notifications.php');
         $this->check($c === 200 && str_contains($b, '"ok":true'), 'page.api_notifications', "api_notifications: code=$c lub brak ok:true");
+        // czat: wpis pojawia się w odczycie, drugi natychmiastowy wpis odbija się o anty-spam
+        $probe = 'qa-czat-' . mt_rand(1000, 9999);
+        [$c, $b] = $this->http('POST', '/api_chat.php', ['msg' => $probe]);
+        $this->check($c === 200 && str_contains($b, '"ok":true'), 'chat.post', "wpis na czacie nie przeszedł (code=$c)");
+        [$c, $b] = $this->http('GET', '/api_chat.php?since=0');
+        $this->check($c === 200 && str_contains($b, $probe), 'chat.read', 'wpis nie pojawił się w odczycie czatu');
+        [, $b] = $this->http('POST', '/api_chat.php', ['msg' => $probe . '-2']);
+        $this->check(!str_contains($b, '"ok":true'), 'chat.ratelimit', 'anty-spam nie zadziałał (2 wpisy pod rząd przeszły)');
+        // profil gracza (własny profil QA)
+        [$c, $b] = $this->http('GET', '/gracz.php?id=' . $uid);
+        $this->check($c === 200 && str_contains($b, 'Odznaki'), 'page.profile', "gracz.php: code=$c lub brak odznak");
 
         // 3) zlecenie oczekujące: rezerwacja i zwrot CO DO GROSZA
         $deep = max(0.01, round((float) $stock['price'] * 0.1, 2));   // 10% kursu — nie wypełni się
@@ -205,8 +216,9 @@ final class Qa
              FROM wallets w WHERE w.qty_reserved <> COALESCE((SELECT SUM(o.qty) FROM orders o WHERE o.user_id=w.user_id AND o.stock_id=w.stock_id AND o.side='sell' AND o.status IN ('active','pending')),0)");
         $this->check(count($badQty) === 0, 'inv.qty_reserved', 'rezerwacje akcji ≠ aktywne zlecenia sprzedaży + obronne', ['wallets' => array_slice($badQty, 0, 3)]);
 
-        // sprzątanie po sobie (też zlecenia obronne)
+        // sprzątanie po sobie (też zlecenia obronne i wpisy na czacie)
         foreach (Engine::all("SELECT id FROM orders WHERE user_id=? AND status IN ('active','pending')", [$uid]) as $o) Engine::cancel((int) $o['id'], $uid);
+        $pdo->prepare("UPDATE chat_messages SET deleted=1 WHERE user_id=?")->execute([$uid]);
     }
 
     /* ---------- pomocnicze ---------- */
