@@ -78,7 +78,7 @@ final class Qa
         // 2) przegląd stron (200 + treść + brak błędów PHP)
         $stock = Engine::row("SELECT id, price FROM stocks ORDER BY price ASC LIMIT 1");   // najtańsza spółka do testów
         $sid = (int) $stock['id'];
-        foreach ([['/pulpit.php', 'Pulpit'], ['/samouczek.php', 'Samouczek'], ['/market.php', 'Rynek'], ['/ranking.php', 'Ranking'], ['/portfolio.php', 'Portfel'], ['/pomoc.php', 'Stop-Loss'], ['/wiadomosci.php', 'Kalendarz'], ['/wyzwania.php', 'Wyzwania'], ['/dziennik.php', 'Dziennik'], ['/sklep.php', 'Pakiet Analityka'], ['/sklep.php', 'Kosmetyka'], ['/sezon.php', 'Sezon'], ["/stock.php?id=$sid", 'Zlecenie'], ["/stock.php?id=$sid", 'Raport DM']] as [$path, $needle]) {
+        foreach ([['/pulpit.php', 'Pulpit'], ['/samouczek.php', 'Samouczek'], ['/market.php', 'Rynek'], ['/ranking.php', 'Ranking'], ['/portfolio.php', 'Portfel'], ['/pomoc.php', 'Stop-Loss'], ['/wiadomosci.php', 'Kalendarz'], ['/wyzwania.php', 'Wyzwania'], ['/dziennik.php', 'Dziennik'], ['/sklep.php', 'Pakiet Analityka'], ['/sklep.php', 'Kosmetyka'], ['/sezon.php', 'Sezon'], ['/menu.php', 'Więcej'], ["/stock.php?id=$sid", 'Zlecenie'], ["/stock.php?id=$sid", 'Raport DM']] as [$path, $needle]) {
             [$c, $b] = $this->http('GET', $path);
             $this->check($c === 200 && str_contains($b, $needle), "page.$path", "code=$c, brak '$needle'");
             $this->check(!preg_match('/Fatal error|Parse error|Uncaught|Warning:/', $b), "php.$path", 'strona zawiera błąd PHP');

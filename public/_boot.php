@@ -53,6 +53,10 @@ function icon(string $name, string $cls = 'ico'): string {
         'bell'   => '<path d="M18 9a6 6 0 1 0-12 0c0 6-2.5 7-2.5 7h17S18 15 18 9"/><path d="M10.3 20a2 2 0 0 0 3.4 0"/>',
         'theme'  => '<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17A8.5 8.5 0 0 0 12 3.5Z" fill="currentColor" stroke="none"/>',
         'exit'   => '<path d="M14 4h-8a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h8m-4-8h11m-3.5-3.5L21 12l-3.5 3.5"/>',
+        'more'   => '<circle cx="5" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="19" cy="12" r="1.4" fill="currentColor"/>',
+        'shop'   => '<path d="M6.3 8h11.4l-1 12.1a1 1 0 0 1-1 .9H8.3a1 1 0 0 1-1-.9Z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/>',
+        'book'   => '<path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15.5H6.75A1.75 1.75 0 0 0 5 20.25Z"/><path d="M5 20.25V4.5M9 7.5h6"/>',
+        'user'   => '<circle cx="12" cy="8" r="4"/><path d="M4.5 20.5c1.4-3.8 4.6-5.5 7.5-5.5s6.1 1.7 7.5 5.5"/>',
     ];
     return "<svg class='$cls' viewBox='0 0 24 24' aria-hidden='true'>" . ($paths[$name] ?? '') . '</svg>';
 }
@@ -168,16 +172,14 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
              "const b=document.querySelector('[data-bell]');if(b&&j.ok){b.textContent=j.unread;b.classList.toggle('off',j.unread===0);}}catch(e){}},15000);</script>";
     }
     if ($user) {
+        // mobilna nawigacja: 5 zakładek (reszta w "Więcej") — wzór aplikacji tradingowych
+        $moreActive = in_array($active, ['ranking', 'news', 'help', 'notif', 'gm', 'more'], true) ? ' active' : '';
         echo "<nav class='bottomnav'>";
-        echo "<a class='" . trim($act('home')) . "' href='pulpit.php'>" . icon('home') . "Pulpit</a>";
-        echo "<a class='" . trim($act('market')) . "' href='market.php'>" . icon('chart') . "Rynek</a>";
-        echo "<a class='" . trim($act('ranking')) . "' href='ranking.php'>" . icon('trophy') . "Ranking</a>";
-        echo "<a class='" . trim($act('challenges')) . "' href='wyzwania.php'>" . icon('flag') . "Wyzwania</a>";
-        echo "<a class='" . trim($act('portfolio')) . "' href='portfolio.php'>" . icon('case') . "Portfel</a>";
-        echo "<a class='" . trim($act('news')) . "' href='wiadomosci.php'>" . icon('news') . "Newsy</a>";
-        echo "<a class='" . trim($act('help')) . "' href='pomoc.php'>" . icon('help') . "Pomoc</a>";
-        if ($isAdmin) echo "<a class='" . trim($act('gm')) . "' href='gm.php'>" . icon('gear') . "GM</a>";
-        echo "<a href='logout.php'>" . icon('exit') . "Wyjście</a>";
+        echo "<a class='" . trim($act('home')) . "' href='pulpit.php'>" . icon('home') . "<span>Pulpit</span></a>";
+        echo "<a class='" . trim($act('market')) . "' href='market.php'>" . icon('chart') . "<span>Rynek</span></a>";
+        echo "<a class='" . trim($act('portfolio')) . "' href='portfolio.php'>" . icon('case') . "<span>Portfel</span></a>";
+        echo "<a class='" . trim($act('challenges')) . "' href='wyzwania.php'>" . icon('flag') . "<span>Wyzwania</span></a>";
+        echo "<a class='" . trim($moreActive) . "' href='menu.php'>" . icon('more') . "<span>Więcej</span></a>";
         echo "</nav>";
     }
     // baner kontekstu: gracz handluje teraz portfelem wyzwania (widoczny na każdej stronie)

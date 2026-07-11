@@ -98,7 +98,7 @@ layout_header('Rynek', $user, 'market');
 <div class="panel" style="padding:0;overflow:hidden">
   <div class="tbl-scroll">
     <table class="mw">
-      <thead><tr><th style="width:30px"><span title="Obserwowane: gwiazdka przypina spółkę na górze i (z Pakietem Analityka) daje alerty 🔔 przy mocnym sygnale AT">★</span></th><th>Instrument</th><th></th><th class="num">Kurs</th><th class="num">Zmiana</th><th class="num">Sygnał AT<?= $isPremium ? '' : ' 🔒' ?><?= tip('Zbiorczy sygnał analizy technicznej (10 wskaźników z zakładki Analiza). Skaner całego rynku to funkcja Pakietu Analityka — pojedynczo sprawdzisz za darmo na karcie spółki.', '') ?></th><th class="num">Bid</th><th class="num">Ask</th><th class="num">Obrót (sesja)<?= tip('Za ile PLN handlowano akcjami tej spółki od otwarcia sesji. Kropka pokazuje płynność: przy niskiej (czerwonej) kupno/sprzedaż większych pakietów rusza kursem.', 'plynnosc') ?></th></tr></thead>
+      <thead><tr><th style="width:30px"><span title="Obserwowane: gwiazdka przypina spółkę na górze i (z Pakietem Analityka) daje alerty 🔔 przy mocnym sygnale AT">★</span></th><th>Instrument</th><th></th><th class="num">Kurs</th><th class="num">Zmiana</th><th class="num hide-m">Sygnał AT<?= $isPremium ? '' : ' 🔒' ?><?= tip('Zbiorczy sygnał analizy technicznej (10 wskaźników z zakładki Analiza). Skaner całego rynku to funkcja Pakietu Analityka — pojedynczo sprawdzisz za darmo na karcie spółki.', '') ?></th><th class="num hide-m">Bid</th><th class="num hide-m">Ask</th><th class="num hide-m">Obrót (sesja)<?= tip('Za ile PLN handlowano akcjami tej spółki od otwarcia sesji. Kropka pokazuje płynność: przy niskiej (czerwonej) kupno/sprzedaż większych pakietów rusza kursem.', 'plynnosc') ?></th></tr></thead>
       <tbody>
       <?php foreach ($stocks as $s): $id = (int) $s['id'];
           $ref = (float) $s['day_open_price'] > 0 ? (float) $s['day_open_price'] : (float) $s['price'];
@@ -110,16 +110,16 @@ layout_header('Rynek', $user, 'market');
           <td style="padding:4px 6px"><?= $sparkSvg($spark[$id] ?? []) ?></td>
           <td class="num px" data-px="<?= $id ?>"><?= money($s['price']) ?></td>
           <td class="num"><span class="chg <?= $chg >= 0 ? 'p' : 'n' ?>" data-chg="<?= $id ?>"><span class="ar"><?= $chg >= 0 ? '▲' : '▼' ?></span><?= number_format(abs($chg), 2, ',', ' ') ?>%</span></td>
-          <td class="num">
+          <td class="num hide-m">
             <?php if ($isPremium): [$vTxt, $vCls] = Technical::verdict((float) $s['ta_signal']); ?>
               <span class="chg <?= $vCls ?>" style="font-size:11px"><?= h($vTxt) ?></span>
             <?php else: ?>
               <a href="sklep.php" class="muted" title="Odblokuj skaner — Pakiet Analityka" onclick="event.stopPropagation()">🔒</a>
             <?php endif; ?>
           </td>
-          <td class="num bid"><?= isset($bid[$id]) ? money($bid[$id]) : '—' ?></td>
-          <td class="num ask"><?= isset($ask[$id]) ? money($ask[$id]) : '—' ?></td>
-          <td class="num nowrap"><span class="mono" data-vol="<?= $id ?>"><?= money_short((float) $s['turnover']) ?></span> <span class="liq <?= $liqCls ?>" title="<?= $liqTxt ?>">●</span></td>
+          <td class="num bid hide-m"><?= isset($bid[$id]) ? money($bid[$id]) : '—' ?></td>
+          <td class="num ask hide-m"><?= isset($ask[$id]) ? money($ask[$id]) : '—' ?></td>
+          <td class="num nowrap hide-m"><span class="mono" data-vol="<?= $id ?>"><?= money_short((float) $s['turnover']) ?></span> <span class="liq <?= $liqCls ?>" title="<?= $liqTxt ?>">●</span></td>
         </tr>
       <?php endforeach; ?>
       </tbody>

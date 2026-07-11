@@ -404,4 +404,14 @@ setInterval(async()=>{ try{
   drawChart();
 }catch(e){} },5000);
 </script>
+<!-- mobilny pasek handlu (nad dolną nawigacją): ceny na żywo, klik ustawia stronę i zwija do formularza -->
+<div class="tradebar">
+  <button type="button" class="sell" onclick="setSide('sell');document.querySelector('.orderpanel').scrollIntoView({behavior:'smooth'})" <?= $owned <= 0 ? 'disabled' : '' ?>>
+    <span class="lbl">SPRZEDAJ</span><span class="pr"><?= $bestBid !== null ? money($bestBid) : '—' ?></span>
+  </button>
+  <button type="button" class="buy" onclick="setSide('buy');document.querySelector('.orderpanel').scrollIntoView({behavior:'smooth'})">
+    <span class="lbl">KUP</span><span class="pr"><?= $bestAsk !== null ? money($bestAsk) : '—' ?></span>
+  </button>
+</div>
+<script>document.body.classList.add('has-tradebar');</script>
 <?php layout_footer();
