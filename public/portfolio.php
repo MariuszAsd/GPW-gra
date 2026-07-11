@@ -20,6 +20,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['set_goal'])) {
     redirect('portfolio.php');
 }
 
+// lokaty: założenie / zerwanie (zawsze z KONTA GŁÓWNEGO — portfel wyzwania gra tylko akcjami)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bank_open'])) {
+    $amount = (float) str_replace([' ', ','], ['', '.'], (string) ($_POST['bank_amount'] ?? '0'));
+    [$ok, $msg] = Bank::open($uidReal, $amount, (int) ($_POST['bank_term'] ?? 0));
+    flash($msg, $ok ? 'ok' : 'err');
+    redirect('portfolio.php?tab=lok');
+}
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bank_break'])) {
+    [$ok, $msg] = Bank::breakDeposit($uidReal, (int) $_POST['bank_break']);
+    flash($msg, $ok ? 'ok' : 'err');
+    redirect('portfolio.php?tab=lok');
+}
+
 $pos = Engine::all("SELECT w.stock_id, s.ticker, s.name, s.price, w.qty, w.qty_reserved, w.avg_price
                     FROM wallets w JOIN stocks s ON s.id=w.stock_id
                     WHERE w.user_id=? AND (w.qty>0 OR w.qty_reserved>0) ORDER BY s.ticker", [$user['id']]);
@@ -69,8 +82,10 @@ $eqSvg = equity_svg($eqSeries);
 $value = 0; $cost = 0;
 foreach ($pos as $p) { $q = $p['qty'] + $p['qty_reserved']; $value += $q * $p['price']; $cost += $q * $p['avg_price']; }
 $pl = $value - $cost;
-$equity = $user['cash'] + $user['cash_reserved'] + $value;
+$locked = Engine::lockedFunds((int) $user['id']);   // lokaty + zapisy IPO (konto-cień wyzwania: 0)
+$equity = $user['cash'] + $user['cash_reserved'] + $value + $locked;
 $plPct = $cost > 0 ? $pl / $cost * 100 : 0;
+$deposits = ($user['ctx'] ?? '') !== 'challenge' ? Bank::activeFor($uidReal) : [];
 
 // --- cel gry: osobisty próg gracza ma pierwszeństwo przed domyślnym z GM ---
 $goalDefault = (float) (Engine::one("SELECT v FROM game_state WHERE k='goal_target'") ?: 0);
@@ -115,12 +130,16 @@ layout_header('Portfel', $user, 'portfolio');
   <div class="stat"><div class="k">Kapitał</div><div class="v"><?= money($equity) ?></div></div>
   <div class="stat"><div class="k">Gotówka</div><div class="v"><?= money($user['cash']) ?></div></div>
   <div class="stat"><div class="k">Wartość akcji</div><div class="v"><?= money($value) ?></div></div>
+  <?php if ($locked > 0): ?>
+  <div class="stat"><div class="k">Lokaty i zapisy IPO</div><div class="v"><?= money($locked) ?></div></div>
+  <?php endif; ?>
   <div class="stat"><div class="k">Wynik</div><div class="v <?= $pl >= 0 ? 'up' : 'down' ?>"><?= ($pl >= 0 ? '+' : '') . money($pl) ?><span style="font-size:13px"> (<?= ($plPct >= 0 ? '+' : '') . number_format($plPct, 1, ',', ' ') ?>%)</span></div></div>
 </div>
 
 <div class="subtabs">
   <button class="on" data-tab="poz">Pozycje<?= $pos ? ' (' . count($pos) . ')' : '' ?></button>
   <button data-tab="zle">Zlecenia<?= $orders ? ' (' . count($orders) . ')' : '' ?></button>
+  <button data-tab="lok">Lokaty<?= $deposits ? ' (' . count($deposits) . ')' : '' ?></button>
   <button data-tab="his">Historia</button>
 </div>
 
@@ -146,11 +165,12 @@ layout_header('Portfel', $user, 'portfolio');
           <td class="num hide-m"><?= money($q * $p['price']) ?></td>
           <td class="num <?= $ppl >= 0 ? 'up' : 'down' ?>"><?= ($ppl >= 0 ? '+' : '') . money($ppl) ?></td>
           <td>
-            <form method="post" action="set_sltp.php" class="sltp-form" style="display:flex;gap:6px;align-items:center" title="Zlecenie obronne: sprzeda podaną ilość, gdy kurs spadnie do SL lub wzrośnie do TP">
+            <form method="post" action="set_sltp.php" class="sltp-form" style="display:flex;gap:6px;align-items:center" title="Zlecenie obronne: sprzeda podaną ilość, gdy kurs spadnie do SL lub wzrośnie do TP. Krocz. % = SL kroczący: próg sam podąża za rosnącym kursem (np. 8 = zawsze 8% pod szczytem).">
               <input type="hidden" name="stock_id" value="<?= (int) $p['stock_id'] ?>">
               <input type="number" name="qty" min="1" placeholder="szt." value="<?= (int) $p['qty'] ?>" style="width:64px;padding:6px 8px">
               <input type="number" step="0.01" name="sl_price" placeholder="SL" style="width:78px;padding:6px 8px">
               <input type="number" step="0.01" name="tp_price" placeholder="TP" style="width:78px;padding:6px 8px">
+              <input type="number" step="0.5" min="0.5" max="50" name="trail" placeholder="krocz.%" style="width:70px;padding:6px 8px" title="SL kroczący: % pod kursem — próg sam rośnie za kursem">
               <button class="btn sm ghost">OK</button>
             </form>
           </td>
@@ -175,7 +195,7 @@ layout_header('Portfel', $user, 'portfolio');
           <td><?php if ($isStop): ?><span class="chg" style="color:var(--gold);background:var(--gold-bg)">OBRONNE</span>
               <?php else: ?><span class="chg <?= $o['side'] === 'buy' ? 'p' : 'n' ?>"><?= $o['side'] === 'buy' ? 'KUPNO' : 'SPRZEDAŻ' ?></span><?php endif; ?></td>
           <td class="num"><?= (int) $o['qty'] ?></td>
-          <td class="num"><?php if ($isStop): ?><span class="mono" style="font-size:12px"><?= $o['sl_price'] !== null ? 'SL ' . money($o['sl_price']) : '' ?><?= $o['sl_price'] !== null && $o['tp_price'] !== null ? ' · ' : '' ?><?= $o['tp_price'] !== null ? 'TP ' . money($o['tp_price']) : '' ?></span><?php else: ?><?= money($o['price']) ?><?php endif; ?></td>
+          <td class="num"><?php if ($isStop): ?><span class="mono" style="font-size:12px"><?= $o['sl_price'] !== null ? (($o['trail_pct'] ?? null) !== null ? 'SL krocz. ' . rtrim(rtrim(number_format((float) $o['trail_pct'], 1, ',', ''), '0'), ',') . '%: ' : 'SL ') . money($o['sl_price']) : '' ?><?= $o['sl_price'] !== null && $o['tp_price'] !== null ? ' · ' : '' ?><?= $o['tp_price'] !== null ? 'TP ' . money($o['tp_price']) : '' ?></span><?php else: ?><?= money($o['price']) ?><?php endif; ?></td>
           <td class="muted hide-m"><?= $isStop ? 'do wyzwolenia' : ($o['expires_session'] !== null ? 'sesja #' . (int) $o['expires_session'] : 'bezterm.') ?></td>
           <td style="text-align:right"><form method="post" action="cancel_order.php" onclick="event.stopPropagation()"><input type="hidden" name="order_id" value="<?= (int) $o['id'] ?>"><button class="btn sm ghost">Anuluj</button></form></td>
         </tr>
@@ -225,6 +245,57 @@ layout_header('Portfel', $user, 'portfolio');
   </div>
 </div>
 </div><!-- /tab-zle -->
+
+<div class="tabpane" id="tab-lok">
+<?php if (($user['ctx'] ?? '') === 'challenge'): ?>
+  <div class="panel"><h2>Lokaty</h2>
+    <p class="muted">Portfel wyzwania gra wyłącznie akcjami — lokaty znajdziesz na koncie głównym.</p></div>
+<?php else: [$curSession] = Engine::sessionInfo(); ?>
+  <div class="panel" style="margin-bottom:16px">
+    <h2>Lokaty — bezpieczny procent
+      <?= tip('Zamrażasz gotówkę na N sesji za stały procent (wypłata automatyczna). Kapitał lokaty CAŁY CZAS liczy się do Twojego kapitału w rankingu i celu gry. Zerwanie przed terminem zwraca kapitał, ale odsetki przepadają.', '') ?>
+    </h2>
+    <div class="ch-grid">
+      <?php foreach (Bank::offers() as $term => $rate): ?>
+        <div class="ch-stat"><small><?= $term ?> <?= Bank::sesje($term) ?></small><b class="up"><?= number_format($rate, 1, ',', ' ') ?>%</b></div>
+      <?php endforeach; ?>
+    </div>
+    <form method="post" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-top:10px">
+      <input type="hidden" name="bank_open" value="1">
+      <div><label style="font-size:11.5px">Kwota (min <?= number_format(Bank::MIN_AMOUNT, 0, ',', ' ') ?> PLN)</label>
+        <input type="number" name="bank_amount" min="<?= (int) Bank::MIN_AMOUNT ?>" step="100" placeholder="np. 20000" style="width:140px" required></div>
+      <div><label style="font-size:11.5px">Okres</label>
+        <select name="bank_term" style="width:auto">
+          <?php foreach (Bank::offers() as $term => $rate): ?>
+            <option value="<?= $term ?>"><?= $term ?> <?= Bank::sesje($term) ?> · <?= number_format($rate, 1, ',', ' ') ?>%</option>
+          <?php endforeach; ?>
+        </select></div>
+      <button class="btn sm" style="width:auto">Załóż lokatę</button>
+      <span class="muted" style="font-size:11.5px">wolna gotówka: <?= money($user['cash']) ?> PLN</span>
+    </form>
+  </div>
+  <div class="panel">
+    <h2>Aktywne lokaty<?= $deposits ? ' — razem ' . money(array_sum(array_map(fn($d) => (float) $d['amount'], $deposits))) . ' PLN' : '' ?></h2>
+    <?php if (!$deposits): ?><p class="muted">Brak aktywnych lokat. Nadwyżkę gotówki, której nie inwestujesz, możesz tu bezpiecznie oprocentować.</p><?php else: ?>
+    <div class="tbl-scroll"><table>
+      <thead><tr><th class="num">Kwota</th><th class="num">Oprocentowanie</th><th class="num">Wypłata</th><th class="num">Sesji zostało</th><th></th></tr></thead>
+      <tbody>
+      <?php foreach ($deposits as $d): $payout = round((float) $d['amount'] * (1 + (float) $d['rate_pct'] / 100), 2); ?>
+        <tr>
+          <td class="num mono"><?= money($d['amount']) ?></td>
+          <td class="num"><?= number_format((float) $d['rate_pct'], 1, ',', ' ') ?>%</td>
+          <td class="num mono up">+<?= money($payout) ?></td>
+          <td class="num"><?= max(0, (int) $d['end_session'] - $curSession) ?> <span class="muted">(sesja #<?= (int) $d['end_session'] ?>)</span></td>
+          <td style="text-align:right"><form method="post" onsubmit="return confirm('Zerwać lokatę? Kapitał wróci, ale odsetki przepadną.')">
+            <button class="btn sm ghost" name="bank_break" value="<?= (int) $d['id'] ?>">Zerwij</button></form></td>
+        </tr>
+      <?php endforeach; ?>
+      </tbody>
+    </table></div>
+    <?php endif; ?>
+  </div>
+<?php endif; ?>
+</div><!-- /tab-lok -->
 
 <div class="tabpane" id="tab-his">
 <?php if ($closed): ?>

@@ -10,7 +10,7 @@ $mhIsOpen = Engine::marketIsOpen();
 
 // kapitał + wykres
 $stockVal = (float) (Engine::one("SELECT COALESCE(SUM((w.qty + w.qty_reserved) * s.price), 0) FROM wallets w JOIN stocks s ON s.id=w.stock_id WHERE w.user_id=?", [$uid]) ?: 0);
-$equity = (float) $user['cash'] + (float) $user['cash_reserved'] + $stockVal;
+$equity = (float) $user['cash'] + (float) $user['cash_reserved'] + $stockVal + Engine::lockedFunds($uid);
 $startEq = (float) (Engine::one("SELECT start_equity FROM users WHERE id=?", [$uid]) ?: 0);
 $ret = $startEq > 0 ? ($equity / $startEq - 1) * 100 : 0;
 $eqSeries = array_reverse(array_map('floatval', Engine::col("SELECT equity FROM equity_history WHERE user_id=? ORDER BY t DESC LIMIT 150", [$uid])));

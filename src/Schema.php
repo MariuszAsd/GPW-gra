@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 26;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 27;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -77,6 +77,8 @@ final class Schema
                 aggressiveness       $f NOT NULL DEFAULT 1,
                 tech_affinity        DECIMAL(4,2) NOT NULL DEFAULT 0.5,  -- podatność na analizę techniczną (0=fundamentalna, 1=techniczna)
                 ta_signal            DECIMAL(5,3) NOT NULL DEFAULT 0,    -- zbiorczy sygnał AT (cache per tick; skaner na Rynku)
+                halted_until_tick    INT NOT NULL DEFAULT 0,             -- widełki: notowania zawieszone do tego ticku
+                halts_session        INT NOT NULL DEFAULT 0,             -- ile zawieszeń w tej sesji (limit, reset przy rollu)
                 -- sterowanie GM:
                 bias $f NOT NULL DEFAULT 0,
                 profit_trend $f NOT NULL DEFAULT 0,   -- ręczny miernik trendu zysków (%/miesiąc, edytowalny w GM)
@@ -114,6 +116,7 @@ final class Schema
                 expires_session INT NULL,             -- ważność: NULL = bezterminowe, N = do końca sesji N
                 sl_price $money NULL,                 -- zlecenie obronne (status 'pending'): próg Stop-Loss
                 tp_price $money NULL,                 -- zlecenie obronne: próg Take-Profit
+                trail_pct DECIMAL(5,2) NULL,          -- SL kroczący: % pod kursem; silnik podnosi sl_price za kursem
                 created_at VARCHAR(19) NOT NULL
             )",
 
@@ -439,6 +442,47 @@ final class Schema
                 created_at VARCHAR(19) NOT NULL
             )",
 
+            // --- LOKATY (obligacje skarbowe gry: kapitał zamrożony na N sesji za stały %) ---
+            "deposits" => "CREATE TABLE deposits (
+                id $pk,
+                user_id INT NOT NULL,
+                amount $money NOT NULL,
+                rate_pct DECIMAL(5,2) NOT NULL,     -- oprocentowanie za CAŁY okres
+                start_session INT NOT NULL,
+                end_session   INT NOT NULL,
+                status VARCHAR(10) NOT NULL DEFAULT 'active',   -- active|paid|broken
+                created_at VARCHAR(19) NOT NULL
+            )",
+
+            // --- IPO Z ZAPISAMI (oferta publiczna: zapisy po cenie emisyjnej, redukcja, debiut) ---
+            "ipo_offers" => "CREATE TABLE ipo_offers (
+                id $pk,
+                name VARCHAR(80) NOT NULL,
+                ticker VARCHAR(8) NOT NULL,
+                sector_id INT NOT NULL,
+                sector_symbol VARCHAR(8) NOT NULL,
+                price $money NOT NULL,              -- cena emisyjna (stała)
+                shares_offered INT NOT NULL,
+                per_player_max INT NOT NULL,
+                close_session INT NOT NULL,         -- zapisy do KOŃCA sesji close_session-1 (rozliczenie na rollu do close_session)
+                demand_bots INT NOT NULL DEFAULT 0, -- popyt instytucji (boty) — losowany przy rozliczeniu
+                reduction_pct DECIMAL(5,2) NOT NULL DEFAULT 0,
+                status VARCHAR(10) NOT NULL DEFAULT 'open',     -- open|done
+                stock_id INT NULL,                  -- spółka po debiucie
+                created_at VARCHAR(19) NOT NULL
+            )",
+            "ipo_subs" => "CREATE TABLE ipo_subs (
+                id $pk,
+                offer_id INT NOT NULL,
+                user_id  INT NOT NULL,
+                qty INT NOT NULL,
+                paid $money NOT NULL,               -- gotówka pobrana przy zapisie (qty x cena)
+                allotted INT NULL,                  -- przydział po redukcji (NULL = jeszcze nie rozliczone)
+                refund $money NOT NULL DEFAULT 0,
+                created_at VARCHAR(19) NOT NULL,
+                UNIQUE (offer_id, user_id)
+            )",
+
             // --- DZIENNIK GRACZA (oś czasu konta: zlecenia, SL/TP, dywidendy, wyzwania, odznaki) ---
             "player_journal" => "CREATE TABLE player_journal (
                 id $pk,
@@ -497,6 +541,8 @@ final class Schema
             "CREATE INDEX ix_season ON season_progress (series_id, points)",
             "CREATE INDEX ix_scomments ON stock_comments (stock_id, deleted, id)",
             "CREATE INDEX ix_modinc ON mod_incidents (user_id, id)",
+            "CREATE INDEX ix_deposits ON deposits (user_id, status)",
+            "CREATE INDEX ix_iposubs ON ipo_subs (user_id, offer_id)",
             "CREATE UNIQUE INDEX ux_users_email ON users (email)",
             "CREATE INDEX ix_pwreset ON password_resets (token_hash)",
         ];

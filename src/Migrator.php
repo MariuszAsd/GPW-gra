@@ -379,6 +379,50 @@ final class Migrator
                 )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
                 "CREATE INDEX ix_modinc ON mod_incidents (user_id, id)",
             ],
+            27 => [
+                "ALTER TABLE stocks ADD COLUMN halted_until_tick INT NOT NULL DEFAULT 0",
+                "ALTER TABLE stocks ADD COLUMN halts_session INT NOT NULL DEFAULT 0",
+                "ALTER TABLE orders ADD COLUMN trail_pct DECIMAL(5,2) NULL",
+                "CREATE TABLE deposits (
+                    id " . (Db::driver() === 'mysql' ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT') . ",
+                    user_id INT NOT NULL,
+                    amount DECIMAL(15,2) NOT NULL,
+                    rate_pct DECIMAL(5,2) NOT NULL,
+                    start_session INT NOT NULL,
+                    end_session   INT NOT NULL,
+                    status VARCHAR(10) NOT NULL DEFAULT 'active',
+                    created_at VARCHAR(19) NOT NULL
+                )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
+                "CREATE TABLE ipo_offers (
+                    id " . (Db::driver() === 'mysql' ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT') . ",
+                    name VARCHAR(80) NOT NULL,
+                    ticker VARCHAR(8) NOT NULL,
+                    sector_id INT NOT NULL,
+                    sector_symbol VARCHAR(8) NOT NULL,
+                    price DECIMAL(15,2) NOT NULL,
+                    shares_offered INT NOT NULL,
+                    per_player_max INT NOT NULL,
+                    close_session INT NOT NULL,
+                    demand_bots INT NOT NULL DEFAULT 0,
+                    reduction_pct DECIMAL(5,2) NOT NULL DEFAULT 0,
+                    status VARCHAR(10) NOT NULL DEFAULT 'open',
+                    stock_id INT NULL,
+                    created_at VARCHAR(19) NOT NULL
+                )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
+                "CREATE TABLE ipo_subs (
+                    id " . (Db::driver() === 'mysql' ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT') . ",
+                    offer_id INT NOT NULL,
+                    user_id  INT NOT NULL,
+                    qty INT NOT NULL,
+                    paid DECIMAL(15,2) NOT NULL,
+                    allotted INT NULL,
+                    refund DECIMAL(15,2) NOT NULL DEFAULT 0,
+                    created_at VARCHAR(19) NOT NULL,
+                    UNIQUE (offer_id, user_id)
+                )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
+                "CREATE INDEX ix_deposits ON deposits (user_id, status)",
+                "CREATE INDEX ix_iposubs ON ipo_subs (user_id, offer_id)",
+            ],
         ];
     }
 

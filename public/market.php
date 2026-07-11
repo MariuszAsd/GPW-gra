@@ -5,7 +5,7 @@ $user = require_login();
 [$sessionNo, , $tps] = Engine::sessionInfo();
 $sessStart = ($sessionNo - 1) * $tps;
 $isPremium = Tokens::hasPass((int) $user['id'], 'analityk');
-$stocks = Engine::all("SELECT s.id, s.ticker, s.name, sec.name AS sector, s.price, s.day_open_price, s.liquidity, s.ta_signal,
+$stocks = Engine::all("SELECT s.id, s.ticker, s.name, sec.name AS sector, s.price, s.day_open_price, s.liquidity, s.ta_signal, s.halted_until_tick,
                               (SELECT SUM(c.v * c.c) FROM candles c WHERE c.stock_id = s.id AND c.t >= $sessStart) AS turnover
                        FROM stocks s JOIN sectors sec ON sec.id=s.sector_id ORDER BY s.ticker");
 // obserwowane (gwiazdki) na górze tabeli — reszta alfabetycznie
@@ -74,6 +74,13 @@ layout_header('Rynek', $user, 'market');
     'przeglądaj kursy i sektory', 'kliknij spółkę, aby ją otworzyć',
     'kupuj taniej, sprzedawaj drożej', 'rozmawiaj na czacie obok']); ?>
 
+<?php $ipoOpen = Engine::row("SELECT id, name, ticker, price, close_session FROM ipo_offers WHERE status='open' ORDER BY id DESC LIMIT 1");
+      if ($ipoOpen && $sessionNo < (int) $ipoOpen['close_session']): ?>
+<a href="ipo.php" class="panel" style="display:block;margin-bottom:16px;border-left:3px solid var(--accent)">
+  <b style="font-size:14.5px">📢 Zapisy na IPO: <?= h($ipoOpen['name']) ?> (<?= h($ipoOpen['ticker']) ?>) po <?= money($ipoOpen['price']) ?> PLN</b>
+  <span class="muted" style="font-size:12px;display:block;margin-top:2px">Okno zamyka się z końcem sesji #<?= (int) $ipoOpen['close_session'] - 1 ?> · szczegóły i zapis w zakładce IPO →</span>
+</a>
+<?php endif; ?>
 <?php if ($event): $neg = $event['type'] === 'NEG'; $left = (int) $event['expire_tick'] - $tickNow; ?>
 <div class="panel" style="margin-bottom:16px;border-left:3px solid var(--<?= $neg ? 'down' : 'up' ?>);background:var(--<?= $neg ? 'down' : 'up' ?>-bg)">
   <b class="<?= $neg ? 'down' : 'up' ?>" style="font-size:15px"><?= h($event['headline']) ?></b>
@@ -109,7 +116,7 @@ layout_header('Rynek', $user, 'market');
           <td style="padding:4px 2px 4px 10px"><button class="star<?= in_array($id, $watched, true) ? ' on' : '' ?>" data-watch="<?= $id ?>" title="Obserwuj / przestań obserwować" onclick="event.stopPropagation()">★</button></td>
           <td><div class="sym"><span class="tk"><?= h($s['ticker']) ?></span><span class="nm"><?= h($s['name']) ?></span><span class="tag"><?= h($s['sector']) ?></span></div></td>
           <td style="padding:4px 6px"><?= $sparkSvg($spark[$id] ?? []) ?></td>
-          <td class="num px" data-px="<?= $id ?>"><?= money($s['price']) ?></td>
+          <td class="num px"><span data-px="<?= $id ?>"><?= money($s['price']) ?></span><?= (int) $s['halted_until_tick'] > $tickNow ? ' <span title="Notowania zawieszone — przekroczenie widełek">⏸</span>' : '' ?></td>
           <td class="num"><span class="chg <?= $chg >= 0 ? 'p' : 'n' ?>" data-chg="<?= $id ?>"><span class="ar"><?= $chg >= 0 ? '▲' : '▼' ?></span><?= number_format(abs($chg), 2, ',', ' ') ?>%</span></td>
           <td class="num hide-m">
             <?php if ($isPremium): [$vTxt, $vCls] = Technical::verdict((float) $s['ta_signal']); ?>

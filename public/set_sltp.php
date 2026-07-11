@@ -7,8 +7,9 @@ $sid = (int) ($_POST['stock_id'] ?? 0);
 $qty = (int) ($_POST['qty'] ?? 0);
 $sl  = ($_POST['sl_price'] ?? '') !== '' ? (float) str_replace(',', '.', $_POST['sl_price']) : null;
 $tp  = ($_POST['tp_price'] ?? '') !== '' ? (float) str_replace(',', '.', $_POST['tp_price']) : null;
+$trail = ($_POST['trail'] ?? '') !== '' ? (float) str_replace(',', '.', $_POST['trail']) : null;   // SL kroczący (% pod kursem)
 
-[$ok, $msg] = Engine::placeStop((int) $user['id'], $sid, $qty, $sl, $tp);
+[$ok, $msg] = Engine::placeStop((int) $user['id'], $sid, $qty, $sl, $tp, $trail);
 Log::write($ok ? 'info' : 'warn', 'player', 'order.stop', ($ok ? 'przyjęte' : 'odrzucone') . ": SL/TP {$qty}szt (spółka #$sid)",
     ['user' => $user['username'], 'sl' => $sl, 'tp' => $tp, 'msg' => $msg]);
 if ($ok) {

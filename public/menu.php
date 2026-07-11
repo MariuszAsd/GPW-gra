@@ -6,7 +6,7 @@ $uid = (int) $user['id'];
 
 $me = Engine::row("SELECT username, title, frame, tokens FROM users WHERE id=?", [$uid]);
 $stockVal = (float) (Engine::one("SELECT COALESCE(SUM((w.qty + w.qty_reserved) * s.price), 0) FROM wallets w JOIN stocks s ON s.id=w.stock_id WHERE w.user_id=?", [$uid]) ?: 0);
-$equity = (float) $user['cash'] + (float) $user['cash_reserved'] + $stockVal;
+$equity = (float) $user['cash'] + (float) $user['cash_reserved'] + $stockVal + Engine::lockedFunds($uid);
 $unread = (int) Engine::one("SELECT COUNT(*) FROM notifications WHERE user_id=? AND read_at IS NULL", [$uid]);
 $isAdmin = ($user['role'] ?? '') === 'admin';
 $seasonOn = (bool) Seasons::active();
@@ -32,6 +32,7 @@ layout_header('Więcej', $user, 'more');
   <a href="wiadomosci.php"><?= icon('news') ?>Newsy i ESPI<span class="arr">›</span></a>
   <a href="branze.php"><?= icon('chart') ?>Trendy branżowe<span class="arr">›</span></a>
   <a href="rekomendacje.php"><?= icon('case') ?>Rekomendacje i skaner AT<span class="arr">›</span></a>
+  <a href="ipo.php"><?= icon('shop') ?>Oferty publiczne (IPO)<span class="arr">›</span></a>
   <a href="sklep.php"><?= icon('shop') ?>Sklep — Żetony Maklera<span class="sub">🪙 <?= (int) $me['tokens'] ?></span><span class="arr">›</span></a>
   <?php if ($seasonOn): ?><a href="sezon.php"><?= icon('flag') ?>Sezon i karnet<span class="arr">›</span></a><?php endif; ?>
   <a href="powiadomienia.php"><?= icon('bell') ?>Powiadomienia<?= $unread > 0 ? "<span class='sub' style='color:var(--down);font-weight:700'>$unread</span>" : '' ?><span class="arr">›</span></a>

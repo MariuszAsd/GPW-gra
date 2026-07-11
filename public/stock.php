@@ -117,6 +117,15 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
 <?php explainer('spolka', 'Jak złożyć zlecenie', [
     'wybierz KUP albo SPRZEDAJ', 'LIMIT = twoja cena, PKC = natychmiast',
     'podaj ilość', 'dodaj SL/TP jako ochronę', 'zatwierdź']); ?>
+<?php $tickG = (int) (Engine::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
+      if ((int) ($s['halted_until_tick'] ?? 0) > $tickG): ?>
+<div class="panel" style="margin-bottom:14px;border-left:3px solid var(--gold);background:var(--gold-bg)">
+  <b style="font-size:15px">⏸ Notowania zawieszone (przekroczenie widełek)</b>
+  <div class="muted" style="font-size:12px;margin-top:3px">Kurs przekroczył dopuszczalne widełki od otwarcia sesji.
+    Wznowienie za ~<?= (int) $s['halted_until_tick'] - $tickG ?> min — do tego czasu giełda nie przyjmuje zleceń na tę spółkę.
+    Zlecenia obronne (SL/TP) zadziałają po wznowieniu.</div>
+</div>
+<?php endif; ?>
 <div class="shead">
   <div class="idn"><div class="tk"><?= h($s['ticker']) ?></div><div class="nm"><?= h($s['name']) ?> · <?= h($s['sector']) ?></div>
     <div class="nm" style="margin-top:3px">Obrót sesji: <b class="mono" data-turnover><?= money_short($sessTurnover) ?> PLN</b>

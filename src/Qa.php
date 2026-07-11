@@ -78,9 +78,11 @@ final class Qa
         $this->check(str_contains($b3, 'Rynek'), 'auth.login', 'poprawne logowanie nie działa');
 
         // 2) przegląd stron (200 + treść + brak błędów PHP)
-        $stock = Engine::row("SELECT id, price FROM stocks ORDER BY price ASC LIMIT 1");   // najtańsza spółka do testów
+        $tickQa = (int) (Engine::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
+        $stock = Engine::row("SELECT id, price FROM stocks WHERE halted_until_tick <= " . $tickQa . " ORDER BY price ASC LIMIT 1")
+               ?? Engine::row("SELECT id, price FROM stocks ORDER BY price ASC LIMIT 1");   // najtańsza NIEzawieszona spółka
         $sid = (int) $stock['id'];
-        foreach ([['/pulpit.php', 'Pulpit'], ['/samouczek.php', 'Samouczek'], ['/market.php', 'Rynek'], ['/market.php', 'Notowania'], ['/branze.php', 'Trendy branżowe'], ['/rekomendacje.php', 'Rekomendacje DM'], ['/wiadomosci.php', 'Moje spółki'], ['/ranking.php', 'Ranking'], ['/portfolio.php', 'Portfel'], ['/portfolio.php', 'Pozycje w portfelu'], ['/pomoc.php', 'Stop-Loss'], ['/wiadomosci.php', 'Kalendarz'], ['/wiadomosci.php', 'FUNDAMENTY'], ['/wyzwania.php', 'Wyzwania'], ['/wyzwania.php', 'Jak działa wyzwanie'], ['/pomoc.php', 'pełne zasady krok po kroku'], ['/dziennik.php', 'Dziennik'], ['/sklep.php', 'Pakiet Analityka'], ['/sklep.php', 'Kosmetyka'], ['/sezon.php', 'Sezon'], ['/menu.php', 'Więcej'], ['/konto.php', 'Ustawienia konta'], ['/pulpit.php', 'Misje dnia'], ["/stock.php?id=$sid", 'Zlecenie'], ["/stock.php?id=$sid", 'Raport DM'], ["/stock.php?id=$sid", 'Dyskusja']] as [$path, $needle]) {
+        foreach ([['/pulpit.php', 'Pulpit'], ['/samouczek.php', 'Samouczek'], ['/market.php', 'Rynek'], ['/market.php', 'Notowania'], ['/branze.php', 'Trendy branżowe'], ['/rekomendacje.php', 'Rekomendacje DM'], ['/wiadomosci.php', 'Moje spółki'], ['/ranking.php', 'Ranking'], ['/portfolio.php', 'Portfel'], ['/portfolio.php', 'Pozycje w portfelu'], ['/pomoc.php', 'Stop-Loss'], ['/wiadomosci.php', 'Kalendarz'], ['/wiadomosci.php', 'FUNDAMENTY'], ['/wyzwania.php', 'Wyzwania'], ['/wyzwania.php', 'Jak działa wyzwanie'], ['/ipo.php', 'Oferty publiczne'], ['/portfolio.php', 'Lokaty'], ['/pomoc.php', 'SL kroczący'], ['/pomoc.php', 'pełne zasady krok po kroku'], ['/dziennik.php', 'Dziennik'], ['/sklep.php', 'Pakiet Analityka'], ['/sklep.php', 'Kosmetyka'], ['/sezon.php', 'Sezon'], ['/menu.php', 'Więcej'], ['/konto.php', 'Ustawienia konta'], ['/pulpit.php', 'Misje dnia'], ["/stock.php?id=$sid", 'Zlecenie'], ["/stock.php?id=$sid", 'Raport DM'], ["/stock.php?id=$sid", 'Dyskusja']] as [$path, $needle]) {
             [$c, $b] = $this->http('GET', $path);
             $this->check($c === 200 && str_contains($b, $needle), "page.$path", "code=$c, brak '$needle'");
             $this->check(!preg_match('/Fatal error|Parse error|Uncaught|Warning:/', $b), "php.$path", 'strona zawiera błąd PHP');
@@ -126,6 +128,21 @@ final class Qa
         $this->check($c === 200 && str_contains($b, '"on":true'), 'watch.on', "gwiazdka nie włączyła obserwowania (code=$c)");
         [$c, $b] = $this->http('POST', '/api_watch.php', ['stock_id' => $sid]);
         $this->check($c === 200 && str_contains($b, '"on":false'), 'watch.off', 'drugie kliknięcie nie wyłączyło obserwowania');
+
+        // lokaty: gotówka schodzi co do grosza, kapitał NIE znika (lockedFunds), zerwanie zwraca wszystko
+        if (!class_exists('Bank')) require_once __DIR__ . '/Bank.php';
+        $cashB = $this->cash($uid);
+        $lockB = Engine::lockedFunds($uid);
+        [$okBank] = Bank::open($uid, 1000.0, array_key_first(Bank::offers()));
+        $this->check($okBank, 'bank.open', 'nie udało się założyć lokaty testowej');
+        if ($okBank) {
+            $this->moneyEq($cashB - $this->cash($uid), 1000.0, 'bank.cash', 'lokata nie pobrała dokładnie kwoty');
+            $this->moneyEq(Engine::lockedFunds($uid) - $lockB, 1000.0, 'bank.locked', 'kapitał lokaty nie liczy się do zamrożonych środków');
+            $depId = (int) Engine::one("SELECT id FROM deposits WHERE user_id=? AND status='active' ORDER BY id DESC", [$uid]);
+            [$okBr] = Bank::breakDeposit($uid, $depId);
+            $this->check($okBr, 'bank.break', 'zerwanie lokaty odrzucone');
+            $this->moneyEq($this->cash($uid), $cashB, 'bank.refund', 'zerwanie lokaty nie zwróciło kapitału co do grosza');
+        }
 
         // 3) zlecenie oczekujące: rezerwacja i zwrot CO DO GROSZA
         $deep = max(0.01, round((float) $stock['price'] * 0.1, 2));   // 10% kursu — nie wypełni się
@@ -208,6 +225,15 @@ final class Qa
                     $st = Engine::one("SELECT status FROM orders WHERE id=?", [$stop['id']]);
                     $this->check($freeC === $freeB4 && $st === 'cancelled', 'stop.cancel', "anulowanie obronnego nie zwróciło pakietu (wolne: $freeC, status: $st)");
                 }
+
+                // 5c-bis) SL kroczący: próg startowy = kurs x (1 - %), walidacja zakresu
+                $curPx = (float) Engine::one("SELECT price FROM stocks WHERE id=?", [$sid]);
+                [$okT, , $tid] = Engine::placeStop($uid, $sid, 1, null, null, 10.0) + [2 => 0];
+                $slT = $okT ? (float) Engine::one("SELECT sl_price FROM orders WHERE id=?", [$tid]) : 0.0;
+                $this->check($okT && abs($slT - round($curPx * 0.9, 2)) < 0.011, 'stop.trail_start', "SL kroczący: próg $slT zamiast ~" . round($curPx * 0.9, 2));
+                if ($okT) Engine::cancel((int) $tid, $uid);
+                [$okT2] = Engine::placeStop($uid, $sid, 1, null, null, 99.0);
+                $this->check(!$okT2, 'stop.trail_valid', 'SL kroczący przyjął procent spoza zakresu 0,5-50');
 
                 // 5c) PKC sprzedaż: wpływ = suma (wartość − prowizja) per transakcja
                 if ($got > 0 && Engine::one("SELECT COUNT(*) FROM orders WHERE stock_id=? AND side='buy' AND status='active' AND user_id<>?", [$sid, $uid])) {

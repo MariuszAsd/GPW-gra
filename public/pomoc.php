@@ -13,9 +13,14 @@ layout_header('Pomoc', $user, 'help');
   <a href="#plynnosc">Płynność i obrót</a>
   <a href="#waznosc">Ważność zlecenia</a>
   <a href="#sl">Stop-Loss</a>
+  <a href="#trailing">SL kroczący</a>
   <a href="#tp">Take-Profit</a>
   <a href="#dywidenda">Dywidendy</a>
   <a href="#wydarzenia">Wydarzenia</a>
+  <a href="#wyzwania">Wyzwania</a>
+  <a href="#lokaty">Lokaty</a>
+  <a href="#widelki">Widełki</a>
+  <a href="#ipo">IPO</a>
   <a href="#prowizja">Prowizja</a>
   <a href="#cel">Cel gry</a>
 </div>
@@ -92,6 +97,16 @@ layout_header('Pomoc', $user, 'help');
   </svg>
   <div class="help-ex">💡 Kupiłeś po 100 i nie chcesz stracić więcej niż ~5%? Ustaw SL na 95.
      W grze SL obejmuje <b>konkretny pakiet</b> (np. 10 szt.) — resztę akcji zostawia w spokoju.</div>
+</div>
+
+<div class="panel help-sec" id="trailing">
+  <h3>🪜 Stop-Loss kroczący (trailing)</h3>
+  <p>Zwykły SL stoi w miejscu. <b>SL kroczący</b> podajesz jako procent (np. 8%) — próg trzyma się zawsze
+     8% pod NAJWYŻSZYM kursem od ustawienia: kurs rośnie → próg rośnie razem z nim; kurs zawraca → próg stoi
+     i przy przebiciu sprzedaje. Efekt: chronisz narastający zysk bez ręcznego przestawiania progu.
+     Ustawisz go w Portfelu przy pozycji (pole „krocz. %").</p>
+  <div class="help-ex">💡 Przykład: kupujesz po 100, SL kroczący 8%. Kurs idzie na 150 — próg sam wjeżdża na 138.
+     Korekta do 138 = sprzedaż z zyskiem +38%, a nie powrót do zera.</div>
 </div>
 
 <div class="panel help-sec" id="tp">
@@ -182,6 +197,34 @@ layout_header('Pomoc', $user, 'help');
   <div class="help-ex">💡 Ile mogę stracić? Najwyżej wpisowe + to, co stracisz handlując portfelem wyzwania.
      Ile mogę wygrać? Nagrodę z puli (przy 10 graczach 1. miejsce bierze ok. połowy) + zysk z handlu.
      Wyzwanie to najszybsza droga do żetonów i punktów sezonu — a przegrana kosztuje mniej niż wygląda.</div>
+</div>
+
+<div class="panel help-sec" id="lokaty">
+  <h3>🏦 Lokaty</h3>
+  <p>Wolną gotówkę możesz zamrozić na kilka sesji za <b>stały procent</b> (Portfel → Lokaty). Wypłata jest
+     automatyczna po terminie. Kapitał lokaty przez cały czas <b>liczy się do Twojego kapitału</b> w rankingu
+     i celu gry — nie „znika". Zerwanie przed terminem: kapitał wraca od ręki, odsetki przepadają.</p>
+  <div class="help-ex">💡 Lokata to pewny mały zysk kosztem szansy na duży — klasyczna decyzja alokacyjna.
+     W czasie hossy zwykle przegrywa z akcjami, w bessie bywa najlepszą pozycją w portfelu.</div>
+</div>
+
+<div class="panel help-sec" id="widelki">
+  <h3>⏸ Widełki i zawieszenia notowań</h3>
+  <p>Jak na prawdziwej GPW: gdy kurs spółki oddali się o <b>±15% od otwarcia sesji</b>, giełda zawiesza
+     notowania na ~10 minut — nikt nie złoży zlecenia, a SL/TP czekają na wznowienie. Po wznowieniu widełki
+     się <b>rozszerzają</b> (±30%), a limit to 2 zawieszenia na sesję. Zawieszenie dostaje komunikat ESPI.</p>
+  <div class="help-ex">💡 Zawieszenie po spadku to moment na decyzję na chłodno: panika ma przymusową pauzę.
+     Przygotuj zlecenie i złóż je tuż po wznowieniu.</div>
+</div>
+
+<div class="panel help-sec" id="ipo">
+  <h3>📢 Oferty publiczne (IPO) z zapisami</h3>
+  <p>Nowa spółka najpierw <b>ogłasza ofertę</b>: cena emisyjna i pula akcji. Zapisujesz się w zakładce IPO
+     (gotówka schodzi od razu, ale liczy się do kapitału). O pulę konkurują też fundusze z gry. Gdy popyt
+     przekroczy pulę, działa <b>redukcja proporcjonalna</b> — dostajesz mniej, nadpłata wraca co do grosza.
+     Duża redukcja = gorący debiut (i odwrotnie): dokładnie jak na prawdziwej giełdzie.</p>
+  <div class="help-ex">💡 Strategia: zapisuj się na więcej, niż chcesz mieć — redukcja i tak przytnie.
+     Ale uwaga na zimne oferty: przy słabym popycie dostaniesz wszystko… łącznie z chłodnym otwarciem.</div>
 </div>
 
 <div class="panel help-sec" id="prowizja">

@@ -10,11 +10,14 @@ $goalSessions = (int) (Engine::one("SELECT v FROM game_state WHERE k='goal_sessi
 $players = Engine::all(
     "SELECT u.id, u.username, u.title, u.cash, u.cash_reserved, u.joined_session, u.goal_session, u.start_equity,
             (SELECT COALESCE(SUM((w.qty + w.qty_reserved) * s.price), 0)
-             FROM wallets w JOIN stocks s ON s.id = w.stock_id WHERE w.user_id = u.id) AS stock_val
+             FROM wallets w JOIN stocks s ON s.id = w.stock_id WHERE w.user_id = u.id) AS stock_val,
+            (SELECT COALESCE(SUM(d.amount), 0) FROM deposits d WHERE d.user_id = u.id AND d.status = 'active') AS dep_val,
+            (SELECT COALESCE(SUM(i.paid), 0) FROM ipo_subs i JOIN ipo_offers o ON o.id = i.offer_id AND o.status = 'open'
+             WHERE i.user_id = u.id) AS ipo_val
      FROM users u WHERE u.is_bot = 0 AND u.role = 'player'"
 );
 foreach ($players as &$p) {
-    $p['equity'] = (float) $p['cash'] + (float) $p['cash_reserved'] + (float) $p['stock_val'];
+    $p['equity'] = (float) $p['cash'] + (float) $p['cash_reserved'] + (float) $p['stock_val'] + (float) $p['dep_val'] + (float) $p['ipo_val'];
     $p['ret'] = (float) $p['start_equity'] > 0 ? ($p['equity'] - $p['start_equity']) / $p['start_equity'] * 100 : null;
     $p['won'] = $p['goal_session'] !== null;
     $p['speed'] = $p['won'] ? max(1, (int) $p['goal_session'] - (int) $p['joined_session'] + 1) : null;
@@ -44,7 +47,7 @@ layout_header('Ranking', $user, 'ranking');
 $medals = ['🥇', '🥈', '🥉'];
 ?>
 <?php explainer('ranking', 'O co gramy', [
-    'cel: pierwszy milion', 'wynik = gotówka + akcje',
+    'cel: pierwszy milion', 'wynik = gotówka + akcje + lokaty i zapisy IPO',
     'zbieraj odznaki', 'kliknij nick, aby zobaczyć profil gracza']); ?>
 <div class="page-head"><h1>Ranking</h1><span class="tag" style="color:var(--accent);border-color:var(--accent)">Sesja #<?= $sessionNo ?></span>
   <?php if ($goalTarget > 0): ?><span class="muted">cel: <?= money($goalTarget) ?> PLN w <?= $goalSessions ?> sesji — zwycięzcy wg tempa, reszta wg kapitału</span><?php endif; ?>
@@ -96,7 +99,7 @@ $medals = ['🥇', '🥈', '🥉'];
       </tbody>
     </table>
   </div>
-  <p class="muted" style="padding:10px 16px 14px;margin:0;font-size:12px">Wynik = zmiana kapitału (gotówka + akcje) od startu świata. Zmierz się z najlepszą strategią!</p>
+  <p class="muted" style="padding:10px 16px 14px;margin:0;font-size:12px">Wynik = zmiana kapitału (gotówka + akcje + lokaty i zapisy IPO) od startu świata. Zmierz się z najlepszą strategią!</p>
 </div>
 <?php endif; ?>
 <?php layout_footer();

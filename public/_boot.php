@@ -17,6 +17,7 @@ require_once __DIR__ . '/../src/Mailer.php';
 require_once __DIR__ . '/../src/PasswordReset.php';
 require_once __DIR__ . '/../src/Daily.php';
 require_once __DIR__ . '/../src/Moderation.php';
+require_once __DIR__ . '/../src/Bank.php';
 
 session_set_cookie_params(['samesite' => 'Lax', 'httponly' => true]);
 session_start();
@@ -111,6 +112,7 @@ function market_subnav(string $active): void {
         ['not', 'market.php', 'Notowania'],
         ['bra', 'branze.php', 'Branże'],
         ['rek', 'rekomendacje.php', 'Rekomendacje'],
+        ['ipo', 'ipo.php', 'IPO'],
         ['new', 'wiadomosci.php', 'Newsy i ESPI'],
     ], $active);
 }
@@ -140,12 +142,12 @@ function equity_svg(array $series, int $height = 110): string {
         . "<span>zmiana w oknie: " . ($delta >= 0 ? '+' : '') . number_format($delta, 2, ',', ' ') . "%</span></div>";
 }
 
-/** Kapitał konta = gotówka + zamrożone + akcje po bieżącym kursie (to co widzi ranking). */
+/** Kapitał konta = gotówka + zamrożone + akcje po kursie + lokaty i zapisy IPO (to co widzi ranking). */
 function user_equity(int $uid): float {
     $u = Engine::row("SELECT cash, cash_reserved FROM users WHERE id=?", [$uid]);
     if (!$u) return 0.0;
     $sv = (float) (Engine::one("SELECT SUM((w.qty + w.qty_reserved) * s.price) FROM wallets w JOIN stocks s ON s.id=w.stock_id WHERE w.user_id=?", [$uid]) ?: 0);
-    return round((float) $u['cash'] + (float) $u['cash_reserved'] + $sv, 2);
+    return round((float) $u['cash'] + (float) $u['cash_reserved'] + $sv + Engine::lockedFunds($uid), 2);
 }
 
 function current_user(): ?array {

@@ -22,6 +22,7 @@ final class Engine
         $side = strtolower($side);
         if (!in_array($side, ['buy', 'sell'], true)) return [false, 'Nieznany typ zlecenia.'];
         if ($qty <= 0 || $price <= 0)               return [false, 'Nieprawidłowa ilość lub cena.'];
+        if (($m = self::haltMessage($stockId)) !== null) return [false, $m];   // widełki: zawieszone = brak nowych zleceń
         $pdo = Db::pdo();
 
         if ($side === 'buy') {
@@ -54,6 +55,7 @@ final class Engine
         $side = strtolower($side);
         if (!in_array($side, ['buy', 'sell'], true)) return [false, 'Nieznany typ zlecenia.'];
         if ($qty <= 0) return [false, 'Nieprawidłowa ilość.'];
+        if (($m = self::haltMessage($stockId)) !== null) return [false, $m];
         $pdo = Db::pdo();
         $own = !$pdo->inTransaction();
         if ($own) $pdo->beginTransaction();
@@ -137,13 +139,20 @@ final class Engine
     /**
      * Zlecenie obronne SL/TP na KONKRETNY pakiet akcji (status 'pending', czeka na kurs).
      * Rezerwuje akcje jak zlecenie sprzedaży; wyzwolone sprzedaje po realnych cenach z arkusza.
+     * $trail (SL kroczący): % pod kursem — silnik PODNOSI sl_price za rosnącym kursem,
+     * nigdy nie obniża. Bez podanego SL próg startowy = kurs x (1 - trail%).
      */
-    public static function placeStop(int $userId, int $stockId, int $qty, ?float $sl, ?float $tp): array
+    public static function placeStop(int $userId, int $stockId, int $qty, ?float $sl, ?float $tp, ?float $trail = null): array
     {
         if ($qty <= 0) return [false, 'Nieprawidłowa ilość.'];
-        if ($sl === null && $tp === null) return [false, 'Podaj próg SL i/lub TP.'];
+        if ($sl === null && $tp === null && $trail === null) return [false, 'Podaj próg SL i/lub TP (albo SL kroczący %).'];
+        if (($m = self::haltMessage($stockId)) !== null) return [false, $m];   // zawieszenie blokuje też obronne (fair play po wznowieniu)
         $price = (float) self::one("SELECT price FROM stocks WHERE id=?", [$stockId]);
         if ($price <= 0) return [false, 'Nie ma takiej spółki.'];
+        if ($trail !== null) {
+            if ($trail < 0.5 || $trail > 50) return [false, 'SL kroczący: podaj 0,5–50 (procent pod kursem).'];
+            if ($sl === null) $sl = round($price * (1 - $trail / 100), 2);   // start progu tuż pod bieżącym kursem
+        }
         if ($sl !== null && ($sl <= 0 || $sl >= $price)) return [false, 'Stop-Loss musi być PONIŻEJ bieżącego kursu (' . number_format($price, 2, ',', ' ') . ').'];
         if ($tp !== null && $tp <= $price)               return [false, 'Take-Profit musi być POWYŻEJ bieżącego kursu (' . number_format($price, 2, ',', ' ') . ').'];
 
@@ -153,9 +162,11 @@ final class Engine
 
         $pdo = Db::pdo();
         $pdo->prepare("UPDATE wallets SET qty=qty-?, qty_reserved=qty_reserved+? WHERE user_id=? AND stock_id=?")->execute([$qty, $qty, $userId, $stockId]);
-        $pdo->prepare("INSERT INTO orders (user_id, stock_id, side, qty, qty_init, price, status, sl_price, tp_price, created_at) VALUES (?,?, 'sell', ?, ?, 0, 'pending', ?, ?, ?)")
-            ->execute([$userId, $stockId, $qty, $qty, $sl, $tp, Db::now()]);
-        $lbl = ($sl !== null ? 'SL ' . number_format($sl, 2, ',', ' ') : '') . ($sl !== null && $tp !== null ? ' / ' : '') . ($tp !== null ? 'TP ' . number_format($tp, 2, ',', ' ') : '');
+        $pdo->prepare("INSERT INTO orders (user_id, stock_id, side, qty, qty_init, price, status, sl_price, tp_price, trail_pct, created_at) VALUES (?,?, 'sell', ?, ?, 0, 'pending', ?, ?, ?, ?)")
+            ->execute([$userId, $stockId, $qty, $qty, $sl, $tp, $trail, Db::now()]);
+        $trailLbl = $trail !== null ? rtrim(rtrim(number_format($trail, 1, ',', ''), '0'), ',') : '';
+        $lbl = ($sl !== null ? ($trail !== null ? "SL kroczący $trailLbl% (start " : 'SL ') . number_format($sl, 2, ',', ' ') . ($trail !== null ? ')' : '') : '')
+             . ($sl !== null && $tp !== null ? ' / ' : '') . ($tp !== null ? 'TP ' . number_format($tp, 2, ',', ' ') : '');
         return [true, "Zlecenie obronne ($lbl) na $qty szt. przyjęte.", (int) $pdo->lastInsertId()];
     }
 
@@ -542,8 +553,18 @@ final class Engine
     public static function checkStops(): void
     {
         $pdo = Db::pdo();
-        $rows = self::all("SELECT o.*, s.price AS cur, s.ticker FROM orders o JOIN stocks s ON s.id=o.stock_id WHERE o.status='pending'");
+        $tickNow = (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
+        // SL kroczący: próg podąża ZA rosnącym kursem (nigdy w dół) — zanim sprawdzimy wyzwalacze
+        foreach (self::all("SELECT o.id, o.sl_price, o.trail_pct, s.price FROM orders o JOIN stocks s ON s.id=o.stock_id
+                            WHERE o.status='pending' AND o.trail_pct IS NOT NULL") as $tr) {
+            $newSl = round((float) $tr['price'] * (1 - (float) $tr['trail_pct'] / 100), 2);
+            if ($newSl > (float) $tr['sl_price']) {
+                $pdo->prepare("UPDATE orders SET sl_price=? WHERE id=? AND status='pending'")->execute([$newSl, (int) $tr['id']]);
+            }
+        }
+        $rows = self::all("SELECT o.*, s.price AS cur, s.ticker, s.halted_until_tick FROM orders o JOIN stocks s ON s.id=o.stock_id WHERE o.status='pending'");
         foreach ($rows as $o) {
+            if ((int) $o['halted_until_tick'] > $tickNow) continue;   // zawieszone notowania: stopy czekają na wznowienie
             $hitSL = $o['sl_price'] !== null && (float) $o['cur'] <= (float) $o['sl_price'];
             $hitTP = $o['tp_price'] !== null && (float) $o['cur'] >= (float) $o['tp_price'];
             if (!$hitSL && !$hitTP) continue;
@@ -555,6 +576,18 @@ final class Engine
             $txFrom = (int) (self::one("SELECT MAX(id) FROM transactions") ?: 0);
             [$ok, $msg] = self::marketOrder((int) $o['user_id'], (int) $o['stock_id'], 'sell', (int) $o['qty']);
             $txTo = (int) (self::one("SELECT MAX(id) FROM transactions") ?: 0);
+            if (!$ok && $txTo === $txFrom) {
+                // pusta księga (np. tuż po wznowieniu notowań, zanim boty ją odbudują):
+                // NIE konsumuj ochrony — przywróć zlecenie i spróbuj w kolejnym ticku
+                $free = (int) (self::one("SELECT qty FROM wallets WHERE user_id=? AND stock_id=?", [$o['user_id'], $o['stock_id']]) ?: 0);
+                if ($free >= (int) $o['qty']) {
+                    $pdo->prepare("UPDATE wallets SET qty=qty-?, qty_reserved=qty_reserved+? WHERE user_id=? AND stock_id=?")
+                        ->execute([(int) $o['qty'], (int) $o['qty'], $o['user_id'], $o['stock_id']]);
+                    $pdo->prepare("UPDATE orders SET status='pending' WHERE id=?")->execute([$o['id']]);
+                    Log::write('info', 'engine', 'stops.retry', ($hitSL ? 'SL' : 'TP') . " {$o['ticker']}: pusta księga — zlecenie obronne wraca do oczekujących", ['order_id' => (int) $o['id']]);
+                    continue;
+                }
+            }
             Log::write($ok ? 'info' : 'warn', 'engine', $hitSL ? 'stops.sl' : 'stops.tp',
                 sprintf('%s %s: kurs %s przekroczył próg %s — %s', $hitSL ? 'Stop-Loss' : 'Take-Profit', $o['ticker'],
                     number_format((float) $o['cur'], 2, ',', ' '),
@@ -567,6 +600,66 @@ final class Engine
                 self::award((int) $o['user_id'], $hitSL ? 'sl_zadzialal' : 'tp_zadzialal');
             }
         }
+    }
+
+    /* ---------- Widełki statyczne (zawieszenia notowań) ---------- */
+
+    public const HALT_BAND = 0.15;        // ±15% od otwarcia sesji zawiesza notowania
+    public const HALT_TICKS = 10;         // długość zawieszenia (ticki ≈ minuty)
+    public const HALT_MAX_SESSION = 2;    // max zawieszeń spółki w jednej sesji
+
+    /** Komunikat o zawieszeniu (null = handel dozwolony). Wołane przy każdym zleceniu. */
+    private static function haltMessage(int $stockId): ?string
+    {
+        $h = (int) (self::one("SELECT halted_until_tick FROM stocks WHERE id=?", [$stockId]) ?: 0);
+        if ($h <= 0) return null;
+        $t = (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
+        if ($h <= $t) return null;
+        return '⏸ Notowania zawieszone (przekroczenie widełek) — wznowienie za ~' . ($h - $t) . ' min. Zlecenie nie zostało przyjęte.';
+    }
+
+    /**
+     * Widełki jak na GPW: |zmiana od otwarcia| >= 15% -> zawieszenie na 10 ticków.
+     * Po wznowieniu widełki się ROZSZERZAJĄ (30% dla drugiego zawieszenia) — kurs może
+     * dalej szukać równowagi, ale panika dostaje przymusową pauzę. Max 2 zawieszenia/sesję.
+     */
+    private static function checkHalts(int $t): void
+    {
+        $pdo = Db::pdo();
+        foreach (self::all("SELECT id, ticker, name, price, day_open_price, halted_until_tick, halts_session
+                            FROM stocks WHERE day_open_price > 0 AND halted_until_tick <= ?", [$t]) as $s) {
+            $n = (int) $s['halts_session'];
+            if ($n >= self::HALT_MAX_SESSION) continue;
+            $chg = (float) $s['price'] / (float) $s['day_open_price'] - 1;
+            $band = self::HALT_BAND * ($n + 1);   // 15%, po wznowieniu 30%
+            if (abs($chg) < $band) continue;
+            $until = $t + self::HALT_TICKS;
+            $pdo->prepare("UPDATE stocks SET halted_until_tick=?, halts_session=halts_session+1 WHERE id=?")->execute([$until, (int) $s['id']]);
+            $dir = $chg > 0 ? 'wzroście' : 'spadku';
+            $pdo->prepare("INSERT INTO news (headline,body,type,scope,target_id,is_espi,impact_strength,kind,publish_tick,expire_tick,published_at)
+                           VALUES (?,?,'NEU','COMPANY',?,1,0,'fundamental',?,?,?)")
+                ->execute([
+                    "⏸ GPW-gra zawiesza notowania {$s['ticker']} po $dir " . number_format(abs($chg) * 100, 1, ',', ' ') . '%',
+                    "Kurs {$s['name']} przekroczył widełki statyczne ±" . round($band * 100) . "% od otwarcia sesji. Handel wstrzymany na ~" . self::HALT_TICKS
+                    . " minut — zlecenia można składać po wznowieniu. Po wznowieniu obowiązują rozszerzone widełki.",
+                    (int) $s['id'], $t, $until, Db::now(),
+                ]);
+            foreach (self::col("SELECT w.user_id FROM wallets w JOIN users u ON u.id=w.user_id
+                                WHERE w.stock_id=? AND u.is_bot=0 AND (w.qty + w.qty_reserved) > 0", [(int) $s['id']]) as $uid) {
+                self::notify((int) $uid, 'event', "⏸ Notowania {$s['ticker']} zawieszone po ruchu "
+                    . ($chg > 0 ? '+' : '-') . number_format(abs($chg) * 100, 1, ',', ' ') . "% (masz te akcje). Wznowienie za ~" . self::HALT_TICKS . ' min.',
+                    'stock.php?id=' . (int) $s['id']);
+            }
+            Log::write('info', 'engine', 'halt.start', "{$s['ticker']}: zawieszenie #" . ($n + 1) . ' po ' . round($chg * 100, 1) . '%', ['until' => $until]);
+        }
+    }
+
+    /** Kapitał zamrożony poza kontem: aktywne lokaty + opłacone zapisy IPO przed przydziałem. */
+    public static function lockedFunds(int $uid): float
+    {
+        $d = (float) (self::one("SELECT SUM(amount) FROM deposits WHERE user_id=? AND status='active'", [$uid]) ?: 0);
+        $i = (float) (self::one("SELECT SUM(s.paid) FROM ipo_subs s JOIN ipo_offers o ON o.id=s.offer_id WHERE s.user_id=? AND o.status='open'", [$uid]) ?: 0);
+        return round($d + $i, 2);
     }
 
     /* ---------- Świece ---------- */
@@ -804,10 +897,13 @@ final class Engine
     {
         Db::pdo()->prepare(
             "INSERT INTO equity_history (user_id, t, equity)
-             SELECT u.id, ?, ROUND(u.cash + u.cash_reserved + COALESCE(sv.v, 0), 2)
+             SELECT u.id, ?, ROUND(u.cash + u.cash_reserved + COALESCE(sv.v, 0) + COALESCE(dep.v, 0) + COALESCE(ipo.v, 0), 2)
              FROM users u
              LEFT JOIN (SELECT w.user_id AS uid, SUM((w.qty + w.qty_reserved) * s.price) AS v
                         FROM wallets w JOIN stocks s ON s.id = w.stock_id GROUP BY w.user_id) sv ON sv.uid = u.id
+             LEFT JOIN (SELECT user_id AS uid, SUM(amount) AS v FROM deposits WHERE status='active' GROUP BY user_id) dep ON dep.uid = u.id
+             LEFT JOIN (SELECT s2.user_id AS uid, SUM(s2.paid) AS v FROM ipo_subs s2
+                        JOIN ipo_offers o2 ON o2.id = s2.offer_id AND o2.status='open' GROUP BY s2.user_id) ipo ON ipo.uid = u.id
              WHERE (u.is_bot = 0 AND u.role = 'player') OR u.role = 'challenger'"
         )->execute([$t]);
         if ($t % 500 === 0) Db::pdo()->prepare("DELETE FROM equity_history WHERE t < ?")->execute([$t - 10000]);
@@ -913,6 +1009,7 @@ final class Engine
             if (($n % 50) === 0) $pdoD->prepare("DELETE FROM candles_daily WHERE session < ?")->execute([$n - 400]);  // ~rok+ historii
         } catch (\Throwable $e) { Log::write('warn', 'engine', 'candles.daily', $e->getMessage()); }
         Db::pdo()->exec("UPDATE stocks SET day_open_price = price");
+        Db::pdo()->exec("UPDATE stocks SET halts_session = 0");   // nowa sesja = świeży limit zawieszeń (widełki)
 
         $expired = self::all("SELECT * FROM orders WHERE status='active' AND expires_session IS NOT NULL AND expires_session < ?", [$n]);
         foreach ($expired as $o) {
@@ -963,6 +1060,11 @@ final class Engine
             if (!class_exists('Tokens')) require_once __DIR__ . '/Tokens.php';
             Tokens::grantTrials($n);
         } catch (\Throwable $e) { Log::write('error', 'engine', 'trial.roll', $e->getMessage()); }
+        // lokaty: wypłata zapadłych (kapitał + odsetki ze skarbca)
+        try {
+            if (!class_exists('Bank')) require_once __DIR__ . '/Bank.php';
+            Bank::onRoll($n);
+        } catch (\Throwable $e) { Log::write('error', 'engine', 'bank.roll', $e->getMessage()); }
         self::setState('session_start_tick', (string) $tick);
         self::setState('session', (string) $n);
     }
@@ -981,7 +1083,7 @@ final class Engine
                 "SELECT COALESCE(SUM((w.qty + w.qty_reserved) * s.price), 0) FROM wallets w JOIN stocks s ON s.id = w.stock_id WHERE w.user_id = ?",
                 [$p['id']]
             ) ?: 0);
-            $equity = (float) $p['cash'] + (float) $p['cash_reserved'] + $stockVal;
+            $equity = (float) $p['cash'] + (float) $p['cash_reserved'] + $stockVal + self::lockedFunds((int) $p['id']);
             if ($equity >= $target) {
                 Db::pdo()->prepare("UPDATE users SET goal_session=? WHERE id=?")->execute([$session, $p['id']]);
                 self::notify((int) $p['id'], 'goal', '🏆 Cel gry osiągnięty! Twój kapitał przekroczył ' . number_format($target, 0, ',', ' ') . ' PLN w sesji #' . $session . '.', 'portfolio.php');
@@ -1053,6 +1155,7 @@ final class Engine
 
         $tickTrades = [];
         foreach (self::all("SELECT id FROM stocks") as $st) self::matchBook((int) $st['id'], $tickTrades);
+        try { self::checkHalts($t); } catch (\Throwable $e) { Log::write('warn', 'engine', 'halt.check', $e->getMessage()); }
         self::recordCandles($t, $tickTrades);
         // cache sygnału AT per spółka (skaner na Rynku i rekomendacje czytają kolumnę)
         try {

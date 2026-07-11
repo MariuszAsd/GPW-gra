@@ -501,7 +501,7 @@ td.nowrap{white-space:nowrap}
 /* formularz SL/TP w pozycjach: na mobile zawija się zamiast rozpychać tabelę */
 @media(max-width:760px){
   .sltp-form{flex-wrap:wrap;max-width:172px}
-  .sltp-form input{width:76px !important;padding:8px 8px !important;font-size:14px}
+  .sltp-form input{width:76px !important;padding:8px 6px !important;font-size:16px}
   .sltp-form input[name=qty]{width:60px !important}
 }
 
