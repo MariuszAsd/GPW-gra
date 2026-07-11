@@ -32,6 +32,13 @@ if ($type === 'market') {
 }
 Log::write($ok ? 'info' : 'warn', 'player', 'order.place', ($ok ? 'przyjęte' : 'odrzucone') . ": $type $side {$qty}szt" . ($type === 'limit' ? " @ $price" : '') . " (spółka #$sid)",
     ['user' => $user['username'], 'msg' => $msg]);
+$jTk = (string) Engine::one("SELECT ticker FROM stocks WHERE id=?", [$sid]);
+Engine::journal((int) $user['id'], 'order',
+    ($ok ? '📝 Złożono zlecenie: ' : '⛔ Zlecenie odrzucone: ')
+    . ($type === 'market' ? 'PKC' : 'limit') . ' ' . ($side === 'buy' ? 'kupno' : 'sprzedaż') . " {$qty} szt. {$jTk}"
+    . ($type === 'limit' ? ' @ ' . number_format($price, 2, ',', ' ') : '')
+    . ($ok ? '.' : ' — ' . $msg),
+    $ok && !empty($oid) ? 'order.php?id=' . (int) $oid : 'stock.php?id=' . $sid);
 if ($ok && $side === 'buy' && ($sl !== null || $tp !== null)) {
     // zlecenie obronne NA KUPIONY PAKIET (nie na całą pozycję) — tyle, ile realnie weszło do portfela
     $free = (int) (Engine::one("SELECT qty FROM wallets WHERE user_id=? AND stock_id=?", [$user['id'], $sid]) ?: 0);

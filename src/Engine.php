@@ -1216,7 +1216,7 @@ final class Engine
         return $owner > 0 ? $owner : $userId;
     }
 
-    /** Dodaj powiadomienie dla gracza (+ przytnij do ~50 najnowszych na gracza). */
+    /** Dodaj powiadomienie dla gracza (+ przytnij do ~50 najnowszych na gracza). Zapisuje też do dziennika. */
     public static function notify(int $userId, string $type, string $message, string $link = ''): void
     {
         try {
@@ -1227,7 +1227,28 @@ final class Engine
                 ->execute([$userId, $type, mb_substr($message, 0, 250), $link ?: null, Db::now()]);
             $edge = self::one("SELECT id FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 1 OFFSET 50", [$userId]);
             if ($edge) $pdo->prepare("DELETE FROM notifications WHERE user_id=? AND id <= ?")->execute([$userId, $edge]);
+            self::journal($userId, $type, $message, $link);   // trwały ślad w dzienniku gracza
         } catch (\Throwable $e) { /* powiadomienia nie mogą wywalić silnika */ }
+    }
+
+    /**
+     * Dziennik gracza: trwała oś czasu konta ("co się stało i kiedy").
+     * Wpisy z powiadomień trafiają tu automatycznie; akcje własne gracza
+     * (złożenie/anulowanie zlecenia, SL/TP) dopisują strony bezpośrednio.
+     */
+    public static function journal(int $userId, string $type, string $message, string $link = ''): void
+    {
+        try {
+            $owner = self::challengeOwner($userId);
+            if ($owner !== $userId) { $message = str_starts_with($message, '⚔️') ? $message : '⚔️ [wyzwanie] ' . $message; $userId = $owner; }
+            $tick = (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
+            Db::pdo()->prepare("INSERT INTO player_journal (user_id, ts, tick, type, message, link) VALUES (?,?,?,?,?,?)")
+                ->execute([$userId, Db::now(), $tick, mb_substr($type, 0, 24), mb_substr($message, 0, 300), $link !== '' ? mb_substr($link, 0, 120) : null]);
+            if (mt_rand(1, 50) === 1) {   // retencja: ~1000 najnowszych wpisów na gracza
+                $edge = self::one("SELECT id FROM player_journal WHERE user_id=? ORDER BY id DESC LIMIT 1 OFFSET 1000", [$userId]);
+                if ($edge) Db::pdo()->prepare("DELETE FROM player_journal WHERE user_id=? AND id <= ?")->execute([$userId, $edge]);
+            }
+        } catch (\Throwable $e) { /* dziennik nie może wywalić silnika */ }
     }
 
     /* ---------- Małe helpery bazodanowe ---------- */

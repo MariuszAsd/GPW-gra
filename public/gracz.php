@@ -81,7 +81,9 @@ layout_header('Profil: ' . $p['username'], $user, 'ranking');
   <h1>👤 <?= h($p['username']) ?><?= $isMe ? ' <span class="muted" style="font-size:14px">(to Ty)</span>' : '' ?></h1>
   <?php if ($p['goal_session'] !== null): ?><span class="chg p">🏆 cel osiągnięty (sesja #<?= (int) $p['goal_session'] ?>)</span><?php endif; ?>
   <span class="muted">w grze od sesji #<?= (int) $p['joined_session'] ?></span>
-  <a class="btn sm ghost" style="margin-left:auto" href="ranking.php">← Ranking</a>
+  <?php if ($isMe || $viewerAdmin): ?><a class="btn sm ghost" style="margin-left:auto" href="dziennik.php<?= $isMe ? '' : '?id=' . $pid ?>">📜 Dziennik</a>
+  <a class="btn sm ghost" href="ranking.php">← Ranking</a>
+  <?php else: ?><a class="btn sm ghost" style="margin-left:auto" href="ranking.php">← Ranking</a><?php endif; ?>
 </div>
 
 <div class="stats">

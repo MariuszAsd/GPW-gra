@@ -204,6 +204,18 @@ final class Migrator
                     created_at VARCHAR(19) NOT NULL
                 )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
             ],
+            17 => [
+                "CREATE TABLE player_journal (
+                    id " . (Db::driver() === 'mysql' ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT') . ",
+                    user_id INT NOT NULL,
+                    ts VARCHAR(19) NOT NULL,
+                    tick INT NOT NULL DEFAULT 0,
+                    type VARCHAR(24) NOT NULL,
+                    message VARCHAR(300) NOT NULL,
+                    link VARCHAR(120) NULL
+                )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
+                "CREATE INDEX ix_journal ON player_journal (user_id, id)",
+            ],
         ];
     }
 

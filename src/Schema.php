@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 16;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 17;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -296,6 +296,17 @@ final class Schema
                 created_at VARCHAR(19) NOT NULL
             )",
 
+            // --- DZIENNIK GRACZA (oś czasu konta: zlecenia, SL/TP, dywidendy, wyzwania, odznaki) ---
+            "player_journal" => "CREATE TABLE player_journal (
+                id $pk,
+                user_id INT NOT NULL,
+                ts VARCHAR(19) NOT NULL,
+                tick INT NOT NULL DEFAULT 0,
+                type VARCHAR(24) NOT NULL,      -- order | trade | stop | dividend | challenge | achievement | ipo | goal | event | report | system
+                message VARCHAR(300) NOT NULL,
+                link VARCHAR(120) NULL
+            )",
+
             // --- DZIENNIK LOGÓW (dane do analizy błędów; pisany przez QA, silnik i akcje graczy) ---
             "logs" => "CREATE TABLE logs (
                 id $pk,
@@ -335,6 +346,7 @@ final class Schema
             "CREATE INDEX ix_chp_ch ON challenge_players (challenge_id)",
             "CREATE INDEX ix_chp_user ON challenge_players (user_id)",
             "CREATE INDEX ix_chp_shadow ON challenge_players (shadow_user_id)",
+            "CREATE INDEX ix_journal ON player_journal (user_id, id)",
         ];
     }
 }
