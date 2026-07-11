@@ -82,6 +82,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $tpl = EventCatalog::get($kind);
         if ($tpl && $tpl['scope'] === 'COMPANY') { $head = Engine::triggerEvent($kind, null, (int) $_POST['stock_id']); Engine::runTick(); flash("Wydarzenie: $head (+1 tick)."); }
         else flash('Nieznane wydarzenie spółkowe.', 'err');
+    } elseif ($a === 'tempo') {
+        Engine::setState('sub_rounds', (string) max(0, min(3, (int) ($_POST['sub_rounds'] ?? 2))));
+        flash('Ustawiono tempo handlu.');
     } elseif ($a === 'events_toggle') {
         $on = ($_POST['enabled'] ?? '1') === '1';
         Engine::setState('events_enabled', $on ? '1' : '0');
@@ -175,6 +178,20 @@ layout_header('Panel GM', $user, 'gm');
       <form method="post" class="inline"><input type="hidden" name="action" value="tick"><input type="hidden" name="n" value="10"><button class="btn sm">+10 ticków</button></form>
       <form method="post" class="inline" onsubmit="return confirm('Zresetować bias/vol/nastawienie?')"><input type="hidden" name="action" value="reset"><button class="btn sm ghost">Reset sterowania</button></form>
     </div>
+    <h2 style="margin-top:18px">⏱️ Tempo handlu</h2>
+    <?php $srV = Engine::one("SELECT v FROM game_state WHERE k='sub_rounds'"); $sr = ($srV === false || $srV === null) ? 2 : (int) $srV; ?>
+    <p class="muted" style="margin:4px 0 8px">Dodatkowe rundy botów między tickami crona (transakcje co ~18 s zamiast raz na minutę).
+       Czas świata gry (sesje, raporty) płynie bez zmian. 0 = wyłączone.</p>
+    <form method="post" class="inline">
+      <input type="hidden" name="action" value="tempo">
+      <select name="sub_rounds" style="width:220px">
+        <?php foreach ([0 => '0 — tylko tick co minutę', 1 => '1 runda (~co 30 s)', 2 => '2 rundy (~co 20 s)', 3 => '3 rundy (~co 15 s)'] as $v => $lbl): ?>
+          <option value="<?= $v ?>" <?= $sr === $v ? 'selected' : '' ?>><?= $lbl ?></option>
+        <?php endforeach; ?>
+      </select>
+      <button class="btn sm">Ustaw</button>
+    </form>
+
     <h2 style="margin-top:18px">🩺 Zdrowie gry
       <?php if ($lastQa): ?>
         <span class="chg <?= $lastQa['level'] === 'info' ? 'p' : 'n' ?>" style="margin-left:6px"><?= $lastQa['level'] === 'info' ? 'OK' : 'BŁĘDY' ?></span>

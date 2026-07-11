@@ -268,8 +268,9 @@ final class Engine
 
         $bots = self::all("SELECT u.id, b.strategy, b.news_reactivity, b.technical_sensitivity, b.risk_appetite, b.horizon
                            FROM users u JOIN bots b ON b.user_id = u.id WHERE u.is_bot = 1");
-        $stocks = self::all("SELECT id, sector_id, price, fundamental, pe_target, last_eps, liquidity FROM stocks");
+        $stocks = self::all("SELECT id, sector_id, price, fundamental, pe_target, last_eps, liquidity, dividend_payout FROM stocks");
         $tick = (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
+        $mods = self::activeMods($tick);   // boty fundamentalne rozumieja skutki wydarzen
 
         foreach ($bots as $bot) self::cancelAllFor((int) $bot['id']);
 
@@ -315,18 +316,26 @@ final class Engine
                 }
 
                 if ($strat === 'mm') {
-                    // animator: kwotuje wokół 0.7*fundament + 0.3*kurs; spread maleje z płynnością spółki
-                    $base = (0.7 * $st['fundamental'] + 0.3 * $price) * (1 + mt_rand(-15, 15) / 10000);
+                    // animator: kwotuje wokol 0.7*fundament + 0.3*kurs; spread maleje z plynnoscia spolki.
+                    // ZARZADZANIE ZAPASEM: nadmiar akcji -> kwotuje nizej i sprzedaje wiecej (i odwrotnie),
+                    // zamiast biernie puchnac na trendach — mniej strat mm, naturalniejszy rynek
+                    $inv = max(-1.0, min(1.0, ($have - 3000) / 3000));
+                    $base = (0.7 * $st['fundamental'] + 0.3 * $price) * (1 + mt_rand(-15, 15) / 10000) * (1 - 0.004 * $inv);
                     foreach ([[0.008, 60], [0.016, 40], [0.028, 25]] as [$sp, $qy]) {
-                        $spread = $sp / max(0.85, $liq);   // podłoga: niepłynne są chropowate, ale bez przesady
-                        $q = max(5, (int) round($qy * $act));
-                        self::place($uid, $sid, 'buy',  $q, round($base * (1 - $spread), 2));
-                        self::place($uid, $sid, 'sell', $q, round($base * (1 + $spread), 2));
+                        $spread = $sp / max(0.85, $liq);   // podloga: nieplynne sa chropowate, ale bez przesady
+                        $qb = max(5, (int) round($qy * $act * (1 - 0.4 * $inv)));
+                        $qs = max(5, (int) round($qy * $act * (1 + 0.4 * $inv)));
+                        self::place($uid, $sid, 'buy',  $qb, round($base * (1 - $spread), 2));
+                        self::place($uid, $sid, 'sell', $qs, round($base * (1 + $spread), 2));
                     }
                 } elseif ($strat === 'trend') {
-                    // podąża za trendem: SMA krótka vs długa, okna z horyzontu DNA, próg z czułości
+                    // podaza za trendem: SMA krotka vs dluga + CIECIE STRAT (nie trzyma spadajacych)
                     $c = $closes[$sid];
                     if (count($c) < $hor) continue;
+                    if ($have > 0 && $avg > 0 && $price < $avg * 0.93) {   // stop-loss bota: -7% od sredniej
+                        self::place($uid, $sid, 'sell', $have, round($price * 0.995, 2));
+                        continue;
+                    }
                     $short = self::sma(array_slice($c, -max(3, (int) round($hor / 4))));
                     $long  = self::sma(array_slice($c, -$hor));
                     $th = 0.01 / $sens;
@@ -341,14 +350,24 @@ final class Engine
                     $r = self::rsi($c);
                     $buyTh  = min(45, 30 + 10 * ($sens - 1));
                     $sellTh = max(55, 70 - 10 * ($sens - 1));
-                    if ($r < $buyTh && $have < 400 * $risk)   self::place($uid, $sid, 'buy',  max(1, (int) round(60 * $risk * $act)), round($price * 1.02, 2));
-                    elseif ($r > $sellTh && $have > 0)         self::place($uid, $sid, 'sell', min((int) round(100 * $risk * $act) + 1, $have), round($price * 0.98, 2));
+                    // im glebiej w strefie, tym wieksza pozycja (RSI 20 -> mocniejszy zakup niz RSI 29)
+                    if ($r < $buyTh && $have < 400 * $risk) {
+                        $depth = 1 + min(1.0, ($buyTh - $r) / 20);
+                        self::place($uid, $sid, 'buy',  max(1, (int) round(45 * $risk * $act * $depth)), round($price * 1.015, 2));
+                    } elseif ($r > $sellTh && $have > 0) {
+                        $depth = 1 + min(1.0, ($r - $sellTh) / 20);
+                        self::place($uid, $sid, 'sell', min((int) round(70 * $risk * $act * $depth) + 1, $have), round($price * 0.985, 2));
+                    }
                 } elseif ($strat === 'fundamental') {
-                    // inwestor wartościowy: porównuje kurs z wyceną z zysków (C/Z × EPS),
-                    // a jego percepcję przesuwają świeże newsy (× news_reactivity — jak w starej wersji)
+                    // inwestor wartosciowy: kurs vs wycena z zyskow (C/Z x EPS); percepcje przesuwaja
+                    // swieze newsy ORAZ aktywne skutki wydarzen (kapitalizuje przyszle zyski/straty),
+                    // do tego lekka premia za spolki dywidendowe
                     $fair = (float) $st['pe_target'] * (float) $st['last_eps'];
                     if ($fair <= 0) continue;
-                    $fair *= 1 + ($news / 100) * $react * 6;
+                    $evEarn = self::modVal($mods, 'stock', $sid, 'profit_trend')
+                            + self::modVal($mods, 'sector', (int) $st['sector_id'], 'profit_climate');
+                    $fair *= 1 + ($news / 100) * $react * 6 + ($evEarn / 100) * 2.5 * $react;
+                    $fair *= 1 + 0.05 * (float) $st['dividend_payout'];
                     $margin = 0.08 / $risk;
                     if ($price < $fair * (1 - $margin) && $have < 500 * $risk)  self::place($uid, $sid, 'buy',  max(1, (int) round(40 * $risk * $act)), round($price * 1.02, 2));
                     elseif ($price > $fair * (1 + $margin) && $have > 0)         self::place($uid, $sid, 'sell', min((int) round(80 * $risk * $act) + 1, $have), round($price * 0.98, 2));
@@ -804,7 +823,38 @@ final class Engine
         }
     }
 
-    /* ---------- Sygnały ---------- */
+    /**
+     * PULS HANDLU: dodatkowa runda botow MIEDZY tickami swiata (cron wola co ~20 s).
+     * Nie rusza czasu gry (raporty/sesje/wydarzenia/indeks bez zmian) — tylko handel:
+     * stopy, boty, arbitraz, kojarzenie. Obrot dopisuje do biezacej swiecy minutowej.
+     */
+    public static function subRound(): void
+    {
+        $pdo = Db::pdo();
+        $pdo->beginTransaction();
+        try {
+            $t = (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
+            if ($t <= 0) { $pdo->rollBack(); return; }
+            self::checkStops();
+            self::runBots();
+            self::arbitrage();
+            $tickTrades = [];
+            foreach (self::all("SELECT id FROM stocks") as $st) self::matchBook((int) $st['id'], $tickTrades);
+            foreach ($tickTrades as $sid => $tr) {   // scal z biezaca swieca (handel wewnatrz minuty)
+                $ps = array_column($tr, 'p');
+                $c = self::row("SELECT h, l FROM candles WHERE stock_id=? AND t=?", [$sid, $t]);
+                if (!$c) continue;
+                $pdo->prepare("UPDATE candles SET h=?, l=?, c=?, v=v+? WHERE stock_id=? AND t=?")
+                    ->execute([max((float) $c['h'], max($ps)), min((float) $c['l'], min($ps)), end($ps), array_sum(array_column($tr, 'q')), $sid, $t]);
+            }
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            throw $e;
+        }
+    }
+
+    /* ---------- Sygnaly ---------- */
 
     public static function closes(int $stockId, int $n): array
     {
