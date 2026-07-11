@@ -62,9 +62,9 @@ if (count($candles) > 1) {
 
 layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
 ?>
-<?php explainer('spolka', 'Karta spółki — tu handlujesz', [
-    '1️⃣ wybierz KUP albo SPRZEDAJ', '2️⃣ LIMIT = twoja cena · PKC = natychmiast',
-    '3️⃣ podaj ilość', '🛡️ dodaj SL/TP jako ochronę', '✅ zatwierdź']); ?>
+<?php explainer('spolka', 'Jak złożyć zlecenie', [
+    'wybierz KUP albo SPRZEDAJ', 'LIMIT = twoja cena, PKC = natychmiast',
+    'podaj ilość', 'dodaj SL/TP jako ochronę', 'zatwierdź']); ?>
 <div class="shead">
   <div class="idn"><div class="tk"><?= h($s['ticker']) ?></div><div class="nm"><?= h($s['name']) ?> · <?= h($s['sector']) ?></div>
     <div class="nm" style="margin-top:3px">Obrót sesji: <b class="mono" data-turnover><?= money_short($sessTurnover) ?> PLN</b>
@@ -176,7 +176,7 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
   <aside class="panel orderpanel">
     <h2>Zlecenie</h2>
     <?php if (!Engine::marketIsOpen() && !in_array($user['role'] ?? '', ['admin', 'qa'], true)): [, $mhO, $mhC] = Engine::marketHours(); ?>
-      <p class="flash info" style="margin:0 0 10px">🌙 Giełda zamknięta — handel trwa <?= h($mhO) ?>–<?= h($mhC) ?>. Zlecenia złożysz po otwarciu.</p>
+      <p class="flash info" style="margin:0 0 10px">Giełda zamknięta — handel trwa <?= h($mhO) ?>–<?= h($mhC) ?>. Zlecenia złożysz po otwarciu.</p>
     <?php endif; ?>
     <form method="post" action="place_order.php">
       <input type="hidden" name="stock_id" value="<?= $id ?>">

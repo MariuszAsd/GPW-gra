@@ -45,12 +45,12 @@ layout_header('Rynek', $user, 'market');
 <?php [$mhOn, $mhOpen, $mhClose] = Engine::marketHours(); $mhIsOpen = Engine::marketIsOpen(); ?>
 <div class="page-head"><h1>Rynek</h1><span class="tag" style="color:var(--accent);border-color:var(--accent)">Sesja #<?= $sessionNo ?></span>
   <?php if ($mhOn): ?>
-    <span class="tag" style="<?= $mhIsOpen ? 'color:var(--up);border-color:var(--up)' : 'color:var(--faint)' ?>"><?= $mhIsOpen ? "🔔 otwarty do $mhClose" : "🌙 zamknięty · otwarcie $mhOpen" ?></span>
+    <span class="tag" style="<?= $mhIsOpen ? 'color:var(--up);border-color:var(--up)' : 'color:var(--faint)' ?>"><?= $mhIsOpen ? "● otwarty do $mhClose" : "○ zamknięty · otwarcie $mhOpen" ?></span>
   <?php endif; ?>
   <span class="muted">zmiana liczona od otwarcia sesji · kliknij, aby handlować</span></div>
-<?php explainer('rynek', 'Rynek — tu wybierasz spółki', [
-    '👀 przeglądaj kursy i sektory', '🖱️ kliknij spółkę, aby ją otworzyć',
-    '🟢 kup taniej', '🔴 sprzedaj drożej', '💬 gadaj na czacie obok']); ?>
+<?php explainer('rynek', 'Jak korzystać z Rynku', [
+    'przeglądaj kursy i sektory', 'kliknij spółkę, aby ją otworzyć',
+    'kupuj taniej, sprzedawaj drożej', 'rozmawiaj na czacie obok']); ?>
 
 <?php if ($event): $neg = $event['type'] === 'NEG'; $left = (int) $event['expire_tick'] - $tickNow; ?>
 <div class="panel" style="margin-bottom:16px;border-left:3px solid var(--<?= $neg ? 'down' : 'up' ?>);background:var(--<?= $neg ? 'down' : 'up' ?>-bg)">
@@ -99,7 +99,7 @@ layout_header('Rynek', $user, 'market');
 </div>
 
 <aside class="panel chatbox">
-  <h2 style="margin-bottom:8px">💬 Czat rynkowy<?= tip('Rozmowy graczy na żywo. Plotki bywają prawdziwe… albo i nie — jak na prawdziwym parkiecie. GM widzi wszystko.', '') ?></h2>
+  <h2 style="margin-bottom:8px">Czat rynkowy<?= tip('Rozmowy graczy na żywo. Plotki bywają prawdziwe… albo i nie — jak na prawdziwym parkiecie. GM widzi wszystko.', '') ?></h2>
   <div id="chat-list" class="chat-list"><p class="muted" style="padding:8px">Ładowanie…</p></div>
   <form id="chat-form" class="chat-form" autocomplete="off">
     <input type="text" id="chat-msg" maxlength="300" placeholder="Napisz coś…">

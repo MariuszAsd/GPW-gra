@@ -78,10 +78,10 @@ $realized = array_sum(array_column($closed, 'pl'));
 layout_header('Profil: ' . $p['username'], $user, 'ranking');
 ?>
 <div class="page-head">
-  <h1>👤 <?= h($p['username']) ?><?= $isMe ? ' <span class="muted" style="font-size:14px">(to Ty)</span>' : '' ?></h1>
+  <h1><?= h($p['username']) ?><?= $isMe ? ' <span class="muted" style="font-size:14px">(to Ty)</span>' : '' ?></h1>
   <?php if ($p['goal_session'] !== null): ?><span class="chg p">🏆 cel osiągnięty (sesja #<?= (int) $p['goal_session'] ?>)</span><?php endif; ?>
   <span class="muted">w grze od sesji #<?= (int) $p['joined_session'] ?></span>
-  <?php if ($isMe || $viewerAdmin): ?><a class="btn sm ghost" style="margin-left:auto" href="dziennik.php<?= $isMe ? '' : '?id=' . $pid ?>">📜 Dziennik</a>
+  <?php if ($isMe || $viewerAdmin): ?><a class="btn sm ghost" style="margin-left:auto" href="dziennik.php<?= $isMe ? '' : '?id=' . $pid ?>">Dziennik</a>
   <a class="btn sm ghost" href="ranking.php">← Ranking</a>
   <?php else: ?><a class="btn sm ghost" style="margin-left:auto" href="ranking.php">← Ranking</a><?php endif; ?>
 </div>
@@ -100,7 +100,7 @@ layout_header('Profil: ' . $p['username'], $user, 'ranking');
 
 <?php if ((int) $chStats['n'] > 0): ?>
 <div class="panel" style="margin-bottom:16px">
-  <h2>⚔️ Wyzwania</h2>
+  <h2>Wyzwania</h2>
   <div class="ch-grid" style="margin:10px 0 12px">
     <div class="ch-stat"><small>UDZIAŁY</small><b><?= (int) $chStats['n'] ?></b></div>
     <div class="ch-stat"><small>WYGRANE</small><b><?= (int) $chStats['wins'] ?> 🥇</b></div>
@@ -125,7 +125,7 @@ layout_header('Profil: ' . $p['username'], $user, 'ranking');
 <?php endif; ?>
 
 <div class="panel" style="margin-bottom:16px">
-  <h2>🎖️ Odznaki (<?= count($earned) ?>/<?= count($catalog) ?>)</h2>
+  <h2>Odznaki (<?= count($earned) ?>/<?= count($catalog) ?>)</h2>
   <div class="badges">
     <?php foreach ($catalog as $code => [$icon, $name, $desc]): $has = isset($earned[$code]); ?>
       <div class="badge<?= $has ? '' : ' locked' ?>" title="<?= $has ? 'zdobyta ' . h(substr($earned[$code], 0, 10)) : 'jeszcze niezdobyta' ?>">

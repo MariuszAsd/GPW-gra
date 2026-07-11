@@ -57,7 +57,7 @@ $ikona = ['order' => '📝', 'trade' => '🤝', 'stop' => '🛡️', 'dividend' 
 layout_header('Dziennik', $user, 'portfolio');
 ?>
 <div class="page-head">
-  <h1>📜 Dziennik<?= $pid !== (int) $user['id'] ? ': ' . h($p['username']) . ' <span class="tag">podgląd GM</span>' : '' ?></h1>
+  <h1>Dziennik<?= $pid !== (int) $user['id'] ? ': ' . h($p['username']) . ' <span class="tag">podgląd GM</span>' : '' ?></h1>
   <span class="muted">pełna historia konta — co się stało i kiedy (czas serwera)</span>
   <a class="btn sm ghost" style="margin-left:auto" href="portfolio.php">← Portfel</a>
 </div>

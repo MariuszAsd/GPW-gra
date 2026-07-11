@@ -8,7 +8,7 @@ if (isset($_GET['ctx'])) {
     $cid = (int) $_GET['ctx'];
     if ($cid > 0) {
         $_SESSION['ctx_challenge'] = $cid;
-        if ((acting_user($user)['ctx'] ?? '') === 'challenge') { flash('Handlujesz teraz portfelem wyzwania. Powodzenia! ⚔️'); redirect('portfolio.php'); }
+        if ((acting_user($user)['ctx'] ?? '') === 'challenge') { flash('Handlujesz teraz portfelem wyzwania. Powodzenia!'); redirect('portfolio.php'); }
         flash('Nie grasz w tym wyzwaniu albo jeszcze nie wystartowało.', 'err');
     } else {
         unset($_SESSION['ctx_challenge']);
@@ -55,14 +55,14 @@ layout_header('Wyzwania', $user, 'challenges');
 <h1 style="display:flex;align-items:center;gap:10px">Wyzwania
   <?= tip('Konkurs inwestycyjny na kilkanaście sesji. Wpłacasz buy-in + wpisowe; buy-in trafia na ODDZIELNY portfel wyzwania, którym handlujesz jak zwykłym kontem. Wpisowe wszystkich graczy tworzy pulę nagród — dzieli ją top ~20% uczestników (im wyższe miejsce, tym większy udział). Może być kilka wyzwań naraz o różnych stawkach — zapisujesz się tam, gdzie chcesz. Twoje konto główne przez ten czas gra normalnie dalej.', 'wyzwania') ?>
 </h1>
-<?php explainer('wyzwania', 'Wyzwania — konkurs z pulą nagród', [
-    '💸 wpłacasz buy-in + wpisowe', '⚔️ handlujesz OSOBNYM portfelem wyzwania',
-    '🏁 po kilkunastu sesjach ranking', '🏆 top ~20% graczy dzieli pulę']); ?>
+<?php explainer('wyzwania', 'Jak działa wyzwanie', [
+    'wpłacasz buy-in + wpisowe', 'handlujesz osobnym portfelem wyzwania',
+    'po kilkunastu sesjach ranking', 'top ~20% graczy dzieli pulę']); ?>
 
 <?php if (!$signup && !$running): ?>
   <section class="panel" style="margin-bottom:16px">
     <h2>Brak otwartych wyzwań</h2>
-    <p class="muted">Nowa edycja wystartuje automatycznie — dostaniesz powiadomienie 🔔, gdy ruszą zapisy.</p>
+    <p class="muted">Nowa edycja wystartuje automatycznie — dostaniesz powiadomienie, gdy ruszą zapisy.</p>
   </section>
 <?php endif; ?>
 
@@ -73,7 +73,7 @@ layout_header('Wyzwania', $user, 'challenges');
     $iAmIn = in_array((int) $active['id'], $myIds, true);
   ?>
   <section class="panel" style="margin-bottom:16px">
-    <h2>⚔️ <?= h($active['name']) ?> — zapisy trwają!</h2>
+    <h2><?= h($active['name']) ?> — zapisy trwają</h2>
     <div class="ch-grid">
       <div class="ch-stat"><small>BUY-IN (portfel wyzwania)</small><b><?= money($active['buyin']) ?> PLN</b></div>
       <div class="ch-stat"><small>WPISOWE (do puli nagród)</small><b><?= money($fee) ?> PLN</b></div>
@@ -88,7 +88,7 @@ layout_header('Wyzwania', $user, 'challenges');
       (podział przelicza się z liczbą zapisanych). Wygrywa najwyższy kapitał końcowy portfela wyzwania.
     </p>
     <?php if ($iAmIn): ?>
-      <p class="flash ok" style="margin:0">✅ Jesteś zapisany. Start: sesja #<?= (int) $active['start_session'] ?> — dostaniesz powiadomienie.</p>
+      <p class="flash ok" style="margin:0">Jesteś zapisany. Start: sesja #<?= (int) $active['start_session'] ?> — dostaniesz powiadomienie.</p>
     <?php elseif (($user['role'] ?? '') === 'player'): ?>
       <form method="post" onsubmit="return confirm('Zapis do wyzwania: z konta zejdzie <?= money((float) $active['buyin'] + $fee) ?> PLN (buy-in + wpisowe). Kontynuować?')">
         <button class="btn" name="join" value="<?= (int) $active['id'] ?>">Zapisz się — <?= money((float) $active['buyin'] + $fee) ?> PLN</button>
@@ -108,12 +108,12 @@ layout_header('Wyzwania', $user, 'challenges');
     $iAmIn = in_array((int) $active['id'], $myIds, true);
   ?>
   <section class="panel" style="margin-bottom:16px">
-    <h2>⚔️ <?= h($active['name']) ?> — trwa (do końca sesji #<?= (int) $active['end_session'] ?>, teraz #<?= $session ?>)</h2>
+    <h2><?= h($active['name']) ?> — trwa (do końca sesji #<?= (int) $active['end_session'] ?>, teraz #<?= $session ?>)</h2>
     <p class="muted" style="margin:6px 0 12px">Pula nagród: <b class="up"><?= money($active['pot']) ?> PLN</b> ·
       <?= split_label(count($board)) ?> ·
       wynik = kapitał portfela wyzwania (gotówka + akcje po bieżącym kursie).</p>
     <?php if ($iAmIn && $inCtx !== (int) $active['id']): ?>
-      <p><a class="btn" href="wyzwania.php?ctx=<?= (int) $active['id'] ?>">⚔️ Przełącz na portfel tego wyzwania</a></p>
+      <p><a class="btn sm" href="wyzwania.php?ctx=<?= (int) $active['id'] ?>">Przełącz na portfel tego wyzwania</a></p>
     <?php elseif ($iAmIn && $inCtx === (int) $active['id']): ?>
       <p><a class="btn ghost" href="wyzwania.php?ctx=0">Wróć na konto główne</a></p>
     <?php endif; ?>
@@ -135,7 +135,7 @@ layout_header('Wyzwania', $user, 'challenges');
 
 <?php if ($finished || $archMine || $archTotal > 0): ?>
   <section class="panel" id="archiwum">
-    <h2 style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">🏆 Rozstrzygnięte wyzwania
+    <h2 style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">Rozstrzygnięte wyzwania
       <span style="font-size:12px;font-weight:400;text-transform:none;letter-spacing:0;margin-left:auto">
         <a href="<?= h($archUrl(0, false)) ?>" <?= !$archMine ? 'style="font-weight:700"' : '' ?>>Wszystkie</a> ·
         <a href="<?= h($archUrl(0, true)) ?>" <?= $archMine ? 'style="font-weight:700"' : '' ?>>Tylko moje</a>

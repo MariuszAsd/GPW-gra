@@ -58,13 +58,13 @@ $kroki = [
 layout_header('Samouczek', $user, 'help');
 ?>
 <div class="page-head">
-  <h1>🎓 Samouczek</h1>
+  <h1>Samouczek</h1>
   <span class="muted"><?= count($kroki) ?> kroków · ~3 minuty · wracaj tu, kiedy chcesz</span>
   <a class="btn sm ghost" style="margin-left:auto" href="pulpit.php">← Pulpit</a>
 </div>
 
 <p class="muted" style="margin:0 0 14px">
-  <a class="btn sm ghost" href="#" onclick="Object.keys(localStorage).forEach(k=>{if(k.startsWith('exp_'))localStorage.removeItem(k)});Object.keys(sessionStorage).forEach(k=>{if(k.startsWith('exp_'))sessionStorage.removeItem(k)});alert('Podpowiedzi nad działami znów będą widoczne.');return false">↩️ Przywróć wszystkie podpowiedzi nad działami</a>
+  <a class="btn sm ghost" href="#" onclick="Object.keys(localStorage).forEach(k=>{if(k.startsWith('exp_'))localStorage.removeItem(k)});Object.keys(sessionStorage).forEach(k=>{if(k.startsWith('exp_'))sessionStorage.removeItem(k)});alert('Podpowiedzi nad działami znów będą widoczne.');return false">Przywróć wszystkie podpowiedzi nad działami</a>
 </p>
 
 <?php foreach ($kroki as $i => [$ic, $tytul, $opis, $link, $cta]): ?>
@@ -81,7 +81,7 @@ layout_header('Samouczek', $user, 'help');
 <?php endforeach; ?>
 
 <section class="panel" style="text-align:center;padding:22px">
-  <h2 style="margin:0 0 6px">Gotowy? 🚀</h2>
+  <h2 style="margin:0 0 6px">Gotowy?</h2>
   <p class="muted" style="margin:0 0 12px">Najlepiej uczy rynek — zacznij od małego zakupu i obserwuj, co się dzieje.</p>
   <a class="btn" style="max-width:280px;display:inline-block" href="market.php">Wchodzę na Rynek</a>
 </section>

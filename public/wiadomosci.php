@@ -16,9 +16,9 @@ $calendar = Engine::all("SELECT id, ticker, name, next_report_tick, dividend_pay
 
 layout_header('Wiadomości', $user, 'news');
 ?>
-<?php explainer('newsy', 'Newsy — paliwo rynku', [
-    '📰 ESPI = jedna spółka', '🏭 wydarzenia = sektor albo cały rynek',
-    '🟢 dobre wieści podnoszą kurs', '🔴 złe zbijają', '⚡ reaguj przed botami']); ?>
+<?php explainer('newsy', 'Jak czytać newsy', [
+    'ESPI = jedna spółka', 'wydarzenia = sektor albo cały rynek',
+    'dobre wieści podnoszą kurs, złe zbijają', 'reaguj przed botami']); ?>
 <div class="page-head"><h1>Wiadomości</h1><span class="muted">wydarzenia świata, komunikaty ESPI i raporty — najnowsze u góry</span></div>
 
 <div class="stock-grid" style="grid-template-columns:1.7fr 1fr">

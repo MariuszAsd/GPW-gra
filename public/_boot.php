@@ -32,6 +32,24 @@ function liq_label($liquidity): array {
     return ['lo', 'niska płynność'];
 }
 function flash(string $msg, string $type = 'ok'): void { $_SESSION['flash'] = ['m' => $msg, 't' => $type]; }
+
+/** Ikony interfejsu (inline SVG, dziedziczą kolor) — zamiast emoji w chrome aplikacji. */
+function icon(string $name, string $cls = 'ico'): string {
+    $paths = [
+        'home'   => '<path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V20a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1V9.5"/>',
+        'chart'  => '<path d="M3 3v17a1 1 0 0 0 1 1h17"/><path d="m7 14 4-5 3.5 3L20 6"/>',
+        'trophy' => '<path d="M8 21h8m-4-4v4M7 4h10v5a5 5 0 0 1-10 0Z"/><path d="M7 6H4v1a3 3 0 0 0 3 3m10-4h3v1a3 3 0 0 1-3 3"/>',
+        'flag'   => '<path d="M5 21V4"/><path d="M5 4h13l-2.5 4L18 12H5"/>',
+        'case'   => '<rect x="3" y="7.5" width="18" height="13" rx="2"/><path d="M9 7.5V5.5a1.5 1.5 0 0 1 1.5-1.5h3A1.5 1.5 0 0 1 15 5.5v2M3 13h18"/>',
+        'news'   => '<rect x="3" y="5" width="15" height="16" rx="2"/><path d="M18 9h2a1 1 0 0 1 1 1v9a2 2 0 0 1-2 2M7 9.5h7M7 13h7m-7 3.5h4"/>',
+        'help'   => '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.3a2.6 2.6 0 0 1 5.1.7c0 1.7-2.6 2.2-2.6 3.7"/><circle cx="12" cy="17" r=".4" fill="currentColor"/>',
+        'gear'   => '<path d="M4 7h10m4 0h2M4 12h4m4 0h8M4 17h12m2 0h2"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="17" r="2"/>',
+        'bell'   => '<path d="M18 9a6 6 0 1 0-12 0c0 6-2.5 7-2.5 7h17S18 15 18 9"/><path d="M10.3 20a2 2 0 0 0 3.4 0"/>',
+        'theme'  => '<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17A8.5 8.5 0 0 0 12 3.5Z" fill="currentColor" stroke="none"/>',
+        'exit'   => '<path d="M14 4h-8a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h8m-4-8h11m-3.5-3.5L21 12l-3.5 3.5"/>',
+    ];
+    return "<svg class='$cls' viewBox='0 0 24 24' aria-hidden='true'>" . ($paths[$name] ?? '') . '</svg>';
+}
 function redirect(string $u): void { header("Location: $u"); exit; }
 
 /**
@@ -45,7 +63,7 @@ function explainer(string $key, string $title, array $steps): void {
     echo "<span class='expl-menu' hidden>Ukryć tę podpowiedź? ";
     echo "<button class='btn sm ghost' onclick='explOnce(this)'>Tylko teraz</button> ";
     echo "<button class='btn sm ghost' onclick='explForever(this)'>Nie pokazuj więcej</button></span>";
-    echo "<b class='expl-t'>💡 " . h($title) . "</b><span class='expl-steps'>";
+    echo "<b class='expl-t'>" . h($title) . "</b><span class='expl-steps'>";
     foreach ($steps as $i => $s) {
         if ($i > 0) echo "<span class='expl-arr'>→</span>";
         echo "<span class='expl-step'>$s</span>";
@@ -120,10 +138,10 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
         echo "<a class='" . trim($act('news')) . "' href='wiadomosci.php'>Newsy</a>";
         echo "<a class='" . trim($act('help')) . "' href='pomoc.php'>Pomoc</a>";
         if ($isAdmin) echo "<a class='gm" . $act('gm') . "' href='gm.php'>GM</a>";
-        echo "<a class='bell" . $act('notif') . "' href='powiadomienia.php' title='Powiadomienia'>🔔<b class='bell-n" . ($unread > 0 ? '' : ' off') . "' data-bell>" . $unread . "</b></a>";
-        echo "<a class='thm' href='#' onclick='return themeToggle()' title='Przełącz motyw jasny/ciemny'>◐</a>";
+        echo "<a class='bell" . $act('notif') . "' href='powiadomienia.php' title='Powiadomienia'>" . icon('bell') . "<b class='bell-n" . ($unread > 0 ? '' : ' off') . "' data-bell>" . $unread . "</b></a>";
+        echo "<a class='thm' href='#' onclick='return themeToggle()' title='Przełącz motyw jasny/ciemny'>" . icon('theme') . "</a>";
         if ($actg) {
-            echo "<span class='bal'><b>" . money($actg['cash']) . " PLN</b><small>⚔️ portfel wyzwania</small></span>";
+            echo "<span class='bal'><b>" . money($actg['cash']) . " PLN</b><small>portfel wyzwania</small></span>";
             echo "<a class='hide-sm' href='logout.php' style='color:var(--faint)'>" . h($actg['owner_name']) . " ⏻</a>";
         } else {
             echo "<span class='bal'><b>" . money($user['cash']) . " PLN</b><small>zamrożone +" . money($user['cash_reserved']) . "</small></span>";
@@ -137,20 +155,20 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
     }
     if ($user) {
         echo "<nav class='bottomnav'>";
-        echo "<a class='" . trim($act('home')) . "' href='pulpit.php'><span class='ic'>⌂</span>Pulpit</a>";
-        echo "<a class='" . trim($act('market')) . "' href='market.php'><span class='ic'>▤</span>Rynek</a>";
-        echo "<a class='" . trim($act('ranking')) . "' href='ranking.php'><span class='ic'>🏆</span>Ranking</a>";
-        echo "<a class='" . trim($act('challenges')) . "' href='wyzwania.php'><span class='ic'>⚔️</span>Wyzwania</a>";
-        echo "<a class='" . trim($act('portfolio')) . "' href='portfolio.php'><span class='ic'>◈</span>Portfel</a>";
-        echo "<a class='" . trim($act('news')) . "' href='wiadomosci.php'><span class='ic'>📰</span>Newsy</a>";
-        echo "<a class='" . trim($act('help')) . "' href='pomoc.php'><span class='ic'>❓</span>Pomoc</a>";
-        if ($isAdmin) echo "<a class='" . trim($act('gm')) . "' href='gm.php'><span class='ic'>⚙</span>GM</a>";
-        echo "<a href='logout.php'><span class='ic'>⏻</span>Wyjście</a>";
+        echo "<a class='" . trim($act('home')) . "' href='pulpit.php'>" . icon('home') . "Pulpit</a>";
+        echo "<a class='" . trim($act('market')) . "' href='market.php'>" . icon('chart') . "Rynek</a>";
+        echo "<a class='" . trim($act('ranking')) . "' href='ranking.php'>" . icon('trophy') . "Ranking</a>";
+        echo "<a class='" . trim($act('challenges')) . "' href='wyzwania.php'>" . icon('flag') . "Wyzwania</a>";
+        echo "<a class='" . trim($act('portfolio')) . "' href='portfolio.php'>" . icon('case') . "Portfel</a>";
+        echo "<a class='" . trim($act('news')) . "' href='wiadomosci.php'>" . icon('news') . "Newsy</a>";
+        echo "<a class='" . trim($act('help')) . "' href='pomoc.php'>" . icon('help') . "Pomoc</a>";
+        if ($isAdmin) echo "<a class='" . trim($act('gm')) . "' href='gm.php'>" . icon('gear') . "GM</a>";
+        echo "<a href='logout.php'>" . icon('exit') . "Wyjście</a>";
         echo "</nav>";
     }
     // baner kontekstu: gracz handluje teraz portfelem wyzwania (widoczny na każdej stronie)
     if ($actg) {
-        echo "<div class='ctxbar'>⚔️ Handlujesz portfelem wyzwania <b>" . h($actg['ch_name']) . "</b>"
+        echo "<div class='ctxbar'>Handlujesz portfelem wyzwania <b>" . h($actg['ch_name']) . "</b>"
            . " · gotówka: <b>" . money($actg['cash']) . " PLN</b>"
            . " · do końca sesji #" . (int) $actg['ch_end']
            . " · <a href='wyzwania.php?ctx=0'>wróć na konto główne</a></div>";

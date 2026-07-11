@@ -4,7 +4,7 @@ $user = require_login();
 layout_header('Pomoc', $user, 'help');
 ?>
 <div class="page-head"><h1>Jak grać — proste wyjaśnienia</h1>
-  <a class="btn sm ghost" style="margin-left:auto" href="samouczek.php">🎓 Samouczek krok po kroku</a></div>
+  <a class="btn sm ghost" style="margin-left:auto" href="samouczek.php">Samouczek krok po kroku</a></div>
 
 <div class="help-toc">
   <a href="#arkusz">Arkusz zleceń</a>

@@ -10,7 +10,7 @@ $icon = ['dividend' => '💰', 'stop' => '🛡️', 'report' => '📊', 'order' 
 layout_header('Powiadomienia', $user, 'notif');
 ?>
 <div class="page-head"><h1>Powiadomienia</h1><span class="muted">50 ostatnich · nieprzeczytane są podświetlone</span>
-  <a class="btn sm ghost" style="margin-left:auto" href="dziennik.php">📜 Pełna historia w Dzienniku</a></div>
+  <a class="btn sm ghost" style="margin-left:auto" href="dziennik.php">Pełna historia w Dzienniku</a></div>
 
 <div class="panel" style="padding:0;overflow:hidden">
   <?php foreach ($rows as $r): $fresh = $r['read_at'] === null; ?>
