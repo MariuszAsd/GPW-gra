@@ -153,10 +153,14 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
       </div>
 
       <div class="tabpane" id="tab-news">
-        <?php foreach ($news as $nw): $tc = $nw['type'] === 'POS' ? 'up' : ($nw['type'] === 'NEG' ? 'down' : 'soft'); ?>
+        <?php $kindLbl = ['fundamental' => ['FUNDAMENTY', 'var(--accent)'], 'sentiment' => ['NASTROJE', 'var(--gold)'], 'technical' => ['TECHNIKA', 'var(--up)']];
+        foreach ($news as $nw): $tc = $nw['type'] === 'POS' ? 'up' : ($nw['type'] === 'NEG' ? 'down' : 'soft');
+            [$kl, $kc] = $kindLbl[$nw['kind'] ?? 'fundamental'] ?? $kindLbl['fundamental']; ?>
           <div style="padding:9px 2px;border-bottom:1px solid var(--line)">
             <?php if ($nw['is_espi']): ?><span class="tag" style="color:var(--gold);border-color:var(--gold-border)">ESPI</span> <?php endif; ?>
+            <span class="tag" style="color:<?= $kc ?>;border-color:<?= $kc ?>;font-size:10px"><?= $kl ?></span>
             <span class="<?= $tc ?>" style="font-weight:600"><?= h($nw['headline']) ?></span>
+            <?php if ($nw['body']): ?><div class="soft" style="font-size:12.5px;margin-top:3px"><?= h($nw['body']) ?></div><?php endif; ?>
             <div class="muted" style="font-size:12px;margin-top:2px"><?= h(substr($nw['published_at'], 0, 16)) ?> · <?= h($nw['scope']) ?></div>
           </div>
         <?php endforeach; if (!$news) echo "<div class='muted' style='padding:8px'>brak wiadomości</div>"; ?>

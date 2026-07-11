@@ -4,12 +4,25 @@ require __DIR__ . '/_boot.php';
 $user = require_login();
 
 $scope = in_array($_GET['f'] ?? '', ['MARKET', 'SECTOR', 'COMPANY'], true) ? $_GET['f'] : '';
-$where = $scope !== '' ? "WHERE n.scope = " . Db::pdo()->quote($scope) : '';
+$kindF = in_array($_GET['k'] ?? '', ['fundamental', 'sentiment', 'technical'], true) ? $_GET['k'] : '';
+$cond = [];
+if ($scope !== '') $cond[] = "n.scope = " . Db::pdo()->quote($scope);
+if ($kindF !== '') $cond[] = "n.kind = " . Db::pdo()->quote($kindF);
+$where = $cond ? 'WHERE ' . implode(' AND ', $cond) : '';
 $news = Engine::all("SELECT n.*, sec.name AS sector_name, st.ticker, st.id AS stock_id2
                      FROM news n
                      LEFT JOIN sectors sec ON n.scope='SECTOR' AND sec.id = n.target_id
                      LEFT JOIN stocks st  ON n.scope='COMPANY' AND st.id = n.target_id
                      $where ORDER BY n.id DESC LIMIT 80");
+
+/** Chip klasy informacji: kto na nią reaguje (odczyt: fundamenty=inwestorzy, nastroje=spekulanci, technika=algorytmy). */
+function kind_chip(?string $k): string {
+    return match ($k ?? 'fundamental') {
+        'sentiment' => "<span class='tag' style='color:var(--gold);border-color:var(--gold-border)' title='Miękka informacja: plotki, opinie, nastroje. Gorące paliwo dla graczy newsowych — po wygaśnięciu kurs ciąży z powrotem do wyceny.'>NASTROJE</span>",
+        'technical' => "<span class='tag' style='color:var(--up);border-color:var(--up-border)' title='Komentarz pisany z danych wykresu. Nie zmienia wartości spółki, ale czytają go fundusze algorytmiczne — bywa samospełniający.'>TECHNIKA</span>",
+        default     => "<span class='tag' style='color:var(--accent);border-color:var(--accent)' title='Twarde fakty o pieniądzach: kontrakty, prognozy, kary, wyniki. Przesuwają wycenę fundamentalną — na nich grają inwestorzy wartościowi.'>FUNDAMENTY</span>",
+    };
+}
 
 $tickNow = (int) (Engine::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
 $calendar = Engine::all("SELECT id, ticker, name, next_report_tick, dividend_payout FROM stocks ORDER BY next_report_tick ASC LIMIT 12");
@@ -53,10 +66,17 @@ layout_header('Wiadomości', $user, 'news');
 
 <div class="stock-grid" style="grid-template-columns:1.7fr 1fr">
   <div class="panel" style="padding:0;overflow:hidden">
-    <div style="padding:12px 16px 8px;display:flex;gap:6px;flex-wrap:wrap">
+    <div style="padding:12px 16px 2px;display:flex;gap:6px;flex-wrap:wrap">
       <?php foreach ([['', 'Wszystkie'], ['MARKET', 'Rynek'], ['SECTOR', 'Branże'], ['COMPANY', 'Spółki']] as [$f, $lbl]): ?>
-        <a class="tag" style="padding:5px 12px;<?= $scope === $f ? 'color:var(--accent);border-color:var(--accent)' : '' ?>" href="wiadomosci.php<?= $f ? "?f=$f" : '' ?>"><?= $lbl ?></a>
+        <a class="tag" style="padding:5px 12px;<?= $scope === $f ? 'color:var(--accent);border-color:var(--accent)' : '' ?>" href="wiadomosci.php?<?= http_build_query(array_filter(['f' => $f, 'k' => $kindF])) ?>"><?= $lbl ?></a>
       <?php endforeach; ?>
+    </div>
+    <div style="padding:6px 16px 8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+      <span class="muted" style="font-size:11px">Klasa:</span>
+      <?php foreach ([['', 'wszystkie'], ['fundamental', 'Fundamenty'], ['sentiment', 'Nastroje'], ['technical', 'Technika']] as [$k, $lbl]): ?>
+        <a class="tag" style="padding:4px 10px;font-size:10.5px;<?= $kindF === $k ? 'color:var(--accent);border-color:var(--accent)' : '' ?>" href="wiadomosci.php?<?= http_build_query(array_filter(['f' => $scope, 'k' => $k])) ?>"><?= $lbl ?></a>
+      <?php endforeach; ?>
+      <?= tip('Fundamenty = twarde fakty (przesuwają wycenę; grają na nich boty fundamentalne). Nastroje = plotki i opinie (paliwo botów newsowych; efekt zwykle wygasa). Technika = komentarze z wykresu (czytają je fundusze algorytmiczne).', '') ?>
     </div>
     <?php foreach ($news as $nw):
         $tc = $nw['type'] === 'POS' ? 'up' : ($nw['type'] === 'NEG' ? 'down' : 'soft');
@@ -67,6 +87,7 @@ layout_header('Wiadomości', $user, 'news');
       <div style="padding:11px 16px;border-bottom:1px solid var(--line)">
         <div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap">
           <?php if ($nw['is_espi']): ?><span class="tag" style="color:var(--gold);border-color:var(--gold-border)">ESPI</span><?php endif; ?>
+          <?= kind_chip($nw['kind'] ?? null) ?>
           <span class="tag"><?= h($where2) ?></span>
           <span class="<?= $tc ?>" style="font-weight:600;font-size:14px"><?= h($nw['headline']) ?></span>
         </div>

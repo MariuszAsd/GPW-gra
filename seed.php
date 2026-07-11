@@ -167,22 +167,7 @@ foreach ($stockRows as $st) {
 }
 $log("✔ raporty startowe");
 
-// --- SZABLONY NEWSÓW / ESPI ---
-$tpl = [
-    ['Analitycy podnoszą rekomendację dla [T]', 'Dom maklerski podniósł cenę docelową akcji [T].', 'POS', 'COMPANY', 0, 0.15, 12, 20],
-    ['[T] ogłasza program skupu akcji własnych', 'Zarząd [T] poinformował o skupie akcji.', 'POS', 'COMPANY', 1, 0.30, 15, 6],
-    ['[T] podpisuje duży kontrakt', 'Spółka [T] zawarła znaczącą umowę handlową.', 'POS', 'COMPANY', 1, 0.35, 12, 8],
-    ['[T] zapowiada wejście na nowe rynki', 'Zarząd [T] przedstawił plan ekspansji zagranicznej.', 'POS', 'COMPANY', 1, 0.20, 14, 8],
-    ['Odejście kluczowego dyrektora w [T]', 'Z [T] odchodzi wieloletni członek zarządu.', 'NEG', 'COMPANY', 1, -0.25, 12, 8],
-    ['Postępowanie regulacyjne wobec [T]', 'Wobec [T] wszczęto postępowanie wyjaśniające.', 'NEG', 'COMPANY', 1, -0.30, 10, 6],
-    ['[T] ostrzega przed słabszym kwartałem', 'Spółka [T] obniżyła prognozy wyników.', 'NEG', 'COMPANY', 1, -0.28, 12, 6],
-    ['Optymizm w sektorze [T]', 'Inwestorzy pozytywnie patrzą na branżę [T].', 'POS', 'SECTOR', 0, 0.12, 14, 25],
-    ['Niepewność w sektorze [T]', 'Nad branżą [T] zbierają się chmury.', 'NEG', 'SECTOR', 0, -0.15, 14, 25],
-    ['Spokojna sesja dla [T]', 'Notowania [T] pozostają stabilne.', 'NEU', 'COMPANY', 0, 0.00, 30, 15],
-];
-$tStmt = $pdo->prepare("INSERT INTO news_templates (headline_template,body_template,type,scope,is_espi,base_impact,duration_ticks,frequency_weight) VALUES (?,?,?,?,?,?,?,?)");
-foreach ($tpl as $t) $tStmt->execute($t);
-$log("✔ " . count($tpl) . " szablonów newsów/ESPI");
+// szablony newsów mieszkają teraz w kodzie (src/Newsroom.php) — tabela news_templates zostaje pusta
 
 // --- BOTY (+ DNA) ---
 $uStmt = $pdo->prepare("INSERT INTO users (username, password_hash, is_bot, role, cash, start_equity) VALUES (?,?,1,?,?,?)");

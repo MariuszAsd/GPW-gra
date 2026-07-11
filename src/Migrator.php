@@ -349,6 +349,11 @@ final class Migrator
             23 => [
                 "ALTER TABLE users ADD COLUMN goal_target DECIMAL(15,2) NULL",
             ],
+            // v24: Newsroom 2.0 — klasa informacji na newsach (fundamental/sentiment/technical);
+            //      boty fundamentalne, newsowe i techniczne słuchają różnych klas
+            24 => [
+                "ALTER TABLE news ADD COLUMN kind VARCHAR(12) NOT NULL DEFAULT 'fundamental'",
+            ],
         ];
     }
 

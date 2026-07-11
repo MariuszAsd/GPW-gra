@@ -292,12 +292,28 @@ final class Engine
         // prefetch: historia zamknięć per spółka (raz na tick, nie raz na bota)
         $closes = [];
         foreach ($stocks as $st) $closes[$st['id']] = self::closes((int) $st['id'], 60);
-        // prefetch: świeże newsy/ESPI (ostatnie 4 ticki) -> sentyment per spółka, sektor i cały rynek
-        $newsCo = []; $newsSec = []; $newsMkt = 0.0;
-        foreach (self::all("SELECT scope, target_id, impact_strength FROM news WHERE publish_tick > ? AND impact_strength <> 0", [$tick - 4]) as $nw) {
-            if ($nw['scope'] === 'COMPANY')     $newsCo[$nw['target_id']]  = ($newsCo[$nw['target_id']] ?? 0) + (float) $nw['impact_strength'];
-            elseif ($nw['scope'] === 'SECTOR')  $newsSec[$nw['target_id']] = ($newsSec[$nw['target_id']] ?? 0) + (float) $nw['impact_strength'];
-            elseif ($nw['scope'] === 'MARKET')  $newsMkt += (float) $nw['impact_strength'];   // krach/hossa: panika i euforia botów
+        // prefetch: świeże newsy (ostatnie 4 ticki) ROZBITE NA KLASY INFORMACJI —
+        // fundament (twarde fakty), nastroje (miękkie) i technika (komentarz z wykresu).
+        // Różne strategie botów słuchają różnych klas (patrz newsPerception).
+        $nF = ['co' => [], 'sec' => [], 'mkt' => 0.0];   // fundamental
+        $nS = ['co' => [], 'sec' => [], 'mkt' => 0.0];   // sentiment
+        $nT = [];                                          // technical (tylko spółkowe)
+        foreach (self::all("SELECT scope, target_id, impact_strength, kind FROM news WHERE publish_tick > ? AND impact_strength <> 0", [$tick - 4]) as $nw) {
+            $imp = (float) $nw['impact_strength'];
+            $k = $nw['kind'] ?? 'fundamental';
+            if ($k === 'technical') {
+                if ($nw['scope'] === 'COMPANY') $nT[$nw['target_id']] = ($nT[$nw['target_id']] ?? 0) + $imp;
+                continue;
+            }
+            if ($k === 'sentiment') {
+                if ($nw['scope'] === 'COMPANY')     $nS['co'][$nw['target_id']]  = ($nS['co'][$nw['target_id']] ?? 0) + $imp;
+                elseif ($nw['scope'] === 'SECTOR')  $nS['sec'][$nw['target_id']] = ($nS['sec'][$nw['target_id']] ?? 0) + $imp;
+                else                                $nS['mkt'] += $imp;
+            } else {
+                if ($nw['scope'] === 'COMPANY')     $nF['co'][$nw['target_id']]  = ($nF['co'][$nw['target_id']] ?? 0) + $imp;
+                elseif ($nw['scope'] === 'SECTOR')  $nF['sec'][$nw['target_id']] = ($nF['sec'][$nw['target_id']] ?? 0) + $imp;
+                else                                $nF['mkt'] += $imp;
+            }
         }
 
         foreach ($bots as $bot) {
@@ -319,7 +335,12 @@ final class Engine
                 $price = (float) $st['price'];
                 $have  = (int) ($wal[$uid][$sid]['qty'] ?? 0);
                 $avg   = (float) ($wal[$uid][$sid]['avg_price'] ?? 0);
-                $news  = ($newsCo[$sid] ?? 0) + 0.6 * ($newsSec[$st['sector_id']] ?? 0) + 0.4 * $newsMkt;   // świeży sentyment
+                $aff   = max(0.0, min(1.0, (float) $st['tech_affinity']));
+                // świeże informacje per klasa: spółka + 0.6×sektor + 0.4×rynek
+                $newsF = ($nF['co'][$sid] ?? 0) + 0.6 * ($nF['sec'][$st['sector_id']] ?? 0) + 0.4 * $nF['mkt'];
+                $newsS = ($nS['co'][$sid] ?? 0) + 0.6 * ($nS['sec'][$st['sector_id']] ?? 0) + 0.4 * $nS['mkt'];
+                $newsT = (float) ($nT[$sid] ?? 0);
+                $news  = self::newsPerception($strat, $aff, $newsF, $newsS, $newsT);   // percepcja TEJ strategii
 
                 // wspólny odruch (ze starej wersji): realizacja zysku — kurs > śr. zakupu +15%
                 if ($strat !== 'mm' && $have > 0 && $avg > 0 && $price > $avg * 1.15 && mt_rand(1, 100) <= 20) {
@@ -380,7 +401,7 @@ final class Engine
                     if ($fair <= 0) continue;
                     $evEarn = self::modVal($mods, 'stock', $sid, 'profit_trend')
                             + self::modVal($mods, 'sector', (int) $st['sector_id'], 'profit_climate');
-                    $fair *= 1 + ($news / 100) * $react * 6 + ($evEarn / 100) * 2.5 * $react;
+                    $fair *= 1 + ($news / 100) * $react * 6 + ($evEarn / 100) * 2.5 * $react;   // $news = już PRZEFILTROWANA percepcja (twarde fakty, mocniej na spółkach fundamentalnych)
                     $fair *= 1 + 0.05 * (float) $st['dividend_payout'];
                     $margin = 0.08 / $risk;
                     if ($price < $fair * (1 - $margin) && $have < 500 * $risk)  self::place($uid, $sid, 'buy',  max(1, (int) round(40 * $risk * $act)), round($price * 1.02, 2));
@@ -390,8 +411,8 @@ final class Engine
                     // Siła = sygnał x wpływ globalny (GM) x podatność spółki x czułość bota —
                     // nic nie jest zero-jedynkowe: mocniejszy sygnał = większa pozycja.
                     if ($taInf <= 0) continue;
-                    $aff = max(0.0, min(1.0, (float) $st['tech_affinity']));
-                    $sigT = Technical::composite($sid) * $taInf * (0.4 + 1.2 * $aff) * $sens;
+                    // komentarz techniczny w mediach = chwilowy dopalacz czułości (samospełniająca się przepowiednia)
+                    $sigT = Technical::composite($sid) * $taInf * (0.4 + 1.2 * $aff) * $sens * $news;
                     if ($have > 0 && $avg > 0 && $price < $avg * 0.90) {   // twardy stop bota AT: -10%
                         self::place($uid, $sid, 'sell', $have, round($price * 0.995, 2));
                         continue;
@@ -419,6 +440,30 @@ final class Engine
                 }
             }
         }
+    }
+
+    /**
+     * PERCEPCJA INFORMACJI wg strategii bota — serce mechaniki "różne boty
+     * słuchają różnych wiadomości na różnych spółkach":
+     *   fundamental  słucha TWARDYCH faktów ($nF), tym mocniej, im bardziej
+     *                fundamentalny charakter ma spółka (niska aff); plotki
+     *                waży ledwie 0.2 — "szum, nie sygnał".
+     *   news         żywi się WSZYSTKIM, ale nastroje ($nS) gra ×1.6 i tym
+     *                chętniej, im bardziej spekulacyjna (techniczna) spółka;
+     *                komentarze techniczne podchwytuje w połowie siły.
+     *   tech         zwraca MNOŻNIK czułości (1..1.6): komentarz techniczny
+     *                w mediach wzmacnia pozycje bota AT; twarde fakty i plotki
+     *                ignoruje — "wszystko i tak widać na wykresie".
+     *   pozostałe    0 (trend/rsi/mm reagują na cenę, nie na słowa).
+     */
+    public static function newsPerception(string $strat, float $aff, float $nF, float $nS, float $nT): float
+    {
+        return match ($strat) {
+            'fundamental' => $nF * (1.3 - 0.6 * $aff) + 0.2 * $nS,
+            'news'        => $nF + 1.6 * $nS * (0.8 + 0.5 * $aff) + 0.5 * $nT,
+            'tech'        => 1.0 + min(0.6, abs($nT) * 4.0),
+            default       => 0.0,
+        };
     }
 
     /** Jednorazowe dosianie botów TECHNICZNYCH do istniejącego świata (bez resetu). */
@@ -595,7 +640,8 @@ final class Engine
             }
 
             $period = 'Miesiąc ' . (int) round($tick / $globalPer);
-            $rev = round($profit / 0.15, 2); $cost = round($rev - $profit, 2);
+            $marza = mt_rand(9, 22);                                  // marża netto % (kosmetyka raportu — zmienna, jak w realu)
+            $rev = round($profit / ($marza / 100), 2); $cost = round($rev - $profit, 2);
             $pdo->prepare("INSERT INTO financial_reports (stock_id,tick,period,report_date,revenue,costs,net_profit,eps,expected_eps,surprise_pct,dividend)
                            VALUES (?,?,?,?,?,?,?,?,?,?,?)")
                 ->execute([$sid, $tick, $period, Db::now(), $rev, $cost, $profit, $eps, round((float) $s['last_eps'], 4), round($surprise, 2), $dps]);
@@ -608,14 +654,37 @@ final class Engine
                     "stock.php?id=$sid");
             }
 
-            // news / ESPI z raportu (do wyświetlenia; ciągły wpływ newsów = kolejny krok)
+            // KOMUNIKAT WYNIKOWY z pełną treścią: r/r, marża, EPS vs konsensus, komentarz
+            // zarządu zależny od zaskoczenia. Klasa: fundamental (twarde liczby).
             $type = $surprise >= 3 ? 'POS' : ($surprise <= -3 ? 'NEG' : 'NEU');
-            $head = sprintf('Wyniki %s: zysk %s PLN (niespodzianka %s%%)',
-                $s['ticker'], number_format($profit, 0, ',', ' '), ($surprise >= 0 ? '+' : '') . round($surprise, 1));
+            $rr = $prev > 0 ? ($profit / $prev - 1) * 100 : 0.0;
+            $beat = $surprise >= 3 ? 'POWYŻEJ oczekiwań' : ($surprise <= -3 ? 'PONIŻEJ oczekiwań' : 'zgodnie z oczekiwaniami');
+            $head = sprintf('Wyniki %s: zysk %s PLN (%s%s%% r/r) — %s',
+                $s['ticker'], number_format($profit, 0, ',', ' '),
+                $rr >= 0 ? '+' : '', number_format($rr, 1, ',', ' '), $beat);
+            $mgmt = $surprise >= 8
+                ? 'Zarząd: „Kwartał potwierdza siłę modelu biznesowego — portfel zamówień pozwala patrzeć na kolejne okresy z optymizmem."'
+                : ($surprise <= -8
+                    ? 'Zarząd: „Wyniki nas nie satysfakcjonują. Wdrażamy program poprawy rentowności i wrócimy do rynku z aktualizacją planów."'
+                    : 'Zarząd ocenia wyniki jako zgodne z realizowaną strategią.');
+            $body = 'Przychody: ' . number_format($rev, 0, ',', ' ') . ' PLN · zysk netto: ' . number_format($profit, 0, ',', ' ')
+                . ' PLN (marża ' . $marza . '%) · EPS: ' . number_format($eps, 2, ',', ' ') . ' PLN wobec oczekiwanych '
+                . number_format($expected * 12.0 / $shares, 2, ',', ' ') . ' PLN — zaskoczenie ' . ($surprise >= 0 ? '+' : '')
+                . number_format($surprise, 1, ',', ' ') . '%. Zysk ' . ($rr >= 0 ? 'wzrósł' : 'spadł') . ' o '
+                . number_format(abs($rr), 1, ',', ' ') . '% wobec poprzedniego raportu.'
+                . ($dps > 0 ? ' Spółka wypłaca dywidendę ' . number_format($dps, 2, ',', ' ') . ' PLN na akcję.' : '')
+                . ' ' . $mgmt;
             $impact = max(-0.15, min(0.15, $surprise / 100.0 * (float) $s['news_impact'] * 0.3));  // łagodny dryf po wynikach
-            $pdo->prepare("INSERT INTO news (headline,body,type,scope,target_id,is_espi,impact_strength,publish_tick,expire_tick,published_at)
-                           VALUES (?,?,?,?,?,1,?,?,?,?)")
-                ->execute([$head, 'Spółka opublikowała raport miesięczny.', $type, 'COMPANY', $sid, $impact, $tick, $tick + 8, Db::now()]);
+            $pdo->prepare("INSERT INTO news (headline,body,type,kind,scope,target_id,is_espi,impact_strength,publish_tick,expire_tick,published_at)
+                           VALUES (?,?,?,'fundamental',?,?,1,?,?,?,?)")
+                ->execute([$head, $body, $type, 'COMPANY', $sid, $impact, $tick, $tick + 8, Db::now()]);
+
+            // REAKCJA ANALITYKÓW: duże zaskoczenie -> za kilka ticków dom maklerski
+            // zmienia rekomendację (kaskada istniejącym mechanizmem wydarzeń)
+            if (abs($surprise) >= 8 && mt_rand(1, 100) <= 60) {
+                $pdo->prepare("INSERT INTO scheduled_events (due_tick, template_code, sector_id, stock_id) VALUES (?,?,?,?)")
+                    ->execute([$tick + mt_rand(3, 8), $surprise > 0 ? 'rekomendacja_kupuj' : 'rekomendacja_sprzedaj', null, $sid]);
+            }
         }
     }
 
@@ -670,57 +739,33 @@ final class Engine
 
     public static function generateNews(int $tick): void
     {
-        $templates = self::all("SELECT * FROM news_templates");
-        if (!$templates) return;
-        $companyTpl = array_values(array_filter($templates, fn($t) => $t['scope'] === 'COMPANY'));
-        $sectorTpl  = array_values(array_filter($templates, fn($t) => $t['scope'] === 'SECTOR'));
-
-        // ESPI/newsy spółek — częstotliwość zależna od news_frequency spółki
-        foreach (self::all("SELECT s.id, s.ticker, s.news_frequency, sec.news_sensitivity FROM stocks s JOIN sectors sec ON sec.id = s.sector_id") as $s) {
-            if (mt_rand(1, 1000) <= (int) round(7 * (float) $s['news_frequency'])) {   // wyciszone: glowna dramaturgia idzie przez EventCatalog
-                $tpl = self::pickTemplate($companyTpl);
-                if ($tpl) self::emitNews($tick, $tpl, 'COMPANY', (int) $s['id'], $s['ticker'], (float) $s['news_sensitivity']);
-            }
-        }
-        // newsy sektorowe — rzadziej
-        foreach (self::all("SELECT id, name, news_sensitivity FROM sectors") as $sec) {
-            if (mt_rand(1, 1000) <= 4) {
-                $tpl = self::pickTemplate($sectorTpl);
-                if ($tpl) self::emitNews($tick, $tpl, 'SECTOR', (int) $sec['id'], $sec['name'], (float) $sec['news_sensitivity']);
-            }
-        }
+        // Newsroom 2.0: cały strumień informacyjny (spółki/sektory/makro/komentarze
+        // techniczne/konsensusy) generuje src/Newsroom.php — treści z kodu,
+        // wypełniane danymi spółek. Stare szablony z bazy przeszły do historii.
+        if (!class_exists('Newsroom')) require_once __DIR__ . '/Newsroom.php';
+        Newsroom::onTick($tick);
     }
 
-    private static function pickTemplate(array $tpls): ?array
-    {
-        if (!$tpls) return null;
-        $total = 0; foreach ($tpls as $t) $total += max(1, (int) $t['frequency_weight']);
-        $r = mt_rand(1, $total); $acc = 0;
-        foreach ($tpls as $t) { $acc += max(1, (int) $t['frequency_weight']); if ($r <= $acc) return $t; }
-        return $tpls[0];
-    }
+    /**
+     * Ciągły, zanikający wpływ aktywnych newsów na wartość fundamentalną.
+     * ROUTING WG KLASY: fundamental = pełna siła (twarde fakty przesuwają wycenę);
+     * sentiment = ~45% (nastroje ruszają kursem głównie przez boty newsowe,
+     * a po wygaśnięciu kotwica wyceny ściąga kurs z powrotem); technical = 0
+     * (komentarz z wykresu nie zmienia wartości firmy — działa przez boty AT).
+     */
+    public const KIND_FUNDAMENT_WEIGHT = ['fundamental' => 1.0, 'sentiment' => 0.45, 'technical' => 0.0];
 
-    private static function emitNews(int $tick, array $tpl, string $scope, int $targetId, string $label, float $sensitivity): void
-    {
-        $head = str_replace('[T]', $label, $tpl['headline_template']);
-        $body = str_replace('[T]', $label, (string) $tpl['body_template']);
-        $impact = round((float) $tpl['base_impact'] * $sensitivity, 3);   // %/tick w szczycie, ze znakiem
-        $dur = max(1, (int) $tpl['duration_ticks']);
-        Db::pdo()->prepare("INSERT INTO news (template_id,headline,body,type,scope,target_id,is_espi,impact_strength,publish_tick,expire_tick,published_at)
-                            VALUES (?,?,?,?,?,?,?,?,?,?,?)")
-            ->execute([$tpl['id'], $head, $body, $tpl['type'], $scope, $targetId, (int) $tpl['is_espi'], $impact, $tick, $tick + $dur, Db::now()]);
-    }
-
-    /** Ciągły, zanikający wpływ aktywnych newsów/ESPI na wartość fundamentalną (lekko rusza kursem). */
     public static function applyNewsImpact(int $tick): void
     {
         $pdo = Db::pdo();
-        $active = self::all("SELECT scope, target_id, impact_strength, publish_tick, expire_tick
+        $active = self::all("SELECT scope, target_id, impact_strength, publish_tick, expire_tick, kind
                              FROM news WHERE publish_tick <= ? AND expire_tick > ? AND impact_strength <> 0", [$tick, $tick]);
         foreach ($active as $nw) {
+            $kw = self::KIND_FUNDAMENT_WEIGHT[$nw['kind'] ?? 'fundamental'] ?? 1.0;
+            if ($kw <= 0) continue;
             $span  = max(1, (int) $nw['expire_tick'] - (int) $nw['publish_tick']);
             $decay = ((int) $nw['expire_tick'] - $tick) / $span;               // 1 -> 0
-            $nudge = ((float) $nw['impact_strength'] / 100.0) * $decay;         // ułamek na tick
+            $nudge = ((float) $nw['impact_strength'] / 100.0) * $decay * $kw;    // ułamek na tick
             if (abs($nudge) < 1e-9) continue;
             if ($nw['scope'] === 'COMPANY') {
                 $pdo->prepare("UPDATE stocks SET fundamental = ROUND(fundamental * (1 + ?), 2) WHERE id=?")->execute([$nudge, (int) $nw['target_id']]);
@@ -1115,9 +1160,9 @@ final class Engine
 
         $head = str_replace('[T]', $label, $ev['head']);
         $body = str_replace('[T]', $label, $ev['body']);
-        Db::pdo()->prepare("INSERT INTO news (headline,body,type,scope,target_id,is_espi,impact_strength,publish_tick,expire_tick,published_at)
-                            VALUES (?,?,?,?,?,0,?,?,?,?)")
-            ->execute([$head, $body, $ev['type'], $newsScope, $newsTarget, $ev['impact'], $tick, $tick + $ev['duration'], Db::now()]);
+        Db::pdo()->prepare("INSERT INTO news (headline,body,type,kind,scope,target_id,is_espi,impact_strength,publish_tick,expire_tick,published_at)
+                            VALUES (?,?,?,?,?,?,0,?,?,?,?)")
+            ->execute([$head, $body, $ev['type'], $ev['kind'] ?? 'fundamental', $newsScope, $newsTarget, $ev['impact'], $tick, $tick + $ev['duration'], Db::now()]);
 
         // modyfikatory czasowe (nakładki na bazę — same wygasają)
         foreach ($ev['effects'] ?? [] as [$target, $field, $delta, $dur]) {

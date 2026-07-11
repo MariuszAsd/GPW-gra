@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 23;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 24;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -172,6 +172,7 @@ final class Schema
                 headline VARCHAR(255) NOT NULL,
                 body TEXT NULL,
                 type VARCHAR(10) NOT NULL DEFAULT 'NEU',
+                kind VARCHAR(12) NOT NULL DEFAULT 'fundamental',  -- klasa informacji: fundamental | sentiment | technical (inne boty słuchają innych klas)
                 scope VARCHAR(10) NOT NULL DEFAULT 'COMPANY',
                 target_id INT NULL,                -- id spółki lub sektora
                 is_espi TINYINT NOT NULL DEFAULT 0,
