@@ -186,7 +186,7 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
       <input type="hidden" name="type" id="type" value="limit">
       <?php $bestBid = $bids[0]['price'] ?? null; $bestAsk = $asks[0]['price'] ?? null; ?>
       <div class="seg">
-        <button type="button" class="sell" id="tb-sell"><span class="lbl">SPRZEDAJ</span><span class="pr"><?= $bestBid !== null ? money($bestBid) : '—' ?></span></button>
+        <button type="button" class="sell" id="tb-sell" <?= $owned <= 0 ? 'disabled title="Nie masz akcji tej spółki — najpierw kup"' : '' ?>><span class="lbl">SPRZEDAJ</span><span class="pr"><?= $bestBid !== null ? money($bestBid) : '—' ?></span></button>
         <button type="button" class="buy on" id="tb-buy"><span class="lbl">KUP</span><span class="pr"><?= $bestAsk !== null ? money($bestAsk) : '—' ?></span></button>
       </div>
       <div class="seg" style="margin-top:0;align-items:center">
