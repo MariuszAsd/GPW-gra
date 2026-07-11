@@ -38,6 +38,11 @@ $taComp = Technical::composite($id);
 [$taVerdict, $taCls] = Technical::verdict($taComp);
 $taAff = (float) ($s['tech_affinity'] ?? 0.5);
 
+// obserwowane + Raport Premium (pakiety liczą się na koncie głównym, także w trybie wyzwania)
+$uidReal = (int) ($user['owner_id'] ?? $user['id']);
+$isWatched = (bool) Engine::one("SELECT id FROM watchlist WHERE user_id=? AND stock_id=?", [$uidReal, $id]);
+$hasRaport = Tokens::hasPass($uidReal, 'raport');
+
 // --- świece (inline SVG) ---
 $chartSvg = "<div style='padding:40px;text-align:center;color:var(--faint)'>Zbieram dane do wykresu…</div>";
 if (count($candles) > 1) {
@@ -80,6 +85,7 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
   <div class="price">
     <div class="p" data-px><?= money($s['price']) ?> <span style="font-size:15px;color:var(--faint)">PLN</span></div>
     <span class="chg <?= $chg >= 0 ? 'p' : 'n' ?>" data-chg><span class="ar"><?= $chg >= 0 ? '▲' : '▼' ?></span><?= number_format(abs($chg), 2, ',', ' ') ?>%</span>
+    <button class="star lg<?= $isWatched ? ' on' : '' ?>" data-watch="<?= $id ?>" title="Obserwuj: spółka na górze Rynku i w widżecie Pulpitu; z Pakietem Analityka dostaniesz alert 🔔 przy mocnym sygnale AT">★ <span><?= $isWatched ? 'Obserwujesz' : 'Obserwuj' ?></span></button>
   </div>
 </div>
 
@@ -110,6 +116,7 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
         <button data-tab="reports">Raporty</button>
         <button data-tab="news">Wiadomości</button>
         <button data-tab="ta">Analiza</button>
+        <button data-tab="raport">Raport DM<?= $hasRaport ? '' : ' 🔒' ?></button>
         <button data-tab="info">Info</button>
       </div>
 
@@ -182,6 +189,53 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
           </tbody>
         </table>
         <p class="muted" style="margin:10px 0 0;font-size:12px">Wskaźniki liczone ze świec tickowych (bieżąca sesja i ostatnie ~2 godziny handlu). Młode spółki bez historii pokazują sygnały neutralne.</p>
+      </div>
+
+      <div class="tabpane" id="tab-raport">
+        <?php if (!$hasRaport): ?>
+          <div style="text-align:center;padding:26px 14px">
+            <div style="font-size:34px">🔒</div>
+            <h3 style="margin:8px 0 6px;font-size:15px">Raport Premium — pełna analiza spółki od DM GPW-gra</h3>
+            <p class="muted" style="max-width:460px;margin:0 auto 14px">Wycena z premią/dyskontem do kursu, historia wyników i niespodzianek,
+               polityka dywidendowa z realną stopą, profil ryzyka i charakter spółki. Wiedza, którą inni muszą zgadywać z wykresu.</p>
+            <a class="btn sm" style="display:inline-block" href="sklep.php">Aktywuj Raport Premium — 🪙 <?= Tokens::PASSES['raport'][1] ?> / <?= Tokens::PASSES['raport'][0] ?> dni</a>
+          </div>
+        <?php else: ?>
+          <?php
+            $fair = (float) $s['pe_target'] * (float) $s['last_eps'];
+            $prem = $fair > 0 ? ((float) $s['price'] / $fair - 1) * 100 : 0;
+            $rvOld = count($reports) > 1 ? (float) end($reports)['revenue'] : 0; reset($reports);
+            $rvNew = $reports ? (float) $reports[0]['revenue'] : 0;
+            $surAvg = $reports ? array_sum(array_map(fn($r) => (float) $r['surprise_pct'], array_slice($reports, 0, 3))) / min(3, count($reports)) : 0;
+            $dpsSum = array_sum(array_map(fn($r) => (float) $r['dividend'], $reports));
+            $dpsYield = (float) $s['price'] > 0 && $reports ? $dpsSum / count($reports) * 12 / (float) $s['price'] * 100 : 0;
+            $risk = fn(float $v, array $lbl) => $v >= 1.25 ? $lbl[2] : ($v >= 0.85 ? $lbl[1] : $lbl[0]);
+          ?>
+          <h3 style="margin:4px 0 10px;font-size:14px;font-weight:700">Raport analityczny DM GPW-gra <span class="tag" style="color:var(--gold);border-color:var(--gold-border)">PREMIUM</span></h3>
+          <div class="ch-grid" style="margin-bottom:12px">
+            <div class="ch-stat"><small>WYCENA GODZIWA (C/Z × EPS)</small><b><?= money($fair) ?> PLN</b></div>
+            <div class="ch-stat"><small>KURS VS WYCENA</small><b class="<?= $prem <= 0 ? 'up' : 'down' ?>"><?= $prem >= 0 ? '+' : '' ?><?= number_format($prem, 1, ',', ' ') ?>%</b>
+              <span class="muted" style="font-size:11px;display:block"><?= $prem <= -5 ? 'dyskonto — kurs poniżej wartości' : ($prem >= 5 ? 'premia — kurs powyżej wartości' : 'blisko wyceny') ?></span></div>
+            <div class="ch-stat"><small>ŚR. NIESPODZIANKA (3 RAPORTY)</small><b class="<?= $surAvg >= 0 ? 'up' : 'down' ?>"><?= ($surAvg >= 0 ? '+' : '') . number_format($surAvg, 1, ',', ' ') ?>%</b>
+              <span class="muted" style="font-size:11px;display:block"><?= $surAvg >= 2 ? 'spółka regularnie bije oczekiwania' : ($surAvg <= -2 ? 'spółka zawodzi oczekiwania' : 'wyniki zgodne z prognozami') ?></span></div>
+            <div class="ch-stat"><small>STOPA DYWIDENDY (SZAC. ROCZNA)</small><b><?= $dpsYield > 0 ? number_format($dpsYield, 1, ',', ' ') . '%' : '—' ?></b>
+              <span class="muted" style="font-size:11px;display:block"><?= (float) $s['dividend_payout'] > 0 ? 'wypłaca ' . number_format((float) $s['dividend_payout'] * 100, 0) . '% zysku' : 'reinwestuje zyski' ?></span></div>
+          </div>
+          <table style="margin-bottom:12px"><tbody>
+            <tr><td class="muted">Profil ryzyka</td><td><b><?= $risk((float) $s['volatility'], ['spokojna', 'umiarkowana', 'rozchwiana']) ?></b>
+                <span class="muted">(zmienność ×<?= number_format((float) $s['volatility'], 2, ',', ' ') ?>, beta ×<?= number_format((float) $s['beta'], 2, ',', ' ') ?>)</span></td></tr>
+            <tr><td class="muted">Odporność finansowa</td><td><b><?= $risk((float) $s['financial_resilience'], ['krucha', 'przeciętna', 'twierdza']) ?></b>
+                <span class="muted">— jak mocno złe wieści i kryzysy biją w wyniki</span></td></tr>
+            <tr><td class="muted">Wrażliwość na newsy</td><td><b><?= $risk((float) $s['news_impact'], ['niska', 'średnia', 'wysoka']) ?></b>
+                <span class="muted">— siła reakcji kursu na ESPI i plotki</span></td></tr>
+            <tr><td class="muted">Charakter spółki</td><td><b><?= h(Technical::character($taAff)) ?></b>
+                <span class="muted">— <?= $taAff >= 0.62 ? 'sygnały AT działają tu mocniej (boty techniczne grają odważniej)' : ($taAff <= 0.38 ? 'liczą się raporty i zyski, technika ma mały wpływ' : 'równowaga techniki i fundamentów') ?></span></td></tr>
+            <tr><td class="muted">Trend przychodów</td><td><b class="<?= $rvNew >= $rvOld ? 'up' : 'down' ?>"><?= $rvOld > 0 ? (($rvNew >= $rvOld ? '+' : '') . number_format(($rvNew / $rvOld - 1) * 100, 1, ',', ' ') . '%') : '—' ?></b>
+                <span class="muted">— zmiana od najstarszego z <?= count($reports) ?> ostatnich raportów</span></td></tr>
+            <tr><td class="muted">Dywidendy (suma, <?= count($reports) ?> raportów)</td><td><b><?= $dpsSum > 0 ? money($dpsSum) . ' PLN/akcję' : 'brak wypłat' ?></b></td></tr>
+          </tbody></table>
+          <p class="muted" style="font-size:12px;margin:0">Raport liczony na żywo z danych spółki (te same, z których korzysta silnik gry). Werdykt DM z ceną docelową publikujemy osobno w Newsach — rotacyjnie ~5 spółek na sesję.</p>
+        <?php endif; ?>
       </div>
 
       <div class="tabpane" id="tab-info">
@@ -264,6 +318,13 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
 </div>
 
 <script>
+// gwiazdka obserwowania (nagłówek spółki)
+document.querySelectorAll('[data-watch]').forEach(b => b.onclick = async () => {
+  const fd = new FormData(); fd.append('stock_id', b.dataset.watch);
+  try { const j = await (await fetch('api_watch.php', { method: 'POST', body: fd })).json();
+    if (j.ok) { b.classList.toggle('on', j.on); const t = b.querySelector('span'); if (t) t.textContent = j.on ? 'Obserwujesz' : 'Obserwuj'; }
+    else if (j.err) alert(j.err); } catch (e) {}
+});
 // zakładki
 document.querySelectorAll('.subtabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.subtabs button').forEach(x => x.classList.remove('on'));

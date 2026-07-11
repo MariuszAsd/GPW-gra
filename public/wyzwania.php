@@ -54,6 +54,7 @@ layout_header('Wyzwania', $user, 'challenges');
 ?>
 <h1 style="display:flex;align-items:center;gap:10px">Wyzwania
   <?= tip('Konkurs inwestycyjny na kilkanaście sesji. Wpłacasz buy-in + wpisowe; buy-in trafia na ODDZIELNY portfel wyzwania, którym handlujesz jak zwykłym kontem. Wpisowe wszystkich graczy tworzy pulę nagród — dzieli ją top ~20% uczestników (im wyższe miejsce, tym większy udział). Może być kilka wyzwań naraz o różnych stawkach — zapisujesz się tam, gdzie chcesz. Twoje konto główne przez ten czas gra normalnie dalej.', 'wyzwania') ?>
+  <?php if (Seasons::active()): ?><a class="btn sm ghost" style="margin-left:auto" href="sezon.php">🏁 Sezon — punkty i karnet</a><?php endif; ?>
 </h1>
 <?php explainer('wyzwania', 'Jak działa wyzwanie', [
     'wpłacasz buy-in + wpisowe', 'handlujesz osobnym portfelem wyzwania',

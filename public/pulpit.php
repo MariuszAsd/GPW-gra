@@ -38,6 +38,13 @@ $movers = Engine::all("SELECT id, ticker, name, price, day_open_price,
                        FROM stocks WHERE day_open_price > 0 ORDER BY ABS(price / day_open_price - 1) DESC LIMIT 6");
 usort($movers, fn($a, $b) => $b['chg'] <=> $a['chg']);
 
+// obserwowane spółki (gwiazdki z Rynku) — z sygnałem AT dla posiadaczy Pakietu Analityka
+$watchRows = Engine::all("SELECT s.id, s.ticker, s.name, s.price, s.day_open_price, s.ta_signal,
+                          CASE WHEN s.day_open_price > 0 THEN (s.price / s.day_open_price - 1) * 100 ELSE 0 END AS chg
+                          FROM watchlist w JOIN stocks s ON s.id = w.stock_id
+                          WHERE w.user_id = ? ORDER BY s.ticker LIMIT 12", [$uid]);
+$watchPremium = Tokens::hasPass($uid, 'analityk');
+
 // newsy i powiadomienia
 $news = Engine::all("SELECT id, headline, type, published_at FROM news ORDER BY id DESC LIMIT 4");
 $notifs = Engine::all("SELECT message, link, created_at, read_at FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 4", [$uid]);
@@ -87,6 +94,26 @@ layout_header('Pulpit', $user, 'home');
     </div>
   <?php endforeach; ?>
   <p class="muted" style="margin:10px 0 0">Nie wiesz, od czego zacząć? <a href="samouczek.php">Przejdź samouczek</a> — 3 minuty i wszystko jasne.</p>
+</section>
+<?php endif; ?>
+
+<?php if ($watchRows): ?>
+<section class="panel" style="margin-bottom:16px">
+  <h2>★ Obserwowane<?= $watchPremium ? '' : ' <span class="muted" style="text-transform:none;letter-spacing:0;font-size:12px">— sygnały AT i alerty 🔔 z Pakietem Analityka</span>' ?></h2>
+  <table>
+    <tbody>
+    <?php foreach ($watchRows as $w): ?>
+      <tr class="rowlink" onclick="location='stock.php?id=<?= (int) $w['id'] ?>'">
+        <td class="tk" style="font-weight:700"><?= h($w['ticker']) ?> <span class="muted" style="font-weight:400;font-size:12px"><?= h($w['name']) ?></span></td>
+        <td class="num mono"><?= money($w['price']) ?></td>
+        <td class="num"><span class="chg <?= $w['chg'] >= 0 ? 'p' : 'n' ?>"><span class="ar"><?= $w['chg'] >= 0 ? '▲' : '▼' ?></span><?= number_format(abs((float) $w['chg']), 2, ',', ' ') ?>%</span></td>
+        <?php if ($watchPremium): [$vTxt, $vCls] = Technical::verdict((float) $w['ta_signal']); ?>
+          <td class="num"><span class="chg <?= $vCls ?>" style="font-size:11px"><?= h($vTxt) ?></span></td>
+        <?php endif; ?>
+      </tr>
+    <?php endforeach; ?>
+    </tbody>
+  </table>
 </section>
 <?php endif; ?>
 

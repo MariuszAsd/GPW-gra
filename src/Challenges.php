@@ -61,9 +61,9 @@ final class Challenges
         $name = trim((string) ($o['name'] ?? '')) !== '' ? trim($o['name']) : "Wyzwanie #$nr";
         $start = $session + max(1, (int) $o['signup_sess']);
         $end   = $start + max(1, (int) $o['duration']) - 1;
-        Db::pdo()->prepare("INSERT INTO challenges (name, status, buyin, fee_pct, pot, min_players, start_session, end_session, created_at)
-                            VALUES (?,?,?,?,0,?,?,?,?)")
-            ->execute([mb_substr($name, 0, 80), 'signup', round((float) $o['buyin'], 2),
+        Db::pdo()->prepare("INSERT INTO challenges (name, series_id, status, buyin, fee_pct, pot, min_players, start_session, end_session, created_at)
+                            VALUES (?,?,?,?,?,0,?,?,?,?)")
+            ->execute([mb_substr($name, 0, 80), !empty($o['series_id']) ? (int) $o['series_id'] : null, 'signup', round((float) $o['buyin'], 2),
                        max(0.0, min(50.0, (float) $o['fee_pct'])), max(2, (int) $o['min_players']), $start, $end, Db::now()]);
         $cid = (int) Db::pdo()->lastInsertId();
         Log::write('info', 'engine', 'challenge.create', "$name: zapisy do sesji $start, handel do sesji $end", ['buyin' => $o['buyin']]);
@@ -144,6 +144,7 @@ final class Challenges
             $n = (int) $s['editions'] + 1;
             self::create([
                 'name'        => $s['name'] . ' #' . $n,
+                'series_id'   => (int) $s['id'],      // edycja liczy się do sezonu (punkty + karnet)
                 'buyin'       => (float) $s['buyin'],
                 'fee_pct'     => (float) $s['fee_pct'],
                 'signup_sess' => (int) $s['signup_sess'],
@@ -278,6 +279,13 @@ final class Challenges
             if (!class_exists('Tokens')) require_once __DIR__ . '/Tokens.php';
             if ($rank === 1) Tokens::grant((int) $cp['user_id'], 10, 'challenge', 'wygrana: ' . $ch['name']);
             elseif ($rank <= 3) Tokens::grant((int) $cp['user_id'], 5, 'challenge', 'podium: ' . $ch['name']);
+            // punkty sezonowe (tylko edycje z serii — progi nagród i karnet w src/Seasons.php)
+            if (!empty($ch['series_id'])) {
+                if (!class_exists('Seasons')) require_once __DIR__ . '/Seasons.php';
+                if (!class_exists('Cosmetics')) require_once __DIR__ . '/Cosmetics.php';
+                Seasons::addPoints((int) $ch['series_id'], (int) $cp['user_id'],
+                    Seasons::pointsFor($rank, count($results)), 'miejsce ' . $rank . ' w ' . $ch['name']);
+            }
         }
         $pdo->prepare("UPDATE challenges SET status='finished', pot=0 WHERE id=?")->execute([$cid]);
         $pdo->prepare("INSERT INTO news (headline,body,type,scope,target_id,is_espi,impact_strength,publish_tick,expire_tick,published_at)

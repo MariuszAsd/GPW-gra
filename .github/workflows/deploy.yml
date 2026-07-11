@@ -11,6 +11,10 @@ name: Deploy (FTP)
 #   DB_USER         użytkownik bazy
 #   DB_PASS         hasło do bazy
 #
+# Płatności PayU (OPCJONALNE — bez nich sklep pokazuje "wkrótce"):
+#   PAYU_POS_ID, PAYU_MD5 (drugi klucz), PAYU_CLIENT_ID, PAYU_CLIENT_SECRET
+#   PAYU_SANDBOX    "1" = środowisko testowe secure.snd.payu.com
+#
 # Dane bazy (DB_*) NIE trafiają do repo — workflow buduje z nich plik
 # config.local.php i wgrywa go na serwer. Ty nie edytujesz nic ręcznie.
 # FTP_SERVER_DIR wskaż na OSOBNY folder tylko tej gry (akcja synchronizuje katalog).
@@ -53,8 +57,13 @@ jobs:
           DB_NAME: ${{ secrets.DB_NAME }}
           DB_USER: ${{ secrets.DB_USER }}
           DB_PASS: ${{ secrets.DB_PASS }}
+          PAYU_POS_ID: ${{ secrets.PAYU_POS_ID }}
+          PAYU_MD5: ${{ secrets.PAYU_MD5 }}
+          PAYU_CLIENT_ID: ${{ secrets.PAYU_CLIENT_ID }}
+          PAYU_CLIENT_SECRET: ${{ secrets.PAYU_CLIENT_SECRET }}
+          PAYU_SANDBOX: ${{ secrets.PAYU_SANDBOX }}
         run: |
-          php -r '$c=["db_driver"=>"mysql","mysql"=>["host"=>getenv("DB_HOST"),"name"=>getenv("DB_NAME"),"user"=>getenv("DB_USER"),"pass"=>getenv("DB_PASS")]]; file_put_contents("config.local.php","<?php return ".var_export($c,true).";\n");'
+          php -r '$c=["db_driver"=>"mysql","mysql"=>["host"=>getenv("DB_HOST"),"name"=>getenv("DB_NAME"),"user"=>getenv("DB_USER"),"pass"=>getenv("DB_PASS")],"payu"=>["pos_id"=>(string)getenv("PAYU_POS_ID"),"md5"=>(string)getenv("PAYU_MD5"),"client_id"=>(string)getenv("PAYU_CLIENT_ID"),"client_secret"=>(string)getenv("PAYU_CLIENT_SECRET"),"sandbox"=>getenv("PAYU_SANDBOX")==="1"]]; file_put_contents("config.local.php","<?php return ".var_export($c,true).";\n");'
           echo "config.local.php zbudowany (wartości zamaskowane)."
 
       - name: Deploy przez FTPS

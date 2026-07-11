@@ -78,7 +78,7 @@ final class Qa
         // 2) przegląd stron (200 + treść + brak błędów PHP)
         $stock = Engine::row("SELECT id, price FROM stocks ORDER BY price ASC LIMIT 1");   // najtańsza spółka do testów
         $sid = (int) $stock['id'];
-        foreach ([['/pulpit.php', 'Pulpit'], ['/samouczek.php', 'Samouczek'], ['/market.php', 'Rynek'], ['/ranking.php', 'Ranking'], ['/portfolio.php', 'Portfel'], ['/pomoc.php', 'Stop-Loss'], ['/wiadomosci.php', 'Kalendarz'], ['/wyzwania.php', 'Wyzwania'], ['/dziennik.php', 'Dziennik'], ['/sklep.php', 'Pakiet Analityka'], ["/stock.php?id=$sid", 'Zlecenie']] as [$path, $needle]) {
+        foreach ([['/pulpit.php', 'Pulpit'], ['/samouczek.php', 'Samouczek'], ['/market.php', 'Rynek'], ['/ranking.php', 'Ranking'], ['/portfolio.php', 'Portfel'], ['/pomoc.php', 'Stop-Loss'], ['/wiadomosci.php', 'Kalendarz'], ['/wyzwania.php', 'Wyzwania'], ['/dziennik.php', 'Dziennik'], ['/sklep.php', 'Pakiet Analityka'], ['/sklep.php', 'Kosmetyka'], ['/sezon.php', 'Sezon'], ["/stock.php?id=$sid", 'Zlecenie'], ["/stock.php?id=$sid", 'Raport DM']] as [$path, $needle]) {
             [$c, $b] = $this->http('GET', $path);
             $this->check($c === 200 && str_contains($b, $needle), "page.$path", "code=$c, brak '$needle'");
             $this->check(!preg_match('/Fatal error|Parse error|Uncaught|Warning:/', $b), "php.$path", 'strona zawiera błąd PHP');
@@ -102,6 +102,11 @@ final class Qa
         // profil gracza (własny profil QA)
         [$c, $b] = $this->http('GET', '/gracz.php?id=' . $uid);
         $this->check($c === 200 && str_contains($b, 'Odznaki'), 'page.profile', "gracz.php: code=$c lub brak odznak");
+        // obserwowane: toggle włącza i wyłącza (api_watch)
+        [$c, $b] = $this->http('POST', '/api_watch.php', ['stock_id' => $sid]);
+        $this->check($c === 200 && str_contains($b, '"on":true'), 'watch.on', "gwiazdka nie włączyła obserwowania (code=$c)");
+        [$c, $b] = $this->http('POST', '/api_watch.php', ['stock_id' => $sid]);
+        $this->check($c === 200 && str_contains($b, '"on":false'), 'watch.off', 'drugie kliknięcie nie wyłączyło obserwowania');
 
         // 3) zlecenie oczekujące: rezerwacja i zwrot CO DO GROSZA
         $deep = max(0.01, round((float) $stock['price'] * 0.1, 2));   // 10% kursu — nie wypełni się

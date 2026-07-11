@@ -269,6 +269,54 @@ final class Migrator
                 "CREATE INDEX ix_ledger ON token_ledger (user_id, id)",
                 "CREATE INDEX ix_reco ON recommendations (session)",
             ],
+            // v21: monetyzacja II — płatności PayU/BLIK (payment_orders), obserwowane + alerty AT
+            //      (watchlist), kosmetyka (user_items + założone przedmioty na users),
+            //      sezon/karnet (season_progress + challenges.series_id)
+            21 => [
+                "ALTER TABLE users ADD COLUMN title VARCHAR(40) NOT NULL DEFAULT ''",
+                "ALTER TABLE users ADD COLUMN chat_color VARCHAR(7) NOT NULL DEFAULT ''",
+                "ALTER TABLE users ADD COLUMN frame VARCHAR(16) NOT NULL DEFAULT ''",
+                "ALTER TABLE challenges ADD COLUMN series_id INT NULL",
+                "CREATE TABLE payment_orders (
+                    id " . (Db::driver() === 'mysql' ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT') . ",
+                    user_id INT NOT NULL,
+                    package VARCHAR(20) NOT NULL,
+                    tokens  INT NOT NULL,
+                    amount_grosz INT NOT NULL,
+                    status VARCHAR(12) NOT NULL DEFAULT 'new',
+                    provider VARCHAR(12) NOT NULL DEFAULT 'payu',
+                    ext_ref VARCHAR(64) NULL,
+                    created_at VARCHAR(19) NOT NULL,
+                    paid_at VARCHAR(19) NULL
+                )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
+                "CREATE TABLE watchlist (
+                    id " . (Db::driver() === 'mysql' ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT') . ",
+                    user_id INT NOT NULL,
+                    stock_id INT NOT NULL,
+                    alert_state VARCHAR(12) NOT NULL DEFAULT '',
+                    alert_session INT NOT NULL DEFAULT 0,
+                    created_at VARCHAR(19) NOT NULL,
+                    UNIQUE (user_id, stock_id)
+                )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
+                "CREATE TABLE user_items (
+                    id " . (Db::driver() === 'mysql' ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT') . ",
+                    user_id INT NOT NULL,
+                    item VARCHAR(40) NOT NULL,
+                    created_at VARCHAR(19) NOT NULL,
+                    UNIQUE (user_id, item)
+                )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
+                "CREATE TABLE season_progress (
+                    id " . (Db::driver() === 'mysql' ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT') . ",
+                    series_id INT NOT NULL,
+                    user_id INT NOT NULL,
+                    points INT NOT NULL DEFAULT 0,
+                    premium TINYINT NOT NULL DEFAULT 0,
+                    granted_upto INT NOT NULL DEFAULT 0,
+                    UNIQUE (series_id, user_id)
+                )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
+                "CREATE INDEX ix_pay_user ON payment_orders (user_id, id)",
+                "CREATE INDEX ix_season ON season_progress (series_id, points)",
+            ],
         ];
     }
 

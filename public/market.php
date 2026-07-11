@@ -8,6 +8,13 @@ $isPremium = Tokens::hasPass((int) $user['id'], 'analityk');
 $stocks = Engine::all("SELECT s.id, s.ticker, s.name, sec.name AS sector, s.price, s.day_open_price, s.liquidity, s.ta_signal,
                               (SELECT SUM(c.v * c.c) FROM candles c WHERE c.stock_id = s.id AND c.t >= $sessStart) AS turnover
                        FROM stocks s JOIN sectors sec ON sec.id=s.sector_id ORDER BY s.ticker");
+// obserwowane (gwiazdki) na górze tabeli — reszta alfabetycznie
+$watched = array_map('intval', Engine::col("SELECT stock_id FROM watchlist WHERE user_id=?", [(int) $user['id']]));
+if ($watched) usort($stocks, function ($a, $b) use ($watched) {
+    $wa = in_array((int) $a['id'], $watched, true) ? 0 : 1;
+    $wb = in_array((int) $b['id'], $watched, true) ? 0 : 1;
+    return $wa !== $wb ? $wa <=> $wb : strcmp($a['ticker'], $b['ticker']);
+});
 
 // --- indeks giełdowy ---
 $idxSeries = array_reverse(array_map('floatval', Engine::col("SELECT value FROM index_history ORDER BY t DESC LIMIT 120")));
@@ -91,13 +98,14 @@ layout_header('Rynek', $user, 'market');
 <div class="panel" style="padding:0;overflow:hidden">
   <div class="tbl-scroll">
     <table class="mw">
-      <thead><tr><th>Instrument</th><th></th><th class="num">Kurs</th><th class="num">Zmiana</th><th class="num">Sygnał AT<?= $isPremium ? '' : ' 🔒' ?><?= tip('Zbiorczy sygnał analizy technicznej (10 wskaźników z zakładki Analiza). Skaner całego rynku to funkcja Pakietu Analityka — pojedynczo sprawdzisz za darmo na karcie spółki.', '') ?></th><th class="num">Bid</th><th class="num">Ask</th><th class="num">Obrót (sesja)<?= tip('Za ile PLN handlowano akcjami tej spółki od otwarcia sesji. Kropka pokazuje płynność: przy niskiej (czerwonej) kupno/sprzedaż większych pakietów rusza kursem.', 'plynnosc') ?></th></tr></thead>
+      <thead><tr><th style="width:30px"><span title="Obserwowane: gwiazdka przypina spółkę na górze i (z Pakietem Analityka) daje alerty 🔔 przy mocnym sygnale AT">★</span></th><th>Instrument</th><th></th><th class="num">Kurs</th><th class="num">Zmiana</th><th class="num">Sygnał AT<?= $isPremium ? '' : ' 🔒' ?><?= tip('Zbiorczy sygnał analizy technicznej (10 wskaźników z zakładki Analiza). Skaner całego rynku to funkcja Pakietu Analityka — pojedynczo sprawdzisz za darmo na karcie spółki.', '') ?></th><th class="num">Bid</th><th class="num">Ask</th><th class="num">Obrót (sesja)<?= tip('Za ile PLN handlowano akcjami tej spółki od otwarcia sesji. Kropka pokazuje płynność: przy niskiej (czerwonej) kupno/sprzedaż większych pakietów rusza kursem.', 'plynnosc') ?></th></tr></thead>
       <tbody>
       <?php foreach ($stocks as $s): $id = (int) $s['id'];
           $ref = (float) $s['day_open_price'] > 0 ? (float) $s['day_open_price'] : (float) $s['price'];
           $chg = $ref > 0 ? ((float) $s['price'] - $ref) / $ref * 100 : 0;
           [$liqCls, $liqTxt] = liq_label($s['liquidity']); ?>
         <tr onclick="location='stock.php?id=<?= $id ?>'">
+          <td style="padding:4px 2px 4px 10px"><button class="star<?= in_array($id, $watched, true) ? ' on' : '' ?>" data-watch="<?= $id ?>" title="Obserwuj / przestań obserwować" onclick="event.stopPropagation()">★</button></td>
           <td><div class="sym"><span class="tk"><?= h($s['ticker']) ?></span><span class="nm"><?= h($s['name']) ?></span><span class="tag"><?= h($s['sector']) ?></span></div></td>
           <td style="padding:4px 6px"><?= $sparkSvg($spark[$id] ?? []) ?></td>
           <td class="num px" data-px="<?= $id ?>"><?= money($s['price']) ?></td>
@@ -130,12 +138,22 @@ layout_header('Rynek', $user, 'market');
 </aside>
 </div>
 <script>
+// gwiazdki obserwowanych: przełącznik bez przeładowania (kolejność zmieni się przy następnym wejściu)
+document.querySelectorAll('[data-watch]').forEach(b => b.onclick = async (ev) => {
+  ev.stopPropagation();
+  const fd = new FormData(); fd.append('stock_id', b.dataset.watch);
+  try { const j = await (await fetch('api_watch.php', { method: 'POST', body: fd })).json();
+    if (j.ok) b.classList.toggle('on', j.on); else if (j.err) alert(j.err); } catch (e) {}
+});
+</script>
+<script>
 // --- czat rynkowy ---
 let chatSince = 0, chatAdmin = 0; const myUid = <?= (int) $user['id'] ?>;
 const chatList = document.getElementById('chat-list');
 function chatRow(m) {
   const del = chatAdmin ? ` <a href="#" class="chat-del" data-id="${m.id}" title="Ukryj wpis">✕</a>` : '';
-  const who = m.pl ? `<a class="chat-u" href="gracz.php?id=${m.uid}">${esc(m.u)}</a>`
+  const col = /^#[0-9a-f]{6}$/i.test(m.c || '') ? ` style="color:${m.c}"` : '';   // kolor nicka (kosmetyka ze Sklepu)
+  const who = m.pl ? `<a class="chat-u" href="gracz.php?id=${m.uid}"${col}>${esc(m.u)}</a>`
                    : `<span class="chat-u${m.gm ? ' gm' : ''}">${esc(m.u)}</span>`;   // GM/QA bez linku do profilu
   return `<div class="chat-msg${m.uid === myUid ? ' own' : ''}" data-mid="${m.id}"><span class="chat-t">${m.t}</span> ${who}: ${esc(m.m)}${del}</div>`;
 }

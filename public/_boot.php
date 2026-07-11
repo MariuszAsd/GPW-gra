@@ -10,6 +10,9 @@ require_once __DIR__ . '/../src/Ipo.php';
 require_once __DIR__ . '/../src/Technical.php';
 require_once __DIR__ . '/../src/Tokens.php';
 require_once __DIR__ . '/../src/Recommendations.php';
+require_once __DIR__ . '/../src/Payments.php';
+require_once __DIR__ . '/../src/Cosmetics.php';
+require_once __DIR__ . '/../src/Seasons.php';
 
 session_set_cookie_params(['samesite' => 'Lax', 'httponly' => true]);
 session_start();

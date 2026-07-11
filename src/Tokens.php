@@ -17,7 +17,9 @@ final class Tokens
     /** Pakiety premium: klucz => [sesji (dni), cena w żetonach, nazwa, opis] */
     public const PASSES = [
         'analityk' => [7, 15, 'Pakiet Analityka',
-            'Skaner sygnałów AT przy każdej spółce na Rynku + rekomendacje domu maklerskiego DZIEŃ WCZEŚNIEJ niż pozostali gracze.'],
+            'Skaner sygnałów AT przy każdej spółce na Rynku, alerty 🔔 przy mocnym sygnale na obserwowanych spółkach + rekomendacje domu maklerskiego DZIEŃ WCZEŚNIEJ niż pozostali gracze.'],
+        'raport' => [7, 25, 'Raport Premium',
+            'Pełny raport analityczny DM na karcie każdej spółki: wycena z premią/dyskontem, historia wyników i dywidend, profil ryzyka i charakter spółki — wiedza, którą inni muszą zgadywać.'],
     ];
 
     public static function balance(int $uid): int

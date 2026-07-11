@@ -1008,6 +1008,7 @@ final class Engine
             $upTa = $pdo->prepare("UPDATE stocks SET ta_signal=? WHERE id=?");
             foreach (self::col("SELECT id FROM stocks") as $sidTa) $upTa->execute([Technical::composite((int) $sidTa), (int) $sidTa]);
         } catch (\Throwable $e) { Log::write('warn', 'engine', 'ta.cache', $e->getMessage()); }
+        try { self::signalAlerts(); } catch (\Throwable $e) { Log::write('warn', 'engine', 'ta.alerts', $e->getMessage()); }
         self::recordIndex($t);    // indeks giełdowy (historia pod wykres)
         self::recordEquity($t);   // kapitał graczy (wykres portfela)
         self::checkGoal($t);      // czy któryś gracz osiągnął cel gry
@@ -1289,6 +1290,38 @@ final class Engine
     /* ---------- Powiadomienia (dzwonek gracza) ---------- */
 
     private static ?array $humanIds = null;
+
+    /**
+     * Alerty sygnałów AT (funkcja Pakietu Analityka): gdy obserwowana spółka
+     * wejdzie w MOCNY sygnał (|ta_signal| >= 0.35, jak Technical::verdict),
+     * posiadacz pakietu dostaje 🔔. Anty-spam: alert dopiero przy ZMIANIE stanu
+     * i najwyżej raz na spółkę na sesję.
+     */
+    public static function signalAlerts(): void
+    {
+        [$sess] = self::sessionInfo();
+        $rows = self::all(
+            "SELECT w.id, w.user_id, w.stock_id, w.alert_state, w.alert_session,
+                    s.ticker, s.ta_signal
+             FROM watchlist w
+             JOIN stocks s ON s.id = w.stock_id
+             JOIN premium_passes p ON p.user_id = w.user_id AND p.kind='analityk' AND p.until_session >= ?", [$sess]);
+        if (!$rows) return;
+        $upd = Db::pdo()->prepare("UPDATE watchlist SET alert_state=?, alert_session=? WHERE id=?");
+        foreach ($rows as $w) {
+            $ta = (float) $w['ta_signal'];
+            $state = $ta >= 0.35 ? 'kupuj' : ($ta <= -0.35 ? 'sprzedaj' : '');
+            if ($state === (string) $w['alert_state']) continue;
+            $fire = $state !== '' && (int) $w['alert_session'] < $sess;
+            $upd->execute([$state, $fire ? $sess : (int) $w['alert_session'], $w['id']]);
+            if ($fire) {
+                self::notify((int) $w['user_id'], 'signal',
+                    '🔔 Alert AT: ' . $w['ticker'] . ' — mocny sygnał ' . strtoupper($state)
+                    . ' (' . ($ta >= 0 ? '+' : '') . number_format($ta, 2, ',', ' ') . '). Obserwowana spółka.',
+                    'stock.php?id=' . (int) $w['stock_id']);
+            }
+        }
+    }
 
     /** Id ludzkich kont (gracze/admin/qa) — memo na czas żądania/ticka. */
     public static function humanIds(): array

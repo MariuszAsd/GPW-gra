@@ -8,7 +8,7 @@ $goalSessions = (int) (Engine::one("SELECT v FROM game_state WHERE k='goal_sessi
 
 // gracze + wartość akcji jednym zapytaniem (podzapytanie zamiast GROUP BY — spójne SQLite/MySQL)
 $players = Engine::all(
-    "SELECT u.id, u.username, u.cash, u.cash_reserved, u.joined_session, u.goal_session, u.start_equity,
+    "SELECT u.id, u.username, u.title, u.cash, u.cash_reserved, u.joined_session, u.goal_session, u.start_equity,
             (SELECT COALESCE(SUM((w.qty + w.qty_reserved) * s.price), 0)
              FROM wallets w JOIN stocks s ON s.id = w.stock_id WHERE w.user_id = u.id) AS stock_val
      FROM users u WHERE u.is_bot = 0 AND u.role = 'player'"
@@ -60,7 +60,7 @@ $medals = ['🥇', '🥈', '🥉'];
           $left = $deadline - $sessionNo; ?>
         <tr <?= (int) $p['id'] === (int) $user['id'] ? 'style="background:var(--info-bg)"' : '' ?>>
           <td class="mono" style="font-size:16px"><?= $medals[$i] ?? ($i + 1) ?></td>
-          <td><a href="gracz.php?id=<?= (int) $p['id'] ?>" style="font-weight:700;color:var(--accent)"><?= h($p['username']) ?></a><?php $bn = (int) Engine::one("SELECT COUNT(*) FROM achievements WHERE user_id=?", [$p['id']]); ?><?= $bn > 0 ? " <span class='tag' title='zdobyte odznaki: $bn z " . count(Achievements::all()) . "'>🎖️$bn</span>" : '' ?><?= (int) $p['id'] === (int) $user['id'] ? ' <span class="tag" style="color:var(--accent);border-color:var(--accent)">Ty</span>' : '' ?></td>
+          <td><a href="gracz.php?id=<?= (int) $p['id'] ?>" style="font-weight:700;color:var(--accent)"><?= h($p['username']) ?></a><?= trim((string) $p['title']) !== '' ? ' <span class="tag" style="color:var(--gold);border-color:var(--gold-border)">' . h($p['title']) . '</span>' : '' ?><?php $bn = (int) Engine::one("SELECT COUNT(*) FROM achievements WHERE user_id=?", [$p['id']]); ?><?= $bn > 0 ? " <span class='tag' title='zdobyte odznaki: $bn z " . count(Achievements::all()) . "'>🎖️$bn</span>" : '' ?><?= (int) $p['id'] === (int) $user['id'] ? ' <span class="tag" style="color:var(--accent);border-color:var(--accent)">Ty</span>' : '' ?></td>
           <td class="num mono"><?= money($p['equity']) ?></td>
           <td class="num"><?php if ($p['ret'] === null): ?><span class="muted">—</span>
             <?php else: ?><span class="chg <?= $p['ret'] >= 0 ? 'p' : 'n' ?>"><span class="ar"><?= $p['ret'] >= 0 ? '▲' : '▼' ?></span><?= number_format(abs($p['ret']), 1, ',', ' ') ?>%</span><?php endif; ?></td>

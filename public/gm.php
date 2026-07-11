@@ -304,14 +304,58 @@ layout_header('Panel GM', $user, 'gm');
     <button class="btn sm">Zapisz</button>
   </form>
 
+  <?php
+    // metryki monetyzacji: konwersja, ARPPU, retencja D7, przychód — standardy F2P
+    $tokensPlus  = (int) Engine::one("SELECT COALESCE(SUM(delta),0) FROM token_ledger WHERE delta > 0");
+    $tokensMinus = abs((int) Engine::one("SELECT COALESCE(SUM(delta),0) FROM token_ledger WHERE delta < 0"));
+    $passActive  = Engine::all("SELECT kind, COUNT(*) n FROM premium_passes WHERE until_session >= ? GROUP BY kind", [$sessionNo]);
+    $seasonPass  = (int) Engine::one("SELECT COUNT(*) FROM season_progress WHERE premium=1");
+    $payers      = (int) Engine::one("SELECT COUNT(DISTINCT user_id) FROM token_ledger WHERE reason IN ('pass','cosmetic','season','purchase')");
+    $conv        = $playerCount > 0 ? $payers / $playerCount * 100 : 0;
+    $revenue     = (float) (Engine::one("SELECT COALESCE(SUM(amount_grosz),0) FROM payment_orders WHERE status='completed'") ?: 0) / 100;
+    $realPayers  = (int) Engine::one("SELECT COUNT(DISTINCT user_id) FROM payment_orders WHERE status='completed'");
+    $arppu       = $realPayers > 0 ? $revenue / $realPayers : 0;
+    // retencja D7: gracze z pierwszym wpisem w dzienniku >7 dni temu, aktywni w ostatnich 7 dniach
+    $d7base = Engine::all("SELECT user_id, MIN(ts) first_ts, MAX(ts) last_ts FROM player_journal
+                           WHERE user_id IN (SELECT id FROM users WHERE is_bot=0 AND role='player') GROUP BY user_id");
+    $d7old = 0; $d7ret = 0; $weekAgo = date('Y-m-d H:i:s', time() - 7 * 86400);
+    foreach ($d7base as $r) { if ($r['first_ts'] < $weekAgo) { $d7old++; if ($r['last_ts'] >= $weekAgo) $d7ret++; } }
+    $recentOrders = Engine::all("SELECT po.*, u.username FROM payment_orders po JOIN users u ON u.id=po.user_id ORDER BY po.id DESC LIMIT 8");
+  ?>
   <h2 style="margin-top:18px">Żetony Maklera (monetyzacja)</h2>
-  <p class="muted" style="margin:4px 0 8px">Przyznaj żetony graczowi (do czasu podpięcia płatności — ręczna realizacja zakupów). Wydane łącznie: <b>🪙 <?= (int) Engine::one("SELECT COALESCE(SUM(delta),0) FROM token_ledger WHERE delta > 0") ?></b>, aktywnych pakietów: <b><?= (int) Engine::one("SELECT COUNT(*) FROM premium_passes WHERE until_session >= ?", [$sessionNo]) ?></b>.</p>
+  <div class="ch-grid" style="margin:8px 0 10px">
+    <div class="ch-stat"><small>KONWERSJA (JAKIKOLWIEK WYDATEK)</small><b><?= number_format($conv, 1, ',', ' ') ?>%</b><span class="muted" style="font-size:11px;display:block"><?= $payers ?> z <?= $playerCount ?> graczy · cel branżowy 2–5% przy realnych płatnościach</span></div>
+    <div class="ch-stat"><small>PRZYCHÓD (OPŁACONE)</small><b><?= money($revenue) ?> zł</b><span class="muted" style="font-size:11px;display:block">ARPPU: <?= $realPayers > 0 ? money($arppu) . ' zł' : '—' ?> · płacących: <?= $realPayers ?></span></div>
+    <div class="ch-stat"><small>RETENCJA D7</small><b><?= $d7old > 0 ? number_format($d7ret / $d7old * 100, 0) . '%' : '—' ?></b><span class="muted" style="font-size:11px;display:block"><?= $d7ret ?>/<?= $d7old ?> graczy sprzed tygodnia wciąż gra</span></div>
+    <div class="ch-stat"><small>ŻETONY: OBIEG</small><b>🪙 <?= $tokensPlus ?> / <?= $tokensMinus ?></b><span class="muted" style="font-size:11px;display:block">przyznane / wydane (zdrowy sklep = rosnące wydane)</span></div>
+    <div class="ch-stat"><small>AKTYWNE PAKIETY</small><b><?= array_sum(array_map(fn($r) => (int) $r['n'], $passActive)) ?: '0' ?></b><span class="muted" style="font-size:11px;display:block"><?= $passActive ? implode(' · ', array_map(fn($r) => h($r['kind']) . ': ' . (int) $r['n'], $passActive)) : 'brak' ?> · karnety sezonu: <?= $seasonPass ?></span></div>
+  </div>
+  <p class="muted" style="margin:4px 0 8px">Przyznaj żetony graczowi (reklamacje, nagrody specjalne, ręczna realizacja zakupów gdy płatności wyłączone — status bramki: <b><?= Payments::enabled() ? '<span class="up">PayU podpięte</span>' : 'niepodpięta (sekrety PAYU_* w GitHub Actions)' ?></b>).</p>
   <form method="post" class="inline">
     <input type="hidden" name="action" value="tokens_grant">
     <input name="t_user" placeholder="login gracza" style="width:150px">
     <input type="number" name="t_amount" min="1" max="1000" value="20" style="width:80px">
     <button class="btn sm">Przyznaj żetony</button>
   </form>
+  <?php if ($recentOrders): ?>
+    <p class="muted" style="margin:12px 0 4px"><b>Ostatnie zamówienia doładowań:</b></p>
+    <table class="gm-table">
+      <thead><tr><th>#</th><th>Gracz</th><th>Pakiet</th><th class="num">Kwota</th><th>Status</th><th>Utworzone</th><th>Opłacone</th></tr></thead>
+      <tbody>
+      <?php foreach ($recentOrders as $po): ?>
+        <tr>
+          <td class="mono"><?= (int) $po['id'] ?></td>
+          <td><?= h($po['username']) ?></td>
+          <td><?= h($po['package']) ?> (🪙 <?= (int) $po['tokens'] ?>)</td>
+          <td class="num"><?= money($po['amount_grosz'] / 100) ?> zł</td>
+          <td><span class="chg <?= $po['status'] === 'completed' ? 'p' : ($po['status'] === 'cancelled' ? 'n' : '') ?>"><?= h($po['status']) ?></span></td>
+          <td class="muted mono" style="font-size:11px"><?= h($po['created_at']) ?></td>
+          <td class="muted mono" style="font-size:11px"><?= h($po['paid_at'] ?: '—') ?></td>
+        </tr>
+      <?php endforeach; ?>
+      </tbody>
+    </table>
+  <?php endif; ?>
 
   <h2 style="margin-top:18px">Rejestracja (graczy: <?= $playerCount ?>)</h2>
   <form method="post" class="row" style="align-items:flex-end">

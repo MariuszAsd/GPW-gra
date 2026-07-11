@@ -32,14 +32,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $since = (int) ($_GET['since'] ?? 0);
 $rows = array_reverse(Engine::all(
-    "SELECT c.id, c.message, c.created_at, u.username, u.id AS uid, u.role
+    "SELECT c.id, c.message, c.created_at, u.username, u.id AS uid, u.role, u.chat_color
      FROM chat_messages c JOIN users u ON u.id = c.user_id
      WHERE c.deleted = 0 AND c.id > ? ORDER BY c.id DESC LIMIT 40", [$since]));
 $out = [];
 foreach ($rows as $r) {
+    // kolor nicka (kosmetyka) — tylko zweryfikowany hex, żeby nic nie wstrzyknąć do stylu
+    $col = preg_match('/^#[0-9a-f]{6}$/i', (string) $r['chat_color']) ? (string) $r['chat_color'] : '';
     $out[] = ['id' => (int) $r['id'], 'uid' => (int) $r['uid'], 'u' => $r['username'],
               'gm' => $r['role'] === 'admin' ? 1 : 0, 'pl' => $r['role'] === 'player' ? 1 : 0,
-              'm' => $r['message'], 't' => substr($r['created_at'], 11, 5)];
+              'c' => $col, 'm' => $r['message'], 't' => substr($r['created_at'], 11, 5)];
 }
 // świeżo ukryte wpisy (moderacja GM) — klienci usuwają je z widoku bez przeładowania
 $hidden = $since > 0

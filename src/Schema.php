@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 20;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 21;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -31,7 +31,11 @@ final class Schema
                 joined_session INT NOT NULL DEFAULT 1,   -- sesja dołączenia (liczy się od niej limit celu)
                 goal_session   INT NULL,                 -- sesja, w której gracz osiągnął cel (NULL = jeszcze nie)
                 start_equity   $money NOT NULL DEFAULT 0, -- kapitał startowy (baza do wyniku % w rankingu)
-                tokens INT NOT NULL DEFAULT 0              -- Żetony Maklera (waluta premium; księga w token_ledger)
+                tokens INT NOT NULL DEFAULT 0,             -- Żetony Maklera (waluta premium; księga w token_ledger)
+                -- kosmetyka (założone przedmioty; katalog w src/Cosmetics.php):
+                title      VARCHAR(40) NOT NULL DEFAULT '',  -- tytuł przy nicku (ranking/profil)
+                chat_color VARCHAR(7)  NOT NULL DEFAULT '',  -- kolor nicka na czacie (#rrggbb)
+                frame      VARCHAR(16) NOT NULL DEFAULT ''   -- ramka awatara na profilu (gold/silver)
             )",
 
             // --- SEKTOR (branża) ---
@@ -260,6 +264,7 @@ final class Schema
             "challenges" => "CREATE TABLE challenges (
                 id $pk,
                 name VARCHAR(80) NOT NULL,
+                series_id INT NULL,                            -- edycja serii (sezon: punkty i karnet w src/Seasons.php)
                 status VARCHAR(12) NOT NULL DEFAULT 'signup',  -- signup | running | finished | cancelled
                 buyin  $money NOT NULL,                        -- kapitał wyzwania (zablokowany z konta głównego)
                 fee_pct $f NOT NULL DEFAULT 10,                -- wpisowe (% buy-inu) -> pula nagród
@@ -338,6 +343,51 @@ final class Schema
                 UNIQUE (stock_id, session)
             )",
 
+            // --- PŁATNOŚCI: zamówienia doładowań żetonów za prawdziwe pieniądze (PayU/BLIK) ---
+            "payment_orders" => "CREATE TABLE payment_orders (
+                id $pk,
+                user_id INT NOT NULL,
+                package VARCHAR(20) NOT NULL,          -- start | inwestor | rekin (katalog w src/Payments.php)
+                tokens  INT NOT NULL,                  -- żetony do przyznania po opłaceniu (z bonusem)
+                amount_grosz INT NOT NULL,             -- kwota w groszach (PLN)
+                status VARCHAR(12) NOT NULL DEFAULT 'new',  -- new | pending | completed | cancelled
+                provider VARCHAR(12) NOT NULL DEFAULT 'payu',
+                ext_ref VARCHAR(64) NULL,              -- id zamówienia u operatora płatności
+                created_at VARCHAR(19) NOT NULL,
+                paid_at VARCHAR(19) NULL
+            )",
+
+            // --- OBSERWOWANE (gwiazdki) + alerty sygnałów AT dla Pakietu Analityka ---
+            "watchlist" => "CREATE TABLE watchlist (
+                id $pk,
+                user_id INT NOT NULL,
+                stock_id INT NOT NULL,
+                alert_state VARCHAR(12) NOT NULL DEFAULT '',  -- ostatni mocny werdykt (anty-dubel alertu)
+                alert_session INT NOT NULL DEFAULT 0,         -- sesja ostatniego alertu (max 1/spółkę/sesję)
+                created_at VARCHAR(19) NOT NULL,
+                UNIQUE (user_id, stock_id)
+            )",
+
+            // --- KOSMETYKA: posiadane przedmioty (tytuły, kolory nicka, ramki; katalog w src/Cosmetics.php) ---
+            "user_items" => "CREATE TABLE user_items (
+                id $pk,
+                user_id INT NOT NULL,
+                item VARCHAR(40) NOT NULL,
+                created_at VARCHAR(19) NOT NULL,
+                UNIQUE (user_id, item)
+            )",
+
+            // --- SEZON: punkty za wyzwania serii + karnet sezonowy (ścieżki nagród; src/Seasons.php) ---
+            "season_progress" => "CREATE TABLE season_progress (
+                id $pk,
+                series_id INT NOT NULL,
+                user_id INT NOT NULL,
+                points INT NOT NULL DEFAULT 0,
+                premium TINYINT NOT NULL DEFAULT 0,    -- 1 = kupiony karnet premium (druga ścieżka nagród)
+                granted_upto INT NOT NULL DEFAULT 0,   -- ile progów nagród już wypłacono
+                UNIQUE (series_id, user_id)
+            )",
+
             // --- DZIENNIK GRACZA (oś czasu konta: zlecenia, SL/TP, dywidendy, wyzwania, odznaki) ---
             "player_journal" => "CREATE TABLE player_journal (
                 id $pk,
@@ -392,6 +442,8 @@ final class Schema
             "CREATE INDEX ix_cd ON candles_daily (stock_id, session)",
             "CREATE INDEX ix_ledger ON token_ledger (user_id, id)",
             "CREATE INDEX ix_reco ON recommendations (session)",
+            "CREATE INDEX ix_pay_user ON payment_orders (user_id, id)",
+            "CREATE INDEX ix_season ON season_progress (series_id, points)",
         ];
     }
 }
