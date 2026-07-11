@@ -16,13 +16,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     $msg = trim((string) ($_POST['msg'] ?? ''));
     if ($msg === '' || mb_strlen($msg) > 300) { echo json_encode(['ok' => false, 'err' => 'Wpis musi mieć 1-300 znaków.']); exit; }
+    [$msgClean, $modHits] = Moderation::censor($msg);   // zapisujemy wygwiazdkowaną wersję
     // anty-spam ATOMOWO (odporne na równoległe POST-y): wstaw tylko, gdy brak wpisu z ostatnich 5 s
     $cutoff = date('Y-m-d H:i:s', time() - 5);
     $st = Db::pdo()->prepare("INSERT INTO chat_messages (user_id, message, created_at)
                               SELECT ?, ?, ? FROM (SELECT 1 AS one) t
                               WHERE NOT EXISTS (SELECT 1 FROM chat_messages WHERE user_id = ? AND created_at > ?)");
-    $st->execute([$u['id'], $msg, Db::now(), $u['id'], $cutoff]);
+    $st->execute([$u['id'], $msgClean, Db::now(), $u['id'], $cutoff]);
     if ($st->rowCount() === 0) { echo json_encode(['ok' => false, 'err' => 'Nie tak szybko — odczekaj chwilę.']); exit; }
+    if ($modHits) Moderation::report((int) $u['id'], 'czat', null, $msg, $modHits);
     if (mt_rand(1, 20) === 1) {   // retencja: trzymaj ~500 ostatnich wpisów (rzadko, nie przy każdym wpisie)
         $edge = Engine::one("SELECT id FROM chat_messages ORDER BY id DESC LIMIT 1 OFFSET 500");
         if ($edge) Db::pdo()->prepare("DELETE FROM chat_messages WHERE id <= ?")->execute([$edge]);

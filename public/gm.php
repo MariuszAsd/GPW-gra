@@ -394,6 +394,44 @@ layout_header('Panel GM', $user, 'gm');
   </form>
 </section>
 
+<?php
+// --- MODERACJA: incydenty słowne z forum spółek i czatu (oryginały widzi tylko GM) ---
+$modInc = Engine::all("SELECT m.*, u.username, s.ticker FROM mod_incidents m
+                       JOIN users u ON u.id = m.user_id
+                       LEFT JOIN stocks s ON s.id = m.stock_id
+                       ORDER BY m.id DESC LIMIT 20");
+$modTop = Engine::all("SELECT m.user_id, u.username, COUNT(*) n, MAX(m.created_at) last
+                       FROM mod_incidents m JOIN users u ON u.id = m.user_id
+                       GROUP BY m.user_id, u.username ORDER BY n DESC LIMIT 8");
+?>
+<section class="panel" id="moderacja" style="margin-top:16px">
+  <h2>🛡️ Moderacja słownictwa (incydentów: <?= (int) Engine::one("SELECT COUNT(*) FROM mod_incidents") ?>)</h2>
+  <p class="muted">Niedozwolone słowa są automatycznie gwiazdkowane w treści, gracz dostaje ostrzeżenie
+    z numerem przewinienia, a tu widzisz ORYGINAŁY. Recydywistów usuwasz ręcznie (sekcja Gracze / baza).</p>
+  <?php if (!$modInc): ?><p class="muted">Czysto — ani jednego incydentu.</p><?php else: ?>
+    <?php if ($modTop): ?>
+      <p style="margin:6px 0 10px">Najwięcej przewinień:
+        <?php foreach ($modTop as $i => $mt): ?><?= $i ? ' · ' : '' ?><a href="gracz.php?id=<?= (int) $mt['user_id'] ?>"><?= h($mt['username']) ?></a> <b class="<?= (int) $mt['n'] >= 2 ? 'down' : '' ?>">(<?= (int) $mt['n'] ?>×)</b><?php endforeach; ?>
+      </p>
+    <?php endif; ?>
+    <div style="overflow-x:auto"><table>
+      <thead><tr><th>Kiedy</th><th>Gracz</th><th>Nr</th><th>Gdzie</th><th>Wykryte</th><th>Oryginalna treść</th></tr></thead>
+      <tbody>
+      <?php foreach ($modInc as $mi): ?>
+        <tr>
+          <td class="muted mono" style="font-size:11px;white-space:nowrap"><?= h(substr($mi['created_at'], 5, 11)) ?></td>
+          <td><a href="gracz.php?id=<?= (int) $mi['user_id'] ?>"><?= h($mi['username']) ?></a></td>
+          <td><b class="<?= (int) $mi['strike_no'] >= 2 ? 'down' : '' ?>"><?= (int) $mi['strike_no'] ?></b></td>
+          <td><?= $mi['context'] === 'forum' ? ('forum ' . h($mi['ticker'] ?: '?')) : 'czat' ?></td>
+          <td class="mono" style="font-size:11.5px;color:var(--down)"><?= h($mi['words']) ?></td>
+          <td style="font-size:12.5px;max-width:420px"><?= h($mi['original']) ?></td>
+        </tr>
+      <?php endforeach; ?>
+      </tbody>
+    </table></div>
+  <?php endif; ?>
+</section>
+
 <div class="gm-grid">
   <section class="panel">
     <h2>Nastawienie rynku (globalne)</h2>

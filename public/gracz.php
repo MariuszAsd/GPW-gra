@@ -20,18 +20,7 @@ $posCount = (int) Engine::one("SELECT COUNT(*) FROM wallets WHERE user_id=? AND 
 
 // wykres kapitału
 $eqSeries = array_reverse(array_map('floatval', Engine::col("SELECT equity FROM equity_history WHERE user_id=? ORDER BY t DESC LIMIT 150", [$pid])));
-$eqSvg = '';
-if (count($eqSeries) > 1) {
-    $W = 940; $H = 110; $pad = 4;
-    $mn = min($eqSeries); $mx = max($eqSeries); $rng = ($mx - $mn) ?: 1;
-    $n = count($eqSeries); $pts = [];
-    foreach ($eqSeries as $i => $v) $pts[] = round($pad + $i / ($n - 1) * ($W - 2 * $pad), 1) . ',' . round($pad + (1 - ($v - $mn) / $rng) * ($H - 2 * $pad), 1);
-    $line = implode(' ', $pts);
-    $col = end($eqSeries) >= reset($eqSeries) ? 'var(--up)' : 'var(--down)';
-    $eqSvg = "<svg class='idx-chart' style='height:110px' viewBox='0 0 $W $H' preserveAspectRatio='none'>"
-        . "<polygon points='$pad,$H $line " . ($W - $pad) . ",$H' fill='$col' opacity='0.10'/>"
-        . "<polyline points='$line' fill='none' stroke='$col' stroke-width='1.6' stroke-linejoin='round'/></svg>";
-}
+$eqSvg = equity_svg($eqSeries);
 
 // wyzwania: bilans występów w rozstrzygniętych edycjach
 $chStats = Engine::row(

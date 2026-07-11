@@ -143,6 +143,47 @@ layout_header('Pomoc', $user, 'help');
      wypadek) bywa najlepszą transakcją w grze. Analogicznie: w euforii hossy warto pomyśleć o Take-Profit.</div>
 </div>
 
+<div class="panel help-sec" id="wyzwania">
+  <h3>⚔️ Wyzwania — pełne zasady krok po kroku</h3>
+  <p><b>Wyzwanie to konkurs inwestycyjny na kilkanaście sesji.</b> Rywalizujesz osobnym portfelem,
+     a Twoje konto główne gra w tym czasie normalnie dalej.</p>
+  <svg viewBox="0 0 560 120" style="width:100%;max-width:560px;display:block;margin:10px auto">
+    <line x1="20" y1="46" x2="540" y2="46" stroke="var(--line)" stroke-width="2"/>
+    <circle cx="60" cy="46" r="7" fill="var(--accent)"/>
+    <circle cx="220" cy="46" r="7" fill="var(--accent)"/>
+    <circle cx="380" cy="46" r="7" fill="var(--accent)"/>
+    <circle cx="500" cy="46" r="7" fill="var(--up)"/>
+    <text x="60" y="24" fill="var(--ink)" font-size="12" font-weight="700" text-anchor="middle">ZAPISY</text>
+    <text x="220" y="24" fill="var(--ink)" font-size="12" font-weight="700" text-anchor="middle">START</text>
+    <text x="380" y="24" fill="var(--ink)" font-size="12" font-weight="700" text-anchor="middle">HANDEL</text>
+    <text x="500" y="24" fill="var(--ink)" font-size="12" font-weight="700" text-anchor="middle">FINAŁ</text>
+    <text x="60" y="70" fill="var(--soft)" font-size="10.5" text-anchor="middle">płacisz buy-in</text>
+    <text x="60" y="84" fill="var(--soft)" font-size="10.5" text-anchor="middle">+ wpisowe</text>
+    <text x="220" y="70" fill="var(--soft)" font-size="10.5" text-anchor="middle">dostajesz portfel</text>
+    <text x="220" y="84" fill="var(--soft)" font-size="10.5" text-anchor="middle">wyzwania</text>
+    <text x="380" y="70" fill="var(--soft)" font-size="10.5" text-anchor="middle">kilkanaście sesji</text>
+    <text x="380" y="84" fill="var(--soft)" font-size="10.5" text-anchor="middle">tabela na żywo</text>
+    <text x="500" y="70" fill="var(--soft)" font-size="10.5" text-anchor="middle">buy-in wraca,</text>
+    <text x="500" y="84" fill="var(--soft)" font-size="10.5" text-anchor="middle">czołówka dzieli pulę</text>
+  </svg>
+  <p><b>1. Zapisujesz się.</b> Z konta głównego schodzi <b>buy-in</b> (np. 20 000 PLN — to Twój kapitał startowy
+     w konkursie) oraz <b>wpisowe</b> (np. 10% buy-inu — zasila pulę nagród). Maksymalny koszt znasz z góry.</p>
+  <p><b>2. Start.</b> Gdy zbierze się minimum graczy, dostajesz powiadomienie 🔔 i osobny portfel wyzwania.
+     Przełączasz się na niego na stronie Wyzwań (baner na górze przypomina, którym kontem grasz).
+     Za mało chętnych = edycja odwołana i <b>pełny zwrot</b> wszystkiego.</p>
+  <p><b>3. Handlujesz.</b> Ten sam rynek, ten sam arkusz zleceń — liczy się kapitał portfela wyzwania
+     (gotówka + akcje po bieżącym kursie). Tabela wyników odświeża się na żywo.</p>
+  <p><b>4. Finał i rozliczenie.</b> Po ostatniej sesji ranking zamyka się automatycznie:</p>
+  <ul style="margin:4px 0 8px 20px;line-height:1.6">
+    <li><b>Każdy</b> dostaje z powrotem swój portfel wyzwania — gotówka wraca na konto, akcje przechodzą do portfela głównego.</li>
+    <li><b>Top ~20% graczy</b> dzieli pulę wpisowych — im wyższe miejsce, tym większy udział (1. miejsce bierze najwięcej).</li>
+    <li>Zwycięzca i podium dostają <b>Żetony Maklera</b> i odznakę; edycje ligowe dają też punkty sezonu (karnet → sezon.php).</li>
+  </ul>
+  <div class="help-ex">💡 Ile mogę stracić? Najwyżej wpisowe + to, co stracisz handlując portfelem wyzwania.
+     Ile mogę wygrać? Nagrodę z puli (przy 10 graczach 1. miejsce bierze ok. połowy) + zysk z handlu.
+     Wyzwanie to najszybsza droga do żetonów i punktów sezonu — a przegrana kosztuje mniej niż wygląda.</div>
+</div>
+
 <div class="panel help-sec" id="prowizja">
   <h3>🧾 Prowizja</h3>
   <p>Przy <b>sprzedaży</b> akcji giełda pobiera prowizję (<?php $f = Engine::one("SELECT v FROM game_state WHERE k='fee_rate'"); echo rtrim(rtrim(number_format($f === false || $f === null ? 0.5 : (float) $f, 2, ',', ''), '0'), ','); ?>% wartości transakcji).

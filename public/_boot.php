@@ -16,6 +16,7 @@ require_once __DIR__ . '/../src/Seasons.php';
 require_once __DIR__ . '/../src/Mailer.php';
 require_once __DIR__ . '/../src/PasswordReset.php';
 require_once __DIR__ . '/../src/Daily.php';
+require_once __DIR__ . '/../src/Moderation.php';
 
 session_set_cookie_params(['samesite' => 'Lax', 'httponly' => true]);
 session_start();
@@ -90,6 +91,39 @@ function tip(string $text, string $anchor = ''): string {
     return "<span class='tip' tabindex='0'>?<span class='tipbox'>" . h($text) . $more . "</span></span>";
 }
 
+/**
+ * Wykres kapitału (linia). Oś Y obejmuje CO NAJMNIEJ ±4% wartości — bez tego
+ * autoskala min-max rozciąga grosze szumu na całą wysokość i drobny koszt
+ * spreadu po zakupie wygląda jak krach. Pod wykresem jawna podziałka.
+ */
+function equity_svg(array $series, int $height = 110): string {
+    if (count($series) < 2) return '';
+    $W = 940; $H = $height; $pad = 4;
+    $mn = min($series); $mx = max($series);
+    $minRange = max(1.0, 0.08 * max(abs($mx), 1));
+    if ($mx - $mn < $minRange) { $mid = ($mx + $mn) / 2; $mn = $mid - $minRange / 2; $mx = $mid + $minRange / 2; }
+    $rng = $mx - $mn;
+    $n = count($series); $pts = [];
+    foreach ($series as $i => $v) $pts[] = round($pad + $i / ($n - 1) * ($W - 2 * $pad), 1) . ',' . round($pad + (1 - ($v - $mn) / $rng) * ($H - 2 * $pad), 1);
+    $line = implode(' ', $pts);
+    $col = end($series) >= reset($series) ? 'var(--up)' : 'var(--down)';
+    $delta = reset($series) != 0.0 ? (end($series) / reset($series) - 1) * 100 : 0;
+    return "<svg class='idx-chart' style='height:{$H}px' viewBox='0 0 $W $H' preserveAspectRatio='none'>"
+        . "<polygon points='$pad,$H $line " . ($W - $pad) . ",$H' fill='$col' opacity='0.10'/>"
+        . "<polyline points='$line' fill='none' stroke='$col' stroke-width='1.6' stroke-linejoin='round'/></svg>"
+        . "<div class='muted mono' style='display:flex;justify-content:space-between;gap:10px;font-size:10.5px;margin-top:2px'>"
+        . "<span>skala: " . money_short($mn) . " – " . money_short($mx) . " PLN</span>"
+        . "<span>zmiana w oknie: " . ($delta >= 0 ? '+' : '') . number_format($delta, 2, ',', ' ') . "%</span></div>";
+}
+
+/** Kapitał konta = gotówka + zamrożone + akcje po bieżącym kursie (to co widzi ranking). */
+function user_equity(int $uid): float {
+    $u = Engine::row("SELECT cash, cash_reserved FROM users WHERE id=?", [$uid]);
+    if (!$u) return 0.0;
+    $sv = (float) (Engine::one("SELECT SUM((w.qty + w.qty_reserved) * s.price) FROM wallets w JOIN stocks s ON s.id=w.stock_id WHERE w.user_id=?", [$uid]) ?: 0);
+    return round((float) $u['cash'] + (float) $u['cash_reserved'] + $sv, 2);
+}
+
 function current_user(): ?array {
     if (empty($_SESSION['uid'])) return null;
     $u = Engine::row("SELECT id, username, role, cash, cash_reserved FROM users WHERE id=?", [$_SESSION['uid']]);
@@ -155,11 +189,14 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
             $tk = (int) Engine::one("SELECT tokens FROM users WHERE id=?", [$actg ? $actg['owner_id'] : $user['id']]);
             echo "<a href='sklep.php' class='tokens' title='Żetony Maklera — Sklep'>🪙 <b>$tk</b></a>";
         }
+        // główna liczba = KAPITAŁ (gotówka + zamrożone + akcje po kursie) — jak w rankingu;
+        // sama gotówka („za ile mogę kupić") schodzi do drugiej linijki
         if ($actg) {
-            echo "<span class='bal'><b>" . money($actg['cash']) . " PLN</b><small>portfel wyzwania</small></span>";
+            echo "<span class='bal'><b>" . money(user_equity((int) $actg['id'])) . " PLN</b><small>portfel wyzwania · gotówka " . money($actg['cash']) . "</small></span>";
             echo "<a class='hide-sm' href='logout.php' style='color:var(--faint)'>" . h($actg['owner_name']) . " ⏻</a>";
         } else {
-            echo "<span class='bal'><b>" . money($user['cash']) . " PLN</b><small>zamrożone +" . money($user['cash_reserved']) . "</small></span>";
+            $balSub = 'gotówka ' . money($user['cash']) . ((float) $user['cash_reserved'] > 0 ? ' · zamrożone ' . money($user['cash_reserved']) : '');
+            echo "<span class='bal' title='Kapitał: gotówka + zamrożone + akcje po bieżącym kursie'><b>" . money(user_equity((int) $user['id'])) . " PLN</b><small>" . $balSub . "</small></span>";
             echo "<a class='hide-sm' href='logout.php' style='color:var(--faint)'>" . h($user['username']) . " ⏻</a>";
         }
     }

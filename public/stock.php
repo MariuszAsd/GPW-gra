@@ -12,12 +12,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['comment'])) {
     $msg = trim((string) $_POST['comment']);
     if ($msg === '' || mb_strlen($msg) > 300) flash('Wpis musi mieć 1–300 znaków.', 'err');
     else {
+        [$clean, $hits] = Moderation::censor($msg);   // zapisujemy już wygwiazdkowaną wersję
         $cutoff = date('Y-m-d H:i:s', time() - 15);
         $st = Db::pdo()->prepare("INSERT INTO stock_comments (stock_id, user_id, message, created_at)
                                   SELECT ?,?,?,? FROM (SELECT 1 AS one) t
                                   WHERE NOT EXISTS (SELECT 1 FROM stock_comments WHERE user_id=? AND created_at > ?)");
-        $st->execute([$id, $uidForum, $msg, Db::now(), $uidForum, $cutoff]);
-        flash($st->rowCount() > 0 ? 'Wpis dodany do dyskusji.' : 'Nie tak szybko — odczekaj chwilę między wpisami.', $st->rowCount() > 0 ? 'ok' : 'err');
+        $st->execute([$id, $uidForum, $clean, Db::now(), $uidForum, $cutoff]);
+        if ($st->rowCount() > 0) {
+            if ($hits) Moderation::report($uidForum, 'forum', $id, $msg, $hits);
+            // powiadom pozostałych uczestników dyskusji (bez autora) — ktoś odpowiedział w wątku
+            $whoName = (string) ($user['owner_name'] ?? $user['username']);
+            $snip = mb_substr($clean, 0, 60) . (mb_strlen($clean) > 60 ? '…' : '');
+            foreach (Engine::col("SELECT DISTINCT user_id FROM stock_comments WHERE stock_id=? AND deleted=0 AND user_id<>?", [$id, $uidForum]) as $oid) {
+                Engine::notify((int) $oid, 'forum', "💬 $whoName w dyskusji o {$s['ticker']}: „{$snip}”", "stock.php?id=$id&tab=forum");
+            }
+            flash($hits ? 'Wpis dodany — niedozwolone słowa zostały wygwiazdkowane (moderacja odnotowała ten wpis).' : 'Wpis dodany do dyskusji.', $hits ? 'info' : 'ok');
+        } else {
+            flash('Nie tak szybko — odczekaj chwilę między wpisami.', 'err');
+        }
     }
     redirect("stock.php?id=$id&tab=forum");
 }

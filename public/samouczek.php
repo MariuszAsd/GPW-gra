@@ -54,7 +54,7 @@ $kroki = [
      'Ranking liczy kapitał (gotówka + akcje). Za osiągnięcia zbierasz odznaki (jest ich ' . count(Achievements::all()) . '). Kliknij nick gracza, żeby zobaczyć jego profil i akcjonariat spółek.',
      'ranking.php', 'Sprawdź swoją pozycję'],
     ['💬', 'Czat i fora spółek',
-     'Na Rynku jest czat ogólny, a każda spółka ma własną Dyskusję (zakładka na jej karcie) — opinie, pytania, plotki graczy. Nicki prowadzą do profili. Pamiętaj: wpisy innych to opinie, nie rekomendacje — na parkiecie każdy gra na swoją korzyść.',
+     'Na Rynku jest czat ogólny, a każda spółka ma własną Dyskusję (zakładka na jej karcie) — opinie, pytania, plotki graczy. Gdy ktoś odpowie w dyskusji, w której pisałeś, dostaniesz powiadomienie 🔔. Gramy kulturalnie: wulgaryzmy i obelgi są automatycznie gwiazdkowane, a moderacja widzi każde użycie — recydywa kończy się usunięciem z gry. Pamiętaj: wpisy innych to opinie, nie rekomendacje.',
      'market.php', 'Napisz coś na czacie'],
     ['📜', 'Dziennik — pełna historia',
      'Każde zlecenie, transakcja, dywidenda i odznaka zapisuje się w Twoim Dzienniku. Gdy nie wiesz, „co się stało z moimi akcjami" — tu znajdziesz odpowiedź.',

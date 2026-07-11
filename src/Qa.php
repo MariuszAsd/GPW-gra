@@ -80,7 +80,7 @@ final class Qa
         // 2) przegląd stron (200 + treść + brak błędów PHP)
         $stock = Engine::row("SELECT id, price FROM stocks ORDER BY price ASC LIMIT 1");   // najtańsza spółka do testów
         $sid = (int) $stock['id'];
-        foreach ([['/pulpit.php', 'Pulpit'], ['/samouczek.php', 'Samouczek'], ['/market.php', 'Rynek'], ['/ranking.php', 'Ranking'], ['/portfolio.php', 'Portfel'], ['/portfolio.php', 'Pozycje w portfelu'], ['/pomoc.php', 'Stop-Loss'], ['/wiadomosci.php', 'Kalendarz'], ['/wiadomosci.php', 'FUNDAMENTY'], ['/wyzwania.php', 'Wyzwania'], ['/dziennik.php', 'Dziennik'], ['/sklep.php', 'Pakiet Analityka'], ['/sklep.php', 'Kosmetyka'], ['/sezon.php', 'Sezon'], ['/menu.php', 'Więcej'], ['/konto.php', 'Ustawienia konta'], ['/pulpit.php', 'Misje dnia'], ["/stock.php?id=$sid", 'Zlecenie'], ["/stock.php?id=$sid", 'Raport DM'], ["/stock.php?id=$sid", 'Dyskusja']] as [$path, $needle]) {
+        foreach ([['/pulpit.php', 'Pulpit'], ['/samouczek.php', 'Samouczek'], ['/market.php', 'Rynek'], ['/ranking.php', 'Ranking'], ['/portfolio.php', 'Portfel'], ['/portfolio.php', 'Pozycje w portfelu'], ['/pomoc.php', 'Stop-Loss'], ['/wiadomosci.php', 'Kalendarz'], ['/wiadomosci.php', 'FUNDAMENTY'], ['/wyzwania.php', 'Wyzwania'], ['/wyzwania.php', 'Jak działa wyzwanie'], ['/pomoc.php', 'pełne zasady krok po kroku'], ['/dziennik.php', 'Dziennik'], ['/sklep.php', 'Pakiet Analityka'], ['/sklep.php', 'Kosmetyka'], ['/sezon.php', 'Sezon'], ['/menu.php', 'Więcej'], ['/konto.php', 'Ustawienia konta'], ['/pulpit.php', 'Misje dnia'], ["/stock.php?id=$sid", 'Zlecenie'], ["/stock.php?id=$sid", 'Raport DM'], ["/stock.php?id=$sid", 'Dyskusja']] as [$path, $needle]) {
             [$c, $b] = $this->http('GET', $path);
             $this->check($c === 200 && str_contains($b, $needle), "page.$path", "code=$c, brak '$needle'");
             $this->check(!preg_match('/Fatal error|Parse error|Uncaught|Warning:/', $b), "php.$path", 'strona zawiera błąd PHP');
@@ -113,6 +113,13 @@ final class Qa
         [$c, $b] = $this->http('GET', "/stock.php?id=$sid&tab=forum");
         $this->check(!str_contains($b, $fprobe . '-2'), 'forum.ratelimit', 'anty-spam forum nie zadziałał');
         $pdo->prepare("UPDATE stock_comments SET deleted=1 WHERE message LIKE 'qa-forum-%'")->execute();
+        // moderacja słownictwa: cenzura działa, zwykłe słowa giełdowe nietknięte (czysty unit, bez wpisów)
+        [$cens, $hits] = Moderation::censor('ta spółka to jakaś kurwa mać');
+        $this->check(!str_contains($cens, 'kurwa') && count($hits) === 1, 'mod.censor', 'wulgaryzm nie został wygwiazdkowany');
+        [$cens2, $hits2] = Moderation::censor('kurs akcji spadek sukces analiza wskaźnik');
+        $this->check($cens2 === 'kurs akcji spadek sukces analiza wskaźnik' && !$hits2, 'mod.falsepos', 'filtr gwiazdkuje niewinne słowa: ' . $cens2);
+        [, $hits3] = Moderation::censor('k.u.r.w.a i chuuujowy pomysł');
+        $this->check(count($hits3) === 2, 'mod.masking', 'filtr nie łapie maskowanych wulgaryzmów (kropki, powtórki liter)');
 
         // obserwowane: toggle włącza i wyłącza (api_watch)
         [$c, $b] = $this->http('POST', '/api_watch.php', ['stock_id' => $sid]);

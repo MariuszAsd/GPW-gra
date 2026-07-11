@@ -11,6 +11,7 @@ require __DIR__ . '/../src/Schema.php';
 require __DIR__ . '/../src/Migrator.php';
 require __DIR__ . '/../src/Engine.php';
 require __DIR__ . '/../src/Log.php';
+require __DIR__ . '/../src/Moderation.php';
 require __DIR__ . '/../src/Qa.php';
 
 try { Migrator::ensure(); } catch (Throwable $e) {}

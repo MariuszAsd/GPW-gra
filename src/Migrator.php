@@ -366,6 +366,19 @@ final class Migrator
                 )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
                 "CREATE INDEX ix_scomments ON stock_comments (stock_id, deleted, id)",
             ],
+            26 => [
+                "CREATE TABLE mod_incidents (
+                    id " . (Db::driver() === 'mysql' ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT') . ",
+                    user_id INT NOT NULL,
+                    context VARCHAR(20) NOT NULL,
+                    stock_id INT NULL,
+                    original VARCHAR(300) NOT NULL,
+                    words VARCHAR(200) NOT NULL,
+                    strike_no INT NOT NULL,
+                    created_at VARCHAR(19) NOT NULL
+                )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
+                "CREATE INDEX ix_modinc ON mod_incidents (user_id, id)",
+            ],
         ];
     }
 
