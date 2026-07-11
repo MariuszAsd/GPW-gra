@@ -188,6 +188,22 @@ final class Migrator
                 "CREATE INDEX ix_chp_user ON challenge_players (user_id)",
                 "CREATE INDEX ix_chp_shadow ON challenge_players (shadow_user_id)",
             ],
+            16 => [
+                "CREATE TABLE challenge_series (
+                    id " . (Db::driver() === 'mysql' ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT') . ",
+                    name VARCHAR(60) NOT NULL,
+                    buyin DECIMAL(15,2) NOT NULL,
+                    fee_pct DECIMAL(6,3) NOT NULL DEFAULT 10,
+                    signup_sess INT NOT NULL DEFAULT 2,
+                    duration INT NOT NULL DEFAULT 14,
+                    min_players INT NOT NULL DEFAULT 3,
+                    every_sessions INT NOT NULL,
+                    editions INT NOT NULL DEFAULT 0,
+                    next_session INT NOT NULL,
+                    enabled TINYINT NOT NULL DEFAULT 1,
+                    created_at VARCHAR(19) NOT NULL
+                )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
+            ],
         ];
     }
 

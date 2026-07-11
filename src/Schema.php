@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 15;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 16;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -278,6 +278,22 @@ final class Schema
                 prize $money NOT NULL DEFAULT 0,
                 joined_at VARCHAR(19) NOT NULL,
                 UNIQUE (challenge_id, user_id)
+            )",
+
+            // --- SERIE WYZWAŃ (cykliczne edycje, np. liga co N sesji; logika w Challenges::onRoll) ---
+            "challenge_series" => "CREATE TABLE challenge_series (
+                id $pk,
+                name VARCHAR(60) NOT NULL,
+                buyin $money NOT NULL,
+                fee_pct $f NOT NULL DEFAULT 10,
+                signup_sess INT NOT NULL DEFAULT 2,
+                duration INT NOT NULL DEFAULT 14,
+                min_players INT NOT NULL DEFAULT 3,
+                every_sessions INT NOT NULL,             -- co ile sesji otwierają się zapisy nowej edycji
+                editions INT NOT NULL DEFAULT 0,         -- licznik wydanych edycji
+                next_session INT NOT NULL,               -- sesja, w której otworzyć następną edycję
+                enabled TINYINT NOT NULL DEFAULT 1,
+                created_at VARCHAR(19) NOT NULL
             )",
 
             // --- DZIENNIK LOGÓW (dane do analizy błędów; pisany przez QA, silnik i akcje graczy) ---

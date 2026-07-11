@@ -33,6 +33,21 @@ if (count($eqSeries) > 1) {
         . "<polyline points='$line' fill='none' stroke='$col' stroke-width='1.6' stroke-linejoin='round'/></svg>";
 }
 
+// wyzwania: bilans występów w rozstrzygniętych edycjach
+$chStats = Engine::row(
+    "SELECT COUNT(*) n,
+            COALESCE(SUM(CASE WHEN cp.final_rank = 1 THEN 1 ELSE 0 END), 0) wins,
+            COALESCE(SUM(CASE WHEN cp.final_rank <= 3 THEN 1 ELSE 0 END), 0) podium,
+            COALESCE(SUM(cp.prize), 0) prizes,
+            MAX(CASE WHEN cp.buyin > 0 THEN cp.final_equity / cp.buyin - 1 END) best
+     FROM challenge_players cp JOIN challenges c ON c.id = cp.challenge_id
+     WHERE cp.user_id = ? AND c.status = 'finished'", [$pid]);
+$chLast = ((int) $chStats['n']) > 0 ? Engine::all(
+    "SELECT c.name, cp.final_rank, cp.final_equity, cp.buyin, cp.prize,
+            (SELECT COUNT(*) FROM challenge_players x WHERE x.challenge_id = c.id) total
+     FROM challenge_players cp JOIN challenges c ON c.id = cp.challenge_id
+     WHERE cp.user_id = ? AND c.status = 'finished' ORDER BY c.id DESC LIMIT 6", [$pid]) : [];
+
 // odznaki
 $earned = [];
 foreach (Engine::all("SELECT code, earned_at FROM achievements WHERE user_id=? ORDER BY id", [$pid]) as $a) $earned[$a['code']] = $a['earned_at'];
@@ -80,6 +95,32 @@ layout_header('Profil: ' . $p['username'], $user, 'ranking');
   <h2 style="margin:0">Kapitał w czasie</h2>
   <?= $eqSvg ?: "<p class='muted' style='margin:10px 0'>Za mało danych — wykres buduje się z każdym tickiem.</p>" ?>
 </div>
+
+<?php if ((int) $chStats['n'] > 0): ?>
+<div class="panel" style="margin-bottom:16px">
+  <h2>⚔️ Wyzwania</h2>
+  <div class="ch-grid" style="margin:10px 0 12px">
+    <div class="ch-stat"><small>UDZIAŁY</small><b><?= (int) $chStats['n'] ?></b></div>
+    <div class="ch-stat"><small>WYGRANE</small><b><?= (int) $chStats['wins'] ?> 🥇</b></div>
+    <div class="ch-stat"><small>PODIUM</small><b><?= (int) $chStats['podium'] ?></b></div>
+    <div class="ch-stat"><small>ŁĄCZNE NAGRODY</small><b class="<?= (float) $chStats['prizes'] > 0 ? 'up' : '' ?>"><?= money($chStats['prizes']) ?> PLN</b></div>
+    <div class="ch-stat"><small>NAJLEPSZY WYNIK</small><b class="<?= (float) ($chStats['best'] ?? 0) >= 0 ? 'up' : 'down' ?>"><?= $chStats['best'] !== null ? (($chStats['best'] >= 0 ? '+' : '') . number_format((float) $chStats['best'] * 100, 2, ',', ' ') . '%') : '—' ?></b></div>
+  </div>
+  <table>
+    <thead><tr><th>Wyzwanie</th><th class="num">Miejsce</th><th class="num">Wynik</th><th class="num">Nagroda</th></tr></thead>
+    <tbody>
+    <?php foreach ($chLast as $cl): $clr = (float) $cl['buyin'] > 0 ? ((float) $cl['final_equity'] / (float) $cl['buyin'] - 1) * 100 : 0; $rk = (int) $cl['final_rank']; ?>
+      <tr>
+        <td><?= h($cl['name']) ?></td>
+        <td class="num"><?= $rk === 1 ? '🥇' : ($rk === 2 ? '🥈' : ($rk === 3 ? '🥉' : $rk)) ?> / <?= (int) $cl['total'] ?></td>
+        <td class="num"><span class="chg <?= $clr >= 0 ? 'p' : 'n' ?>"><?= number_format($clr, 2, ',', ' ') ?>%</span></td>
+        <td class="num mono"><?= (float) $cl['prize'] > 0 ? '<b class="up">+' . money($cl['prize']) . '</b>' : '—' ?></td>
+      </tr>
+    <?php endforeach; ?>
+    </tbody>
+  </table>
+</div>
+<?php endif; ?>
 
 <div class="panel" style="margin-bottom:16px">
   <h2>🎖️ Odznaki (<?= count($earned) ?>/<?= count($catalog) ?>)</h2>

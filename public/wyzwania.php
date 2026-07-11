@@ -28,8 +28,18 @@ $all = Challenges::activeAll();
 $signup  = array_values(array_filter($all, fn($c) => $c['status'] === 'signup'));
 $running = array_values(array_filter($all, fn($c) => $c['status'] === 'running'));
 $myIds = array_map(fn($e) => (int) $e['challenge_id'], Challenges::entriesFor((int) $user['id']));
-$finished = Engine::all("SELECT * FROM challenges WHERE status='finished' ORDER BY id DESC LIMIT 5");
 $inCtx = (int) ($_SESSION['ctx_challenge'] ?? 0);
+
+// archiwum: filtr (wszystkie / tylko moje) + stronicowanie po 5
+$archMine = ($_GET['arch'] ?? '') === 'moje';
+$archPage = max(0, (int) ($_GET['p'] ?? 0));
+$per = 5;
+$archWhere = "status='finished'" . ($archMine ? " AND id IN (SELECT challenge_id FROM challenge_players WHERE user_id=" . (int) $user['id'] . ")" : '');
+$archTotal = (int) Engine::one("SELECT COUNT(*) FROM challenges WHERE $archWhere");
+$archPages = max(1, (int) ceil($archTotal / $per));
+$archPage = min($archPage, $archPages - 1);
+$finished = Engine::all("SELECT * FROM challenges WHERE $archWhere ORDER BY id DESC LIMIT $per OFFSET " . ($archPage * $per));
+$archUrl = fn(int $pg, bool $mine) => 'wyzwania.php?' . http_build_query(array_filter(['arch' => $mine ? 'moje' : null, 'p' => $pg ?: null])) . '#archiwum';
 
 /** krótki opis podziału puli dla N graczy: płatne miejsca + pierwsze udziały */
 function split_label(int $n): string {
@@ -120,9 +130,16 @@ layout_header('Wyzwania', $user, 'challenges');
   </section>
 <?php endforeach; ?>
 
-<?php if ($finished): ?>
-  <section class="panel">
-    <h2>🏆 Rozstrzygnięte wyzwania</h2>
+<?php if ($finished || $archMine || $archTotal > 0): ?>
+  <section class="panel" id="archiwum">
+    <h2 style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">🏆 Rozstrzygnięte wyzwania
+      <span style="font-size:12px;font-weight:400;text-transform:none;letter-spacing:0;margin-left:auto">
+        <a href="<?= h($archUrl(0, false)) ?>" <?= !$archMine ? 'style="font-weight:700"' : '' ?>>Wszystkie</a> ·
+        <a href="<?= h($archUrl(0, true)) ?>" <?= $archMine ? 'style="font-weight:700"' : '' ?>>Tylko moje</a>
+        <span class="muted">(<?= $archTotal ?>)</span>
+      </span>
+    </h2>
+    <?php if (!$finished): ?><p class="muted"><?= $archMine ? 'Nie brałeś jeszcze udziału w żadnym rozstrzygniętym wyzwaniu.' : 'Jeszcze żadne wyzwanie się nie rozstrzygnęło.' ?></p><?php endif; ?>
     <?php foreach ($finished as $f): ?>
       <?php $res = Engine::all("SELECT cp.*, u.username FROM challenge_players cp JOIN users u ON u.id=cp.user_id WHERE cp.challenge_id=? ORDER BY cp.final_rank", [$f['id']]); ?>
       <h3 style="margin:14px 0 6px"><?= h($f['name']) ?> <small class="muted">(sesje #<?= (int) $f['start_session'] ?>–<?= (int) $f['end_session'] ?>, buy-in <?= money($f['buyin']) ?> PLN)</small></h3>
@@ -141,6 +158,13 @@ layout_header('Wyzwania', $user, 'challenges');
         </tbody>
       </table>
     <?php endforeach; ?>
+    <?php if ($archPages > 1): ?>
+      <p class="muted" style="margin:12px 0 0">
+        <?php if ($archPage > 0): ?><a href="<?= h($archUrl($archPage - 1, $archMine)) ?>">← nowsze</a><?php endif; ?>
+        strona <?= $archPage + 1 ?> z <?= $archPages ?>
+        <?php if ($archPage < $archPages - 1): ?><a href="<?= h($archUrl($archPage + 1, $archMine)) ?>">starsze →</a><?php endif; ?>
+      </p>
+    <?php endif; ?>
   </section>
 <?php endif; ?>
 <?php layout_footer();

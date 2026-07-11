@@ -139,8 +139,23 @@ final class Challenges
         foreach (Engine::all("SELECT * FROM challenges WHERE status='running' AND end_session < ?", [$session]) as $ch) {
             self::finish($ch, $tick);
         }
+        // serie cykliczne (np. liga co N sesji): każda otwiera zapisy nowej edycji wg własnego rytmu
+        foreach (Engine::all("SELECT * FROM challenge_series WHERE enabled=1 AND next_session <= ?", [$session]) as $s) {
+            $n = (int) $s['editions'] + 1;
+            self::create([
+                'name'        => $s['name'] . ' #' . $n,
+                'buyin'       => (float) $s['buyin'],
+                'fee_pct'     => (float) $s['fee_pct'],
+                'signup_sess' => (int) $s['signup_sess'],
+                'duration'    => (int) $s['duration'],
+                'min_players' => (int) $s['min_players'],
+            ], $session);
+            Db::pdo()->prepare("UPDATE challenge_series SET editions=?, next_session=? WHERE id=?")
+                ->execute([$n, $session + max(1, (int) $s['every_sessions']), $s['id']]);
+        }
+
         // automatyczna kolejna edycja, gdy nie ma ŻADNEJ otwartej (GM może wyłączyć w panelu;
-        // ręcznie utworzone edycje o innych stawkach żyją równolegle i wstrzymują automat)
+        // ręcznie utworzone edycje i serie żyją równolegle i wstrzymują automat)
         $auto = Engine::one("SELECT v FROM game_state WHERE k='challenge_auto'");
         $autoOn = ($auto === false || $auto === null) ? true : ((int) $auto === 1);
         if ($autoOn && !self::activeAll()) self::create(null, $session);

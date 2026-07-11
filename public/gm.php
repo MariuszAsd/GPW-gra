@@ -106,6 +106,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($a === 'challenge_auto') {
         Engine::setState('challenge_auto', ($_POST['enabled'] ?? '1') === '1' ? '1' : '0');
         flash(($_POST['enabled'] ?? '1') === '1' ? 'Automatyczne edycje wyzwań WŁĄCZONE.' : 'Automatyczne edycje wyzwań wyłączone.');
+    } elseif ($a === 'series_add') {
+        [$sess] = Engine::sessionInfo();
+        $pdo->prepare("INSERT INTO challenge_series (name, buyin, fee_pct, signup_sess, duration, min_players, every_sessions, editions, next_session, enabled, created_at)
+                       VALUES (?,?,?,?,?,?,?,0,?,1,?)")->execute([
+            mb_substr(trim($_POST['s_name'] ?? '') ?: 'Liga', 0, 55),
+            max(1000, (float) str_replace(',', '.', $_POST['s_buyin'] ?? '20000')),
+            max(0, min(50, (float) str_replace(',', '.', $_POST['s_fee'] ?? '10'))),
+            max(1, (int) ($_POST['s_signup'] ?? 2)),
+            max(1, (int) ($_POST['s_dur'] ?? 14)),
+            max(2, (int) ($_POST['s_min'] ?? 3)),
+            max(1, (int) ($_POST['s_every'] ?? 20)),
+            $sess + 1,   // pierwsza edycja otworzy się na najbliższej granicy sesji
+            Db::now(),
+        ]);
+        flash('Utworzono serię — pierwsza edycja otworzy zapisy na najbliższej granicy sesji.');
+    } elseif ($a === 'series_toggle') {
+        $pdo->prepare("UPDATE challenge_series SET enabled = 1 - enabled WHERE id=?")->execute([(int) $_POST['series_id']]);
+        flash('Przełączono serię.');
+    } elseif ($a === 'series_del') {
+        $pdo->prepare("DELETE FROM challenge_series WHERE id=?")->execute([(int) $_POST['series_id']]);
+        flash('Usunięto serię (już wydane edycje zostają).');
     } elseif ($a === 'reset') {
         $pdo->exec("UPDATE stocks SET bias=0, volatility=1, profit_trend=0");
         $pdo->exec("UPDATE sectors SET trend=0, profit_climate=0");
@@ -188,6 +209,36 @@ layout_header('Panel GM', $user, 'gm');
     <button class="btn sm <?= $chAuto ? '' : 'ghost' ?>"><?= $chAuto ? 'Auto-edycje: WŁĄCZONE (kliknij, by wyłączyć)' : 'Auto-edycje: wyłączone (kliknij, by włączyć)' ?></button>
   </form>
   <p class="muted" style="margin-top:6px">Auto-edycje: gdy nie ma aktywnego wyzwania, silnik sam otwiera zapisy na kolejną edycję (domyślne parametry) na granicy sesji.</p>
+
+  <?php $chSeries = Engine::all("SELECT * FROM challenge_series ORDER BY id"); ?>
+  <h2 style="margin-top:18px">🔁 Serie cykliczne (ligi)</h2>
+  <?php foreach ($chSeries as $sr): ?>
+    <div class="muted" style="margin:4px 0 6px">
+      <b><?= h($sr['name']) ?></b> — buy-in <?= money($sr['buyin']) ?> PLN · nowa edycja co <?= (int) $sr['every_sessions'] ?> sesji
+      · wydano edycji: <?= (int) $sr['editions'] ?> · następna: sesja #<?= (int) $sr['next_session'] ?>
+      · <b><?= (int) $sr['enabled'] === 1 ? 'aktywna' : 'wstrzymana' ?></b>
+      <form method="post" class="inline">
+        <input type="hidden" name="action" value="series_toggle"><input type="hidden" name="series_id" value="<?= (int) $sr['id'] ?>">
+        <button class="btn sm ghost"><?= (int) $sr['enabled'] === 1 ? 'Wstrzymaj' : 'Wznów' ?></button>
+      </form>
+      <form method="post" class="inline" onsubmit="return confirm('Usunąć serię? Już wydane edycje zostają.')">
+        <input type="hidden" name="action" value="series_del"><input type="hidden" name="series_id" value="<?= (int) $sr['id'] ?>">
+        <button class="btn sm ghost">Usuń</button>
+      </form>
+    </div>
+  <?php endforeach; ?>
+  <p class="muted" style="margin:8px 0 4px">Seria sama otwiera zapisy kolejnych edycji w stałym rytmie (np. „Liga tygodniowa" co 168 sesji przy sesji co godzinę):</p>
+  <form method="post" class="row" style="align-items:flex-end">
+    <input type="hidden" name="action" value="series_add">
+    <div><label>Nazwa serii</label><input name="s_name" value="Liga" style="width:140px"></div>
+    <div><label>Buy-in (PLN)</label><input type="number" min="1000" step="1000" name="s_buyin" value="20000" style="width:110px"></div>
+    <div><label>Wpisowe (%)</label><input type="number" min="0" max="50" step="1" name="s_fee" value="10" style="width:80px"></div>
+    <div><label>Co ile sesji</label><input type="number" min="1" name="s_every" value="20" style="width:80px"></div>
+    <div><label>Zapisy (sesje)</label><input type="number" min="1" name="s_signup" value="2" style="width:80px"></div>
+    <div><label>Czas trwania</label><input type="number" min="1" name="s_dur" value="14" style="width:80px"></div>
+    <div><label>Min. graczy</label><input type="number" min="2" name="s_min" value="3" style="width:70px"></div>
+    <button class="btn sm">Utwórz serię</button>
+  </form>
 
   <h2 style="margin-top:18px">Rejestracja (graczy: <?= $playerCount ?>)</h2>
   <form method="post" class="row" style="align-items:flex-end">
