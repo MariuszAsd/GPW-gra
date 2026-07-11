@@ -1,6 +1,24 @@
 <?php
 require __DIR__ . '/_boot.php';
 $user = acting_user(require_login());
+$uidReal = (int) ($user['owner_id'] ?? $user['id']);
+
+// osobisty cel gry: gracz ustawia własny próg (puste/0 = wróć do domyślnego z GM)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['set_goal'])) {
+    $g = (float) str_replace([' ', ','], ['', '.'], (string) $_POST['goal_value']);
+    if ($g <= 0) {
+        Db::pdo()->prepare("UPDATE users SET goal_target=NULL, goal_session=NULL WHERE id=?")->execute([$uidReal]);
+        flash('Wrócono do domyślnego celu gry.');
+    } elseif ($g < 1000 || $g > 1000000000) {
+        flash('Cel musi być między 1 000 a 1 000 000 000 PLN.', 'err');
+    } else {
+        // nowy cel = nowe polowanie (sesja osiągnięcia zeruje się; zdobyte odznaki zostają)
+        Db::pdo()->prepare("UPDATE users SET goal_target=?, goal_session=NULL WHERE id=?")->execute([round($g, 2), $uidReal]);
+        Engine::journal($uidReal, 'goal', '🎯 Ustawiono osobisty cel gry: ' . number_format($g, 0, ',', ' ') . ' PLN.');
+        flash('Nowy cel: ' . number_format($g, 0, ',', ' ') . ' PLN. Powodzenia!');
+    }
+    redirect('portfolio.php');
+}
 
 $pos = Engine::all("SELECT w.stock_id, s.ticker, s.name, s.price, w.qty, w.qty_reserved, w.avg_price
                     FROM wallets w JOIN stocks s ON s.id=w.stock_id
@@ -67,11 +85,12 @@ $pl = $value - $cost;
 $equity = $user['cash'] + $user['cash_reserved'] + $value;
 $plPct = $cost > 0 ? $pl / $cost * 100 : 0;
 
-// --- cel gry ---
-$goalTarget = (float) (Engine::one("SELECT v FROM game_state WHERE k='goal_target'") ?: 0);
+// --- cel gry: osobisty próg gracza ma pierwszeństwo przed domyślnym z GM ---
+$goalDefault = (float) (Engine::one("SELECT v FROM game_state WHERE k='goal_target'") ?: 0);
 $goalSessions = (int) (Engine::one("SELECT v FROM game_state WHERE k='goal_sessions'") ?: 0);
 [$sessionNo] = Engine::sessionInfo();
-$me = Engine::row("SELECT joined_session, goal_session FROM users WHERE id=?", [$user['id']]);
+$me = Engine::row("SELECT joined_session, goal_session, goal_target AS my_goal FROM users WHERE id=?", [$uidReal]);
+$goalTarget = $me['my_goal'] !== null ? (float) $me['my_goal'] : $goalDefault;
 $deadline = (int) ($me['joined_session'] ?? 1) + $goalSessions - 1;
 $sessionsLeft = $deadline - $sessionNo;
 $progress = $goalTarget > 0 ? min(100, $equity / $goalTarget * 100) : 0;
@@ -88,8 +107,8 @@ layout_header('Portfel', $user, 'portfolio');
 <div class="panel goal <?= $me['goal_session'] !== null ? 'won' : ($sessionsLeft < 0 ? 'lost' : '') ?>">
   <div class="goal-row">
     <div>
-      <h2>Cel gry</h2>
-      <div class="goal-title">Zbuduj kapitał <b><?= money($goalTarget) ?> PLN</b> w <?= $goalSessions ?> sesji</div>
+      <h2>Cel gry<?= $me['my_goal'] !== null ? ' <span class="tag">osobisty</span>' : '' ?></h2>
+      <div class="goal-title">Zbuduj kapitał <b><?= money($goalTarget) ?> PLN</b><?= $me['my_goal'] === null ? ' w ' . $goalSessions . ' sesji' : '' ?></div>
     </div>
     <div class="goal-status">
       <?php if ($me['goal_session'] !== null): ?>
@@ -103,6 +122,13 @@ layout_header('Portfel', $user, 'portfolio');
   </div>
   <div class="goalbar"><i style="width:<?= round($progress, 1) ?>%"></i></div>
   <div class="goal-nums mono"><span><?= money($equity) ?> PLN</span><span><?= number_format($progress, 1, ',', ' ') ?>%</span><span><?= money($goalTarget) ?> PLN</span></div>
+  <form method="post" class="inline" style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <input type="hidden" name="set_goal" value="1">
+    <label style="margin:0;display:inline">Twój własny cel (PLN):</label>
+    <input type="number" name="goal_value" min="0" step="10000" value="<?= $me['my_goal'] !== null ? (int) $me['my_goal'] : '' ?>" placeholder="np. 500000" style="width:140px">
+    <button class="btn sm ghost">Zapisz</button>
+    <span class="muted" style="font-size:11.5px">puste = wróć do domyślnego · zmiana zaczyna polowanie od nowa</span>
+  </form>
 </div>
 <?php endif; ?>
 
@@ -119,22 +145,22 @@ layout_header('Portfel', $user, 'portfolio');
 </div>
 
 <div class="panel" style="padding:0;overflow:hidden">
-  <div style="padding:14px 16px 0"><h2>Pozycje</h2></div>
+  <div style="padding:14px 16px 0"><h2>Pozycje w portfelu</h2></div>
   <div class="tbl-scroll">
     <table>
-      <thead><tr><th>Instrument</th><th class="num">Ilość</th><th class="num">Śr. cena</th><th class="num">Kurs</th><th class="num">Wartość</th><th class="num">Wynik</th><th>SL / TP<?= tip('Zlecenie obronne: podaj ilość i próg — gra sama sprzeda pakiet, gdy kurs spadnie do SL (ucina stratę) lub wzrośnie do TP (zgarnia zysk).', 'sl') ?></th></tr></thead>
+      <thead><tr><th>Instrument</th><th class="num">Ilość</th><th class="num hide-m">Śr. cena</th><th class="num hide-m">Kurs</th><th class="num hide-m">Wartość</th><th class="num">Wynik</th><th>SL / TP<?= tip('Zlecenie obronne: podaj ilość i próg — gra sama sprzeda pakiet, gdy kurs spadnie do SL (ucina stratę) lub wzrośnie do TP (zgarnia zysk).', 'sl') ?></th></tr></thead>
       <tbody>
       <?php foreach ($pos as $p): $q = $p['qty'] + $p['qty_reserved']; $ppl = $q * ($p['price'] - $p['avg_price']); ?>
         <tr>
           <td><div class="sym"><a class="tk" href="stock.php?id=<?= (int) $p['stock_id'] ?>"><?= h($p['ticker']) ?></a><span class="nm"><?= h($p['name']) ?></span></div>
             <?php if ($p['qty_reserved'] > 0): ?><span class="muted" style="font-size:11px"><?= (int) $p['qty_reserved'] ?> w zleceniach</span><?php endif; ?></td>
           <td class="num"><?= (int) $q ?></td>
-          <td class="num"><?= money($p['avg_price']) ?></td>
-          <td class="num"><?= money($p['price']) ?></td>
-          <td class="num"><?= money($q * $p['price']) ?></td>
+          <td class="num hide-m"><?= money($p['avg_price']) ?></td>
+          <td class="num hide-m"><?= money($p['price']) ?></td>
+          <td class="num hide-m"><?= money($q * $p['price']) ?></td>
           <td class="num <?= $ppl >= 0 ? 'up' : 'down' ?>"><?= ($ppl >= 0 ? '+' : '') . money($ppl) ?></td>
           <td>
-            <form method="post" action="set_sltp.php" style="display:flex;gap:6px;align-items:center" title="Zlecenie obronne: sprzeda podaną ilość, gdy kurs spadnie do SL lub wzrośnie do TP">
+            <form method="post" action="set_sltp.php" class="sltp-form" style="display:flex;gap:6px;align-items:center" title="Zlecenie obronne: sprzeda podaną ilość, gdy kurs spadnie do SL lub wzrośnie do TP">
               <input type="hidden" name="stock_id" value="<?= (int) $p['stock_id'] ?>">
               <input type="number" name="qty" min="1" placeholder="szt." value="<?= (int) $p['qty'] ?>" style="width:64px;padding:6px 8px">
               <input type="number" step="0.01" name="sl_price" placeholder="SL" style="width:78px;padding:6px 8px">
@@ -153,7 +179,7 @@ layout_header('Portfel', $user, 'portfolio');
   <div style="padding:14px 16px 0"><h2>Aktywne zlecenia <span class="muted" style="text-transform:none;letter-spacing:0">· kliknij wiersz, aby zobaczyć szczegóły</span></h2></div>
   <div class="tbl-scroll">
     <table>
-      <thead><tr><th>Instrument</th><th>Typ</th><th class="num">Ilość</th><th class="num">Cena</th><th>Ważność</th><th></th></tr></thead>
+      <thead><tr><th>Instrument</th><th>Typ</th><th class="num">Ilość</th><th class="num">Cena</th><th class="hide-m">Ważność</th><th></th></tr></thead>
       <tbody>
       <?php foreach ($orders as $o): $isStop = $o['status'] === 'pending'; ?>
         <tr class="rowlink" onclick="location='order.php?id=<?= (int) $o['id'] ?>'" title="Kliknij — szczegóły zlecenia">
@@ -162,7 +188,7 @@ layout_header('Portfel', $user, 'portfolio');
               <?php else: ?><span class="chg <?= $o['side'] === 'buy' ? 'p' : 'n' ?>"><?= $o['side'] === 'buy' ? 'KUPNO' : 'SPRZEDAŻ' ?></span><?php endif; ?></td>
           <td class="num"><?= (int) $o['qty'] ?></td>
           <td class="num"><?php if ($isStop): ?><span class="mono" style="font-size:12px"><?= $o['sl_price'] !== null ? 'SL ' . money($o['sl_price']) : '' ?><?= $o['sl_price'] !== null && $o['tp_price'] !== null ? ' · ' : '' ?><?= $o['tp_price'] !== null ? 'TP ' . money($o['tp_price']) : '' ?></span><?php else: ?><?= money($o['price']) ?><?php endif; ?></td>
-          <td class="muted"><?= $isStop ? 'do wyzwolenia' : ($o['expires_session'] !== null ? 'sesja #' . (int) $o['expires_session'] : 'bezterm.') ?></td>
+          <td class="muted hide-m"><?= $isStop ? 'do wyzwolenia' : ($o['expires_session'] !== null ? 'sesja #' . (int) $o['expires_session'] : 'bezterm.') ?></td>
           <td style="text-align:right"><form method="post" action="cancel_order.php" onclick="event.stopPropagation()"><input type="hidden" name="order_id" value="<?= (int) $o['id'] ?>"><button class="btn sm ghost">Anuluj</button></form></td>
         </tr>
       <?php endforeach; if (!$orders) echo "<tr><td class='muted' colspan=6 style='padding:20px'>Brak aktywnych zleceń.</td></tr>"; ?>
@@ -177,14 +203,14 @@ layout_header('Portfel', $user, 'portfolio');
     <span style="float:right" class="mono <?= $realizedTotal >= 0 ? 'up' : 'down' ?>"><?= ($realizedTotal >= 0 ? '+' : '') . money($realizedTotal) ?> PLN</span></h2></div>
   <div class="tbl-scroll">
     <table>
-      <thead><tr><th>Instrument</th><th class="num">Sprzedane</th><th class="num">Śr. koszt</th><th class="num">Śr. sprzedaż (netto)</th><th class="num">Zrealizowany wynik</th></tr></thead>
+      <thead><tr><th>Instrument</th><th class="num hide-m">Sprzedane</th><th class="num hide-m">Śr. koszt</th><th class="num hide-m">Śr. sprzedaż (netto)</th><th class="num">Zrealizowany wynik</th></tr></thead>
       <tbody>
       <?php foreach ($closed as $sid2 => $c): ?>
         <tr class="rowlink" onclick="location='stock.php?id=<?= (int) $sid2 ?>'">
           <td><div class="sym"><span class="tk"><?= h($c['ticker']) ?></span><span class="nm"><?= h($c['name']) ?></span></div></td>
-          <td class="num"><?= (int) $c['sold'] ?> szt.</td>
-          <td class="num"><?= money($c['cost'] / max(1, $c['sold'])) ?></td>
-          <td class="num"><?= money($c['net'] / max(1, $c['sold'])) ?></td>
+          <td class="num hide-m"><?= (int) $c['sold'] ?> szt.</td>
+          <td class="num hide-m"><?= money($c['cost'] / max(1, $c['sold'])) ?></td>
+          <td class="num hide-m"><?= money($c['net'] / max(1, $c['sold'])) ?></td>
           <td class="num <?= $c['pl'] >= 0 ? 'up' : 'down' ?>"><b><?= ($c['pl'] >= 0 ? '+' : '') . money($c['pl']) ?></b></td>
         </tr>
       <?php endforeach; ?>
@@ -198,7 +224,7 @@ layout_header('Portfel', $user, 'portfolio');
   <div style="padding:14px 16px 0"><h2>Historia transakcji</h2></div>
   <div class="tbl-scroll">
     <table>
-      <thead><tr><th>Czas</th><th>Instrument</th><th>Strona</th><th class="num">Ilość</th><th class="num">Kurs</th><th class="num">Wartość</th></tr></thead>
+      <thead><tr><th>Czas</th><th>Instrument</th><th>Strona</th><th class="num">Ilość</th><th class="num">Kurs</th><th class="num hide-m">Wartość</th></tr></thead>
       <tbody>
       <?php foreach ($history as $t): $isBuy = (int) $t['buyer_id'] === (int) $user['id']; $v = $t['qty'] * $t['price'];
             $myOrder = $isBuy ? ($t['buy_order_id'] ?? null) : ($t['sell_order_id'] ?? null); ?>
@@ -208,7 +234,7 @@ layout_header('Portfel', $user, 'portfolio');
           <td><span class="chg <?= $isBuy ? 'p' : 'n' ?>"><?= $isBuy ? 'KUPNO' : 'SPRZEDAŻ' ?></span></td>
           <td class="num"><?= (int) $t['qty'] ?></td>
           <td class="num"><?= money($t['price']) ?></td>
-          <td class="num"><?= money($v) ?></td>
+          <td class="num hide-m"><?= money($v) ?></td>
         </tr>
       <?php endforeach; if (!$history) echo "<tr><td class='muted' colspan=6 style='padding:20px'>Jeszcze nic nie kupiłeś ani nie sprzedałeś.</td></tr>"; ?>
       </tbody>
@@ -220,23 +246,35 @@ layout_header('Portfel', $user, 'portfolio');
   <div style="padding:14px 16px 0"><h2>Archiwum zleceń <span class="muted" style="text-transform:none;letter-spacing:0">· kliknij wiersz — pełna oś czasu: co, kiedy i dlaczego</span></h2></div>
   <div class="tbl-scroll">
     <table>
-      <thead><tr><th>Czas</th><th>Instrument</th><th>Strona</th><th class="num">Zrealizowano</th><th class="num">Cena limit</th><th>Status</th></tr></thead>
+      <thead><tr><th class="hide-m">Czas</th><th>Instrument</th><th>Strona</th><th>Status</th><th class="num hide-m">Obrót</th><th></th></tr></thead>
       <tbody>
       <?php
       $stLabel = ['filled' => ['zrealizowane', 'up'], 'cancelled' => ['anulowane', 'muted'], 'expired' => ['wygasłe', 'muted'],
-                  'triggered' => ['SL/TP wyzwolone → sprzedaż', 'soft']];
+                  'triggered' => ['SL/TP wyzwolone', 'soft']];
+      // obrót zrealizowany per zlecenie (suma transakcji podpiętych do zlecenia) — szczegóły w osi czasu
+      $ids = array_map(fn($o) => (int) $o['id'], $archive);
+      $turn = [];
+      if ($ids) {
+          $ph = implode(',', array_fill(0, count($ids), '?'));
+          foreach (Engine::all("SELECT COALESCE(buy_order_id, sell_order_id) oid, SUM(qty*price) v
+                                FROM transactions WHERE buy_order_id IN ($ph) OR sell_order_id IN ($ph)
+                                GROUP BY COALESCE(buy_order_id, sell_order_id)", array_merge($ids, $ids)) as $r) {
+              $turn[(int) $r['oid']] = (float) $r['v'];
+          }
+      }
       foreach ($archive as $o):
           [$lbl, $cls] = $stLabel[$o['status']] ?? [$o['status'], 'muted'];
-          $init = (int) $o['qty_init']; $done = $init > 0 ? $init - (int) $o['qty'] : null;
-          if ($done !== null && $done > 0 && $o['status'] !== 'filled' && $o['status'] !== 'triggered') { $lbl .= ' (część zrealizowana)'; $cls = 'soft'; }
+          $init = (int) $o['qty_init']; $done = $init > 0 ? $init - (int) $o['qty'] : 0;
+          if ($done > 0 && !in_array($o['status'], ['filled', 'triggered'], true)) { $lbl .= ' (częściowo)'; $cls = 'soft'; }
+          $v = $turn[(int) $o['id']] ?? 0.0;
       ?>
-        <tr class="rowlink" onclick="location='order.php?id=<?= (int) $o['id'] ?>'" title="Kliknij — szczegóły i oś czasu zlecenia">
-          <td class="muted mono"><?= h(substr($o['created_at'], 5, 11)) ?></td>
+        <tr class="rowlink" onclick="location='order.php?id=<?= (int) $o['id'] ?>'">
+          <td class="muted mono hide-m"><?= h(substr($o['created_at'], 5, 11)) ?></td>
           <td class="tk"><?= h($o['ticker']) ?></td>
           <td><span class="chg <?= $o['side'] === 'buy' ? 'p' : 'n' ?>"><?= $o['side'] === 'buy' ? 'KUPNO' : 'SPRZEDAŻ' ?></span></td>
-          <td class="num"><?= $o['status'] === 'triggered' ? (int) $o['qty'] . ' szt.' : ($done !== null ? "$done / $init szt." : ($o['status'] === 'filled' ? 'w całości' : '—')) ?></td>
-          <td class="num"><?php if ($o['status'] === 'triggered'): ?><span class="mono" style="font-size:12px"><?= $o['sl_price'] !== null ? 'SL ' . money($o['sl_price']) : '' ?><?= $o['sl_price'] !== null && $o['tp_price'] !== null ? ' · ' : '' ?><?= $o['tp_price'] !== null ? 'TP ' . money($o['tp_price']) : '' ?></span><?php else: ?><?= money($o['price']) ?><?php endif; ?></td>
           <td class="<?= $cls ?>"><?= h($lbl) ?></td>
+          <td class="num hide-m"><?= $v > 0 ? money($v) . ' PLN' : '<span class="muted">—</span>' ?></td>
+          <td style="text-align:right;padding-right:14px"><a class="btn sm ghost" href="order.php?id=<?= (int) $o['id'] ?>" onclick="event.stopPropagation()">Szczegóły →</a></td>
         </tr>
       <?php endforeach; if (!$archive) echo "<tr><td class='muted' colspan=6 style='padding:20px'>Brak zakończonych zleceń.</td></tr>"; ?>
       </tbody>

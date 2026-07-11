@@ -69,9 +69,11 @@ $daily = $nSess > 0
     ? array_reverse(Engine::all("SELECT o,h,l,c,v FROM candles_daily WHERE stock_id=? ORDER BY session DESC LIMIT " . $nSess, [$id]))
     : Engine::all("SELECT o,h,l,c,v FROM candles_daily WHERE stock_id=? ORDER BY session ASC", [$id]);
 
+$total = (int) Engine::one("SELECT COUNT(*) FROM candles_daily WHERE stock_id=?", [$id]);
 if (count($daily) < 3) {
     // świat jeszcze nie uzbierał świec dziennych — pokaż całą dostępną historię tickową
-    echo json_encode(['ok' => true, 'range' => $range, 'fallback' => 'intraday', 'candles' => intraday($id, 20000, $maxBars)]);
+    echo json_encode(['ok' => true, 'range' => $range, 'fallback' => 'intraday', 'days' => $total, 'candles' => intraday($id, 20000, $maxBars)]);
     exit;
 }
-echo json_encode(['ok' => true, 'range' => $range, 'candles' => bucket($daily, (int) ceil(count($daily) / $maxBars))]);
+echo json_encode(['ok' => true, 'range' => $range, 'days' => count($daily), 'days_total' => $total,
+                  'candles' => bucket($daily, (int) ceil(count($daily) / $maxBars))]);

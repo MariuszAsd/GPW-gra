@@ -54,8 +54,9 @@ $watchPremium = Tokens::hasPass($uid, 'analityk');
 $news = Engine::all("SELECT id, headline, type, published_at FROM news ORDER BY id DESC LIMIT 4");
 $notifs = Engine::all("SELECT message, link, created_at, read_at FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 4", [$uid]);
 
-// cel gry
-$goalTarget = (float) (Engine::one("SELECT v FROM game_state WHERE k='goal_target'") ?: 0);
+// cel gry (osobisty próg gracza ma pierwszeństwo; zmiana w Portfelu)
+$myGoal = Engine::one("SELECT goal_target FROM users WHERE id=?", [$uid]);
+$goalTarget = ($myGoal !== false && $myGoal !== null) ? (float) $myGoal : (float) (Engine::one("SELECT v FROM game_state WHERE k='goal_target'") ?: 0);
 $progress = $goalTarget > 0 ? min(100, $equity / $goalTarget * 100) : 0;
 
 layout_header('Pulpit', $user, 'home');
@@ -66,7 +67,7 @@ layout_header('Pulpit', $user, 'home');
   <?php if ($mhOn): ?>
     <span class="tag" style="<?= $mhIsOpen ? 'color:var(--up);border-color:var(--up)' : 'color:var(--faint)' ?>"><?= $mhIsOpen ? "rynek otwarty do $mhClose" : "rynek zamknięty · otwarcie $mhOpen" ?></span>
   <?php endif; ?>
-  <a class="btn sm ghost" style="margin-left:auto" href="samouczek.php">Samouczek</a>
+  <a class="btn sm" style="margin-left:auto;width:auto" href="samouczek.php">🎓 Samouczek</a>
 </div>
 
 <div class="stats">
@@ -94,7 +95,7 @@ layout_header('Pulpit', $user, 'home');
 <?php if ($goalTarget > 0): ?>
 <div class="panel" style="margin-bottom:16px;padding:12px 16px">
   <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-    <b>Cel gry: <?= money_short($goalTarget) ?> PLN</b>
+    <b>Cel gry: <?= money_short($goalTarget) ?> PLN <a href="portfolio.php" class="muted" style="font-weight:400;font-size:11.5px">(zmień w Portfelu)</a></b>
     <span class="muted mono"><?= number_format($progress, 1, ',', ' ') ?>%</span>
   </div>
   <div style="background:var(--bg3);border-radius:20px;height:8px;margin-top:8px;overflow:hidden">

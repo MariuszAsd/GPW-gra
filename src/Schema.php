@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 22;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 23;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -33,6 +33,7 @@ final class Schema
                 start_equity   $money NOT NULL DEFAULT 0, -- kapitał startowy (baza do wyniku % w rankingu)
                 tokens INT NOT NULL DEFAULT 0,             -- Żetony Maklera (waluta premium; księga w token_ledger)
                 email VARCHAR(120) NULL,                   -- do odzyskiwania hasła (opcjonalny; unikalny gdy podany)
+                goal_target DECIMAL(15,2) NULL,            -- osobisty cel gry (NULL = domyślny z panelu GM)
                 -- kosmetyka (założone przedmioty; katalog w src/Cosmetics.php):
                 title      VARCHAR(40) NOT NULL DEFAULT '',  -- tytuł przy nicku (ranking/profil)
                 chat_color VARCHAR(7)  NOT NULL DEFAULT '',  -- kolor nicka na czacie (#rrggbb)

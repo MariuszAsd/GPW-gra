@@ -345,6 +345,10 @@ final class Migrator
                 "CREATE UNIQUE INDEX ux_users_email ON users (email)",
                 "CREATE INDEX ix_pwreset ON password_resets (token_hash)",
             ],
+            // v23: osobisty cel gry (gracz może zmienić próg; NULL = domyślny GM)
+            23 => [
+                "ALTER TABLE users ADD COLUMN goal_target DECIMAL(15,2) NULL",
+            ],
         ];
     }
 

@@ -47,7 +47,7 @@ $hasRaport = Tokens::hasPass($uidReal, 'raport');
 $chartSvg = "<div style='padding:40px;text-align:center;color:var(--faint)'>Zbieram dane do wykresu…</div>";
 if (count($candles) > 1) {
     // układ: góra 10..186 ceny, 192..236 słupki wolumenu (klasyka aplikacji tradingowych)
-    $W = 680; $H = 240; $pl = 4; $pr = 4; $pt = 10; $pb = 54; $volTop = 192; $volH = 44;
+    $W = 680; $H = 240; $pl = 16; $pr = 16; $pt = 12; $pb = 54; $volTop = 192; $volH = 44;
     $lows = array_map(fn($c) => (float) $c['l'], $candles);
     $highs = array_map(fn($c) => (float) $c['h'], $candles);
     $mn = min($lows); $mx = max($highs); $rng = ($mx - $mn) ?: 1;
@@ -104,6 +104,7 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
           <button data-type="candles" class="on">Świece</button>
           <button data-type="line">Linia</button>
         </div>
+        <div class="cgrp"><button id="cg-at" title="Nakładka analizy technicznej: średnie kroczące SMA 20 (niebieska) i SMA 50 (złota)">AT</button></div>
         <span class="muted" style="font-size:11px;margin-left:auto" id="cg-note">1D = bieżąca sesja · dłuższe zakresy = świece dzienne</span>
       </div>
       <div id="chartbox"><?= $chartSvg ?></div>
@@ -358,11 +359,27 @@ document.getElementById('tt-pkc').onclick=()=>setType('market');
 qty.oninput=upd; price.oninput=upd; upd();
 // wykres: rysowanie w przeglądarce (świece/linia, interwał) + auto-odświeżanie
 const chartBox=document.getElementById('chartbox');
-let cRange='d', cType='candles';
+const chartNote=document.getElementById('cg-note');
+let cRange='d', cType='candles', cAT=false;
+try{ cAT=localStorage.getItem('chart_at')==='1'; }catch(e){}
+function sma(cs,p){ const out=[]; let sum=0;
+  for(let i=0;i<cs.length;i++){ sum+=cs[i].c; if(i>=p) sum-=cs[i-p].c; out.push(i>=p-1?sum/p:null); }
+  return out; }
+const RANGE_LBL={d:'1D — bieżąca sesja',t:'1T — tydzień',m:'1M — miesiąc',r:'1R — rok',max:'MAX — cała historia'};
 async function drawChart(){ try{
   const j=await (await fetch('api_chart.php?id=<?= $id ?>&range='+cRange)).json();
-  if(!j.ok||j.candles.length<2) return;
-  const W=680,H=240,pl=4,pr=4,pt=10,pb=54,volTop=192,volH=44,cs=j.candles,n=cs.length;
+  if(!j.ok) return;
+  if(chartNote){
+    let n=RANGE_LBL[cRange]||'';
+    if(cRange!=='d'){ n+=' · świec dziennych: '+(j.days??j.candles.length);
+      if(j.fallback||(j.days_total!==undefined&&j.days_total<8)) n+=' (świat gry jest młody — historia dopiero się buduje)'; }
+    chartNote.textContent=n;
+  }
+  if(j.candles.length<2){
+    chartBox.innerHTML='<div style="padding:40px;text-align:center;color:var(--faint)">Za mało danych dla tego zakresu — wróć za kilka sesji.</div>';
+    return;
+  }
+  const W=680,H=240,pl=16,pr=16,pt=12,pb=54,volTop=192,volH=44,cs=j.candles,n=cs.length;
   let mn,mx;
   if(cType==='line'){ const v=cs.map(c=>c.c); mn=Math.min(...v); mx=Math.max(...v); }
   else { mn=Math.min(...cs.map(c=>c.l)); mx=Math.max(...cs.map(c=>c.h)); }
@@ -387,8 +404,23 @@ async function drawChart(){ try{
       s+='<line x1="'+x.toFixed(1)+'" x2="'+x.toFixed(1)+'" y1="'+yv(c.h)+'" y2="'+yv(c.l)+'" stroke="'+col+'" stroke-width="1"/>';
       s+='<rect x="'+(x-bw/2).toFixed(1)+'" y="'+top.toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+bh.toFixed(1)+'" fill="'+col+'"/>'; }
   }
+  if(cAT&&n>=8){   // nakładka AT: dwie średnie kroczące — okresy kurczą się przy krótkiej historii
+    const p1=Math.min(20,Math.max(3,Math.floor(n/3))), p2=Math.min(50,Math.max(p1+2,Math.floor(2*n/3)));
+    let drawn=[];
+    for(const [p,col] of [[p1,'var(--accent)'],[p2,'var(--gold)']]){
+      if(n<p+1) continue;
+      const m=sma(cs,p), pts=[];
+      for(let i=0;i<n;i++) if(m[i]!==null) pts.push((pl+i*slot+slot/2).toFixed(1)+','+yv(m[i]));
+      if(pts.length>1){ s+='<polyline points="'+pts.join(' ')+'" fill="none" stroke="'+col+'" stroke-width="1.4" opacity="0.85" stroke-linejoin="round"/>'; drawn.push(p); }
+    }
+    if(drawn.length&&chartNote) chartNote.textContent+=' · AT: SMA '+drawn.join('/');
+  }
   chartBox.innerHTML=s+'</svg>';
 }catch(e){} }
+const atBtn=document.getElementById('cg-at');
+if(atBtn){ atBtn.classList.toggle('on',cAT);
+  atBtn.onclick=()=>{ cAT=!cAT; atBtn.classList.toggle('on',cAT);
+    try{ localStorage.setItem('chart_at',cAT?'1':'0'); }catch(e){} drawChart(); }; }
 document.querySelectorAll('#cg-range button').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('#cg-range button').forEach(x=>x.classList.remove('on'));
   b.classList.add('on'); cRange=b.dataset.range||'d'; drawChart(); });

@@ -922,14 +922,16 @@ final class Engine
         self::setState('session', (string) $n);
     }
 
-    /** Cel gry: gdy kapitał gracza (equity) osiągnie próg — zapisz sesję sukcesu + komunikat. */
+    /** Cel gry: gdy kapitał gracza (equity) osiągnie JEGO próg — zapisz sesję sukcesu + komunikat.
+     *  Próg = osobisty cel gracza (users.goal_target) albo domyślny z panelu GM. */
     private static function checkGoal(int $tick): void
     {
-        $target = (float) (self::one("SELECT v FROM game_state WHERE k='goal_target'") ?: 0);
-        if ($target <= 0) return;
+        $default = (float) (self::one("SELECT v FROM game_state WHERE k='goal_target'") ?: 0);
         [$session] = self::sessionInfo($tick);
-        $players = self::all("SELECT id, username, cash, cash_reserved FROM users WHERE is_bot=0 AND role='player' AND goal_session IS NULL");
+        $players = self::all("SELECT id, username, cash, cash_reserved, goal_target FROM users WHERE is_bot=0 AND role='player' AND goal_session IS NULL");
         foreach ($players as $p) {
+            $target = $p['goal_target'] !== null ? (float) $p['goal_target'] : $default;
+            if ($target <= 0) continue;
             $stockVal = (float) (self::one(
                 "SELECT COALESCE(SUM((w.qty + w.qty_reserved) * s.price), 0) FROM wallets w JOIN stocks s ON s.id = w.stock_id WHERE w.user_id = ?",
                 [$p['id']]

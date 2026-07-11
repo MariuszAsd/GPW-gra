@@ -199,7 +199,13 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
            . " · <a href='wyzwania.php?ctx=0'>wróć na konto główne</a></div>";
     }
     echo "<main class='wrap'>";
-    if ($flash) echo "<div class='flash " . h($flash['t']) . "'>" . h($flash['m']) . "</div>";
+    // komunikaty jako toast (popup): widoczne też po powrocie z formularza na mobile,
+    // znikają same po 5 s albo po tapnięciu
+    if ($flash) {
+        $fi = ['ok' => '✓', 'err' => '✕', 'info' => 'ℹ'][$flash['t']] ?? 'ℹ';
+        echo "<div class='flash toast " . h($flash['t']) . "' onclick='this.remove()' role='status'><b class='fi'>$fi</b><span>" . h($flash['m']) . "</span></div>";
+        echo "<script>setTimeout(()=>{var t=document.querySelector('.flash.toast');if(t){t.classList.add('bye');setTimeout(()=>t.remove(),350)}},5000);</script>";
+    }
 }
 function layout_footer(): void {
     echo "<div class='foot'>GPW-gra · symulacja giełdy · kursy fikcyjne</div>";

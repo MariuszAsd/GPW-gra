@@ -478,3 +478,34 @@ td.nowrap{white-space:nowrap}
   border:0;background:var(--bg3);color:var(--soft);font-size:15px;cursor:pointer;
   align-items:center;justify-content:center;font-family:inherit}
 @media(max-width:760px){ .sheet-close{display:inline-flex} }   /* po regule bazowej — kolejność ma znaczenie */
+
+/* ---------- Toast (popup komunikatów po akcjach) ---------- */
+.flash.toast{position:fixed;top:66px;left:50%;transform:translateX(-50%);z-index:70;
+  display:flex;align-items:flex-start;gap:10px;min-width:240px;max-width:min(92vw,460px);
+  box-shadow:var(--shadow);cursor:pointer;margin:0;animation:toastIn .28s cubic-bezier(.3,.9,.4,1.2);
+  background:var(--bg2)}
+.flash.toast .fi{width:20px;height:20px;border-radius:50%;flex:none;display:inline-flex;align-items:center;
+  justify-content:center;font-size:11px;font-weight:800;color:#fff;margin-top:1px}
+.flash.toast.ok .fi{background:var(--up)} .flash.toast.err .fi{background:var(--down)} .flash.toast.info .fi{background:var(--accent)}
+.flash.toast.bye{opacity:0;transform:translate(-50%,-10px);transition:opacity .3s,transform .3s}
+@keyframes toastIn{from{opacity:0;transform:translate(-50%,-14px)}to{opacity:1;transform:translate(-50%,0)}}
+@media(max-width:760px){.flash.toast{top:60px;width:calc(100vw - 24px)}}
+
+/* menu zamykania podpowiedzi: na mobile przyciski w osobnej linii, bez nachodzenia */
+.expl-menu .btn{margin:2px 6px 2px 0}
+@media(max-width:760px){
+  .expl-menu{display:block;margin:8px 0 0;line-height:2.1}
+  .expl-x{top:6px;right:6px}
+}
+
+/* formularz SL/TP w pozycjach: na mobile zawija się zamiast rozpychać tabelę */
+@media(max-width:760px){
+  .sltp-form{flex-wrap:wrap;max-width:172px}
+  .sltp-form input{width:76px !important;padding:8px 8px !important;font-size:14px}
+  .sltp-form input[name=qty]{width:60px !important}
+}
+
+/* SVG z viewBox zgłasza szerokość wewnętrzną (ratio × height) i rozpycha kolumny
+   grida do content-min — pozwól elementom siatek kurczyć się poniżej zawartości */
+.stock-grid>*,.market-grid>*,.gm-grid>*,.book>*{min-width:0}
+.chart,.idx-chart,.spark{max-width:100%}
