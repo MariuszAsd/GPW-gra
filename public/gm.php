@@ -136,6 +136,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         Engine::setState('ipo_every_sessions', (string) max(0, (int) ($_POST['ipo_every'] ?? Ipo::DEFAULT_EVERY)));
         Engine::setState('ipo_target', (string) max(1, (int) ($_POST['ipo_target'] ?? Ipo::DEFAULT_TARGET)));
         flash('Zapisano rytm debiutów.');
+    } elseif ($a === 'hours_cfg') {
+        $en = ($_POST['mh_enabled'] ?? '1') === '1';
+        $vt = fn($v, $def) => preg_match('/^([01]?\d|2[0-3]):[0-5]\d$/', (string) $v) ? $v : $def;
+        Engine::setState('market_hours_enabled', $en ? '1' : '0');
+        Engine::setState('market_open_time', $vt($_POST['mh_open'] ?? '', '07:50'));
+        Engine::setState('market_close_time', $vt($_POST['mh_close'] ?? '', '22:00'));
+        flash($en ? 'Godziny handlu zapisane — poza nimi świat gry stoi.' : 'Godziny handlu WYŁĄCZONE — rynek działa całą dobę.');
     } elseif ($a === 'reset') {
         $pdo->exec("UPDATE stocks SET bias=0, volatility=1, profit_trend=0");
         $pdo->exec("UPDATE sectors SET trend=0, profit_climate=0");
@@ -270,6 +277,22 @@ layout_header('Panel GM', $user, 'gm');
     <input type="number" min="0" name="ipo_every" value="<?= $ipoEvery ?>" style="width:70px">
     <label style="display:inline">cel spółek:</label>
     <input type="number" min="1" name="ipo_target" value="<?= $ipoTarget ?>" style="width:80px">
+    <button class="btn sm">Zapisz</button>
+  </form>
+
+  <?php [$mhOn, $mhOpen2, $mhClose2] = Engine::marketHours(); ?>
+  <h2 style="margin-top:18px">🕐 Godziny handlu — teraz: <?= Engine::marketIsOpen() ? '<span class="up">rynek otwarty</span>' : '<span class="down">rynek zamknięty</span>' ?>
+    <span class="muted" style="font-size:12px">(czas PL: <?= Engine::nowWarsaw()->format('H:i') ?>)</span></h2>
+  <p class="muted" style="margin:4px 0 8px">Poza godzinami handlu świat gry stoi: kursy zamrożone, boty śpią, zlecenia graczy odrzucane. Sesja = jeden dzień giełdowy (rolluje się na pierwszym ticku po otwarciu).</p>
+  <form method="post" class="row" style="align-items:flex-end">
+    <input type="hidden" name="action" value="hours_cfg">
+    <div><label>Włączone</label>
+      <select name="mh_enabled" style="width:120px">
+        <option value="1" <?= $mhOn ? 'selected' : '' ?>>tak</option>
+        <option value="0" <?= $mhOn ? '' : 'selected' ?>>nie (24/7)</option>
+      </select></div>
+    <div><label>Otwarcie</label><input name="mh_open" value="<?= h($mhOpen2) ?>" style="width:80px" placeholder="07:50"></div>
+    <div><label>Zamknięcie</label><input name="mh_close" value="<?= h($mhClose2) ?>" style="width:80px" placeholder="22:00"></div>
     <button class="btn sm">Zapisz</button>
   </form>
 

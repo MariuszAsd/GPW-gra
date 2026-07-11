@@ -42,7 +42,12 @@ $ask = []; foreach (Engine::all("SELECT stock_id, MIN(price) p FROM orders WHERE
 
 layout_header('Rynek', $user, 'market');
 ?>
-<div class="page-head"><h1>Rynek</h1><span class="tag" style="color:var(--accent);border-color:var(--accent)">Sesja #<?= $sessionNo ?></span><span class="muted">zmiana liczona od otwarcia sesji · kliknij, aby handlować</span></div>
+<?php [$mhOn, $mhOpen, $mhClose] = Engine::marketHours(); $mhIsOpen = Engine::marketIsOpen(); ?>
+<div class="page-head"><h1>Rynek</h1><span class="tag" style="color:var(--accent);border-color:var(--accent)">Sesja #<?= $sessionNo ?></span>
+  <?php if ($mhOn): ?>
+    <span class="tag" style="<?= $mhIsOpen ? 'color:var(--up);border-color:var(--up)' : 'color:var(--faint)' ?>"><?= $mhIsOpen ? "🔔 otwarty do $mhClose" : "🌙 zamknięty · otwarcie $mhOpen" ?></span>
+  <?php endif; ?>
+  <span class="muted">zmiana liczona od otwarcia sesji · kliknij, aby handlować</span></div>
 
 <?php if ($event): $neg = $event['type'] === 'NEG'; $left = (int) $event['expire_tick'] - $tickNow; ?>
 <div class="panel" style="margin-bottom:16px;border-left:3px solid var(--<?= $neg ? 'down' : 'up' ?>);background:var(--<?= $neg ? 'down' : 'up' ?>-bg)">

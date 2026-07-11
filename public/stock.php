@@ -172,6 +172,9 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
 
   <aside class="panel orderpanel">
     <h2>Zlecenie</h2>
+    <?php if (!Engine::marketIsOpen() && !in_array($user['role'] ?? '', ['admin', 'qa'], true)): [, $mhO, $mhC] = Engine::marketHours(); ?>
+      <p class="flash info" style="margin:0 0 10px">🌙 Giełda zamknięta — handel trwa <?= h($mhO) ?>–<?= h($mhC) ?>. Zlecenia złożysz po otwarciu.</p>
+    <?php endif; ?>
     <form method="post" action="place_order.php">
       <input type="hidden" name="stock_id" value="<?= $id ?>">
       <input type="hidden" name="side" id="side" value="buy">

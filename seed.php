@@ -36,6 +36,9 @@ Engine::setState('event_chance', '900');       // duże wydarzenia: 1/N na tick 
 Engine::setState('event_cooldown', '600');     // min. odstęp między dużymi wydarzeniami (10h)
 Engine::setState('minor_event_chance', '70');   // mniejsze wydarzenia (sektor/spółka): ~co godzinę
 Engine::setState('minor_event_cooldown', '20'); // min. odstęp mniejszych wydarzeń
+Engine::setState('market_hours_enabled', '1');  // giełda otwarta jak prawdziwa: sesja = dzień giełdowy
+Engine::setState('market_open_time', '07:50');
+Engine::setState('market_close_time', '22:00');
 $log("✔ konta: gracz/haslo123, admin/admin123 · cel gry: 1M PLN w 60 sesji");
 
 // --- SEKTORY (8 branż) ---

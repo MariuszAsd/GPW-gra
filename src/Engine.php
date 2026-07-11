@@ -713,11 +713,53 @@ final class Engine
         if ($t % 500 === 0) Db::pdo()->prepare("DELETE FROM equity_history WHERE t < ?")->execute([$t - 10000]);
     }
 
+    /* ---------- Godziny handlu (rynek otwarty jak prawdziwa giełda) ---------- */
+
+    /** [włączone?, otwarcie 'HH:MM', zamknięcie 'HH:MM']. Domyślnie WŁĄCZONE 07:50-22:00 (czas polski). */
+    public static function marketHours(): array
+    {
+        $en = self::one("SELECT v FROM game_state WHERE k='market_hours_enabled'");
+        if ($en === false || $en === null) { $en = '1'; self::setState('market_hours_enabled', '1'); }
+        $open  = (string) (self::one("SELECT v FROM game_state WHERE k='market_open_time'") ?: '07:50');
+        $close = (string) (self::one("SELECT v FROM game_state WHERE k='market_close_time'") ?: '22:00');
+        return [(int) $en === 1, $open, $close];
+    }
+
+    public static function nowWarsaw(): \DateTime
+    {
+        return new \DateTime('now', new \DateTimeZone('Europe/Warsaw'));
+    }
+
+    /** Czy giełda jest teraz otwarta? ($hm do testów: 'HH:MM' zamiast zegara) */
+    public static function marketIsOpen(?string $hm = null): bool
+    {
+        [$en, $open, $close] = self::marketHours();
+        if (!$en) return true;
+        $hm = $hm ?? self::nowWarsaw()->format('H:i');
+        return $hm >= $open && $hm < $close;
+    }
+
     /* ---------- Sesje giełdowe i cel gry ---------- */
 
-    /** [numer sesji, ticków do końca sesji, długość sesji] dla danego ticku. */
+    /**
+     * [numer sesji, ile zostało do końca, długość sesji].
+     * Przy włączonych godzinach handlu sesja = dzień giełdowy: numer trzymany w stanie,
+     * "zostało" to minuty do zamknięcia (0 po zamknięciu), długość = minuty dnia handlu.
+     * Bez godzin handlu (lokalne testy): sesja = ticks_per_session ticków, jak dotąd.
+     */
     public static function sessionInfo(?int $tick = null): array
     {
+        [$en, $open, $close] = self::marketHours();
+        if ($en) {
+            $n = max(1, (int) (self::one("SELECT v FROM game_state WHERE k='session'") ?: 1));
+            [$oh, $om] = array_map('intval', explode(':', $open));
+            [$ch, $cm] = array_map('intval', explode(':', $close));
+            $dayLen = max(1, ($ch * 60 + $cm) - ($oh * 60 + $om));
+            $now = self::nowWarsaw();
+            $cur = (int) $now->format('H') * 60 + (int) $now->format('i');
+            $left = ($cur >= $oh * 60 + $om && $cur < $ch * 60 + $cm) ? ($ch * 60 + $cm - $cur) : 0;
+            return [$n, $left, $dayLen];
+        }
         $tps = max(1, (int) (self::one("SELECT v FROM game_state WHERE k='ticks_per_session'") ?: 20));
         if ($tick === null) $tick = (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
         $n = intdiv(max(0, $tick), $tps) + 1;
@@ -727,9 +769,28 @@ final class Engine
     /** Na otwarciu nowej sesji: kurs otwarcia dnia + wygaśnięcie zleceń sesyjnych (ze zwrotem escrow). */
     private static function rollSession(int $tick): void
     {
-        [$n] = self::sessionInfo($tick);
-        $prev = (int) (self::one("SELECT v FROM game_state WHERE k='session'") ?: 0);
-        if ($n === $prev) return;
+        [$hoursOn] = self::marketHours();
+        if ($hoursOn) {
+            // sesja = dzień giełdowy: nowa sesja przy pierwszym ticku po otwarciu w nowym dniu
+            if (!self::marketIsOpen()) return;
+            $today = self::nowWarsaw()->format('Y-m-d');
+            $lastDate = self::one("SELECT v FROM game_state WHERE k='session_date'");
+            if ($lastDate === $today) return;
+            $prev = (int) (self::one("SELECT v FROM game_state WHERE k='session'") ?: 1);
+            if ($lastDate === false || $lastDate === null) {
+                // pierwsza aktywacja trybu godzin (świeży świat albo istniejący po aktualizacji):
+                // zakotwicz dzień i start sesji bez podbijania numeru
+                self::setState('session_date', $today);
+                self::setState('session_start_tick', (string) $tick);
+                return;
+            }
+            $n = $prev + 1;
+            self::setState('session_date', $today);
+        } else {
+            [$n] = self::sessionInfo($tick);
+            $prev = (int) (self::one("SELECT v FROM game_state WHERE k='session'") ?: 0);
+            if ($n === $prev) return;
+        }
         Db::pdo()->exec("UPDATE stocks SET day_open_price = price");
 
         $expired = self::all("SELECT * FROM orders WHERE status='active' AND expires_session IS NOT NULL AND expires_session < ?", [$n]);
@@ -745,8 +806,10 @@ final class Engine
         }
         // odznaki sesyjne: ±10% kapitału w zamkniętej właśnie sesji (z equity_history)
         try {
-            [$nn, , $tps2] = self::sessionInfo($tick);
-            $t0 = ($nn - 2) * $tps2; $t1 = ($nn - 1) * $tps2;
+            [, , $tps2] = self::sessionInfo($tick);
+            // start ZAMYKANEJ sesji: zapamiętany tick jej otwarcia (fallback: rachunek tickowy)
+            $t0 = (int) (self::one("SELECT v FROM game_state WHERE k='session_start_tick'") ?: ($n - 2) * $tps2);
+            $t1 = $tick;
             if ($t0 >= 0) {
                 foreach (self::all("SELECT id FROM users WHERE is_bot=0 AND role='player'") as $hu) {
                     $e0 = (float) (self::one("SELECT equity FROM equity_history WHERE user_id=? AND t >= ? ORDER BY t ASC LIMIT 1", [$hu['id'], $t0]) ?: 0);
@@ -768,6 +831,7 @@ final class Engine
             if (!class_exists('Ipo')) require_once __DIR__ . '/Ipo.php';
             Ipo::onRoll($n, $tick);
         } catch (\Throwable $e) { Log::write('error', 'engine', 'ipo.roll', $e->getMessage()); }
+        self::setState('session_start_tick', (string) $tick);
         self::setState('session', (string) $n);
     }
 
@@ -1119,7 +1183,9 @@ final class Engine
             }
             // day trader: sesja trwa (tick - start_sesji) ticków ≈ tyle minut zegarowych (cron 1/min)
             [$sess, , $tps] = self::sessionInfo();
-            $into = min($tps, max(1, (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?: 0) - ($sess - 1) * $tps));
+            $tk = (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
+            $sst = (int) (self::one("SELECT v FROM game_state WHERE k='session_start_tick'") ?: ($sess - 1) * $tps);
+            $into = min($tps, max(1, $tk - $sst));
             $cutoff = date('Y-m-d H:i:s', time() - $into * 60);
             $inSess = (int) self::one("SELECT COUNT(*) FROM transactions WHERE (buyer_id=? OR seller_id=?) AND created_at >= ?", [$uid, $uid, $cutoff]);
             if ($inSess >= 20) self::award($uid, 'day_trader');

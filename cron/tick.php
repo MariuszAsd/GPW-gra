@@ -24,6 +24,13 @@ touch($lock);
 register_shutdown_function(fn() => @unlink($lock));
 
 $count = (int) ($argv[1] ?? 1);
+
+// GODZINY HANDLU: poza sesją (np. 22:00-7:50) świat gry stoi — cron wychodzi bez ticka.
+// Ręczne ticki z panelu GM działają zawsze (nie przechodzą przez ten skrypt).
+if ($count === 1 && !Engine::marketIsOpen()) {
+    if (php_sapi_name() === 'cli') echo "giełda zamknięta — bez ticka\n";
+    exit(0);
+}
 $t = 0;
 for ($i = 0; $i < $count; $i++) {
     try {
@@ -54,6 +61,7 @@ if (php_sapi_name() === 'cli' && $count === 1 && $t > 0 && !$qaRan) {
     $sub = ($subV === false || $subV === null) ? 2 : max(0, min(3, (int) $subV));
     for ($i = 0; $i < $sub; $i++) {
         sleep(18);
+        if (!Engine::marketIsOpen()) break;   // zamknięcie w trakcie minuty — koniec pulsu
         touch($lock);   // odśwież blokadę (kolejny cron ma widzieć, że żyjemy)
         try {
             Engine::subRound();

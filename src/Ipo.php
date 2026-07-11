@@ -60,7 +60,11 @@ final class Ipo
     /** Hak na granicy sesji: automatyczny debiut co N sesji, aż do celu. */
     public static function onRoll(int $session, int $tick): void
     {
-        $every = (int) (Engine::one("SELECT v FROM game_state WHERE k='ipo_every_sessions'") ?: self::DEFAULT_EVERY);
+        $everyV = Engine::one("SELECT v FROM game_state WHERE k='ipo_every_sessions'");
+        // brak ustawienia: przy sesjach dziennych (godziny handlu) debiut co 1 dzień, przy tickowych co 3 sesje
+        $every = ($everyV === false || $everyV === null)
+            ? (Engine::marketHours()[0] ? 1 : self::DEFAULT_EVERY)
+            : (int) $everyV;
         if ($every <= 0) return;   // 0 = automat wyłączony
         $target = (int) (Engine::one("SELECT v FROM game_state WHERE k='ipo_target'") ?: self::DEFAULT_TARGET);
         $count = (int) Engine::one("SELECT COUNT(*) FROM stocks");
