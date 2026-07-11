@@ -791,6 +791,27 @@ final class Engine
             $prev = (int) (self::one("SELECT v FROM game_state WHERE k='session'") ?: 0);
             if ($n === $prev) return;
         }
+        // świece dzienne D1 (wykresy tydzień/miesiąc/rok): zrzut ZAMYKANEJ sesji,
+        // koniecznie PRZED nadpisaniem day_open_price nowym kursem otwarcia
+        try {
+            $sst = (int) (self::one("SELECT v FROM game_state WHERE k='session_start_tick'") ?: 0);
+            $pdoD = Db::pdo();
+            $hl = [];
+            foreach (self::all("SELECT stock_id, MAX(h) h, MIN(l) l, SUM(v) v FROM candles WHERE t > ? GROUP BY stock_id", [$sst]) as $r) {
+                $hl[(int) $r['stock_id']] = $r;
+            }
+            $ins = $pdoD->prepare("INSERT INTO candles_daily (stock_id, session, o, h, l, c, v) VALUES (?,?,?,?,?,?,?)");
+            foreach (self::all("SELECT id, price, day_open_price FROM stocks") as $st) {
+                $sid2 = (int) $st['id'];
+                $o = (float) $st['day_open_price'] > 0 ? (float) $st['day_open_price'] : (float) $st['price'];
+                $c = (float) $st['price'];
+                $h = isset($hl[$sid2]) ? max((float) $hl[$sid2]['h'], $o, $c) : max($o, $c);
+                $l = isset($hl[$sid2]) ? min((float) $hl[$sid2]['l'], $o, $c) : min($o, $c);
+                try { $ins->execute([$sid2, $n - 1, $o, $h, $l, $c, (int) ($hl[$sid2]['v'] ?? 0)]); }
+                catch (\Throwable $e) { /* duplikat (powtórny roll) — pomiń */ }
+            }
+            if (($n % 50) === 0) $pdoD->prepare("DELETE FROM candles_daily WHERE session < ?")->execute([$n - 400]);  // ~rok+ historii
+        } catch (\Throwable $e) { Log::write('warn', 'engine', 'candles.daily', $e->getMessage()); }
         Db::pdo()->exec("UPDATE stocks SET day_open_price = price");
 
         $expired = self::all("SELECT * FROM orders WHERE status='active' AND expires_session IS NOT NULL AND expires_session < ?", [$n]);

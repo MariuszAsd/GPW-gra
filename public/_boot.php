@@ -122,7 +122,7 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
     echo "<meta name='viewport' content='width=device-width,initial-scale=1'>";
     // motyw PRZED stylami (bez mignięcia): zapamiętany wybór gracza, domyślnie jasny
     echo "<script>(function(){var t=null;try{t=localStorage.getItem('theme')}catch(e){}"
-       . "if(t!=='dark'&&t!=='light')t='light';document.documentElement.setAttribute('data-theme',t);})();"
+       . "if(t!=='dark'&&t!=='light')t='dark';document.documentElement.setAttribute('data-theme',t);})();"
        . "function themeToggle(){var r=document.documentElement,t=r.getAttribute('data-theme')==='dark'?'light':'dark';"
        . "r.setAttribute('data-theme',t);try{localStorage.setItem('theme',t)}catch(e){}return false}</script>";
     echo "<title>" . h($title) . " · GPW-gra</title><link rel='stylesheet' href='assets/app.css'></head><body>";
@@ -130,14 +130,6 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
     if ($user) {
         $bellId = $actg ? (int) $actg['owner_id'] : (int) $user['id'];
         $unread = (int) Engine::one("SELECT COUNT(*) FROM notifications WHERE user_id=? AND read_at IS NULL", [$bellId]);
-        echo "<a class='" . trim($act('home')) . "' href='pulpit.php'>Pulpit</a>";
-        echo "<a class='" . trim($act('market')) . "' href='market.php'>Rynek</a>";
-        echo "<a class='" . trim($act('ranking')) . "' href='ranking.php'>Ranking</a>";
-        echo "<a class='" . trim($act('challenges')) . "' href='wyzwania.php'>Wyzwania</a>";
-        echo "<a class='" . trim($act('portfolio')) . "' href='portfolio.php'>Portfel</a>";
-        echo "<a class='" . trim($act('news')) . "' href='wiadomosci.php'>Newsy</a>";
-        echo "<a class='" . trim($act('help')) . "' href='pomoc.php'>Pomoc</a>";
-        if ($isAdmin) echo "<a class='gm" . $act('gm') . "' href='gm.php'>GM</a>";
         echo "<a class='bell" . $act('notif') . "' href='powiadomienia.php' title='Powiadomienia'>" . icon('bell') . "<b class='bell-n" . ($unread > 0 ? '' : ' off') . "' data-bell>" . $unread . "</b></a>";
         echo "<a class='thm' href='#' onclick='return themeToggle()' title='Przełącz motyw jasny/ciemny'>" . icon('theme') . "</a>";
         if ($actg) {
@@ -149,6 +141,18 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
         }
     }
     echo "</nav></header>";
+    if ($user) {
+        echo "<aside class='rail'>";
+        echo "<a class='" . trim($act('home')) . "' href='pulpit.php'>" . icon('home') . "<span>Pulpit</span></a>";
+        echo "<a class='" . trim($act('market')) . "' href='market.php'>" . icon('chart') . "<span>Rynek</span></a>";
+        echo "<a class='" . trim($act('ranking')) . "' href='ranking.php'>" . icon('trophy') . "<span>Ranking</span></a>";
+        echo "<a class='" . trim($act('challenges')) . "' href='wyzwania.php'>" . icon('flag') . "<span>Wyzwania</span></a>";
+        echo "<a class='" . trim($act('portfolio')) . "' href='portfolio.php'>" . icon('case') . "<span>Portfel</span></a>";
+        echo "<a class='" . trim($act('news')) . "' href='wiadomosci.php'>" . icon('news') . "<span>Newsy</span></a>";
+        echo "<a class='" . trim($act('help')) . "' href='pomoc.php'>" . icon('help') . "<span>Pomoc</span></a>";
+        if ($isAdmin) echo "<a class='gm" . $act('gm') . "' href='gm.php'>" . icon('gear') . "<span>GM</span></a>";
+        echo "</aside>";
+    }
     if ($user) {
         echo "<script>setInterval(async()=>{try{const j=await(await fetch('api_notifications.php')).json();" .
              "const b=document.querySelector('[data-bell]');if(b&&j.ok){b.textContent=j.unread;b.classList.toggle('off',j.unread===0);}}catch(e){}},15000);</script>";

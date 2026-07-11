@@ -80,16 +80,18 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
   <div>
     <div class="panel" style="padding:8px">
       <div class="chartbar">
-        <div class="cgrp" id="cg-iv">
-          <button data-iv="1" class="on">1 tick</button>
-          <button data-iv="5">5 ticków</button>
-          <button data-iv="<?= (int) $tps ?>">Sesja</button>
+        <div class="cgrp" id="cg-range">
+          <button data-range="d" class="on">1D</button>
+          <button data-range="t">1T</button>
+          <button data-range="m">1M</button>
+          <button data-range="r">1R</button>
+          <button data-range="max">MAX</button>
         </div>
         <div class="cgrp" id="cg-type">
           <button data-type="candles" class="on">Świece</button>
           <button data-type="line">Linia</button>
         </div>
-        <span class="muted" style="font-size:11px;margin-left:auto">1 świeca = 1 tick rynku (~1 min) · odświeża się co 5 s</span>
+        <span class="muted" style="font-size:11px;margin-left:auto" id="cg-note">1D = bieżąca sesja · dłuższe zakresy = świece dzienne</span>
       </div>
       <div id="chartbox"><?= $chartSvg ?></div>
     </div>
@@ -182,9 +184,10 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
       <input type="hidden" name="stock_id" value="<?= $id ?>">
       <input type="hidden" name="side" id="side" value="buy">
       <input type="hidden" name="type" id="type" value="limit">
+      <?php $bestBid = $bids[0]['price'] ?? null; $bestAsk = $asks[0]['price'] ?? null; ?>
       <div class="seg">
-        <button type="button" class="buy on" id="tb-buy">KUP</button>
-        <button type="button" class="sell" id="tb-sell">SPRZEDAJ</button>
+        <button type="button" class="sell" id="tb-sell"><span class="lbl">SPRZEDAJ</span><span class="pr"><?= $bestBid !== null ? money($bestBid) : '—' ?></span></button>
+        <button type="button" class="buy on" id="tb-buy"><span class="lbl">KUP</span><span class="pr"><?= $bestAsk !== null ? money($bestAsk) : '—' ?></span></button>
       </div>
       <div class="seg" style="margin-top:0;align-items:center">
         <button type="button" class="on" id="tt-limit" title="Zlecenie z limitem ceny — czeka w arkuszu">LIMIT</button>
@@ -255,9 +258,9 @@ document.getElementById('tt-pkc').onclick=()=>setType('market');
 qty.oninput=upd; price.oninput=upd; upd();
 // wykres: rysowanie w przeglądarce (świece/linia, interwał) + auto-odświeżanie
 const chartBox=document.getElementById('chartbox');
-let cIv=1, cType='candles';
+let cRange='d', cType='candles';
 async function drawChart(){ try{
-  const j=await (await fetch('api_chart.php?id=<?= $id ?>&iv='+cIv)).json();
+  const j=await (await fetch('api_chart.php?id=<?= $id ?>&range='+cRange)).json();
   if(!j.ok||j.candles.length<2) return;
   const W=680,H=240,pl=4,pr=4,pt=10,pb=54,volTop=192,volH=44,cs=j.candles,n=cs.length;
   let mn,mx;
@@ -286,9 +289,9 @@ async function drawChart(){ try{
   }
   chartBox.innerHTML=s+'</svg>';
 }catch(e){} }
-document.querySelectorAll('#cg-iv button').forEach(b=>b.onclick=()=>{
-  document.querySelectorAll('#cg-iv button').forEach(x=>x.classList.remove('on'));
-  b.classList.add('on'); cIv=parseInt(b.dataset.iv)||1; drawChart(); });
+document.querySelectorAll('#cg-range button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#cg-range button').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on'); cRange=b.dataset.range||'d'; drawChart(); });
 document.querySelectorAll('#cg-type button').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('#cg-type button').forEach(x=>x.classList.remove('on'));
   b.classList.add('on'); cType=b.dataset.type; drawChart(); });

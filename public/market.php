@@ -40,6 +40,19 @@ $sectorRows = Engine::all("SELECT sec.name, SUM(s.price*s.total_shares) cur, SUM
 $bid = []; foreach (Engine::all("SELECT stock_id, MAX(price) p FROM orders WHERE side='buy'  AND status='active' GROUP BY stock_id") as $r) $bid[$r['stock_id']] = $r['p'];
 $ask = []; foreach (Engine::all("SELECT stock_id, MIN(price) p FROM orders WHERE side='sell' AND status='active' GROUP BY stock_id") as $r) $ask[$r['stock_id']] = $r['p'];
 
+// sparkline: zamknięcia z ostatnich ~40 ticków (jedno zapytanie dla wszystkich spółek)
+$spark = [];
+foreach (Engine::all("SELECT stock_id, c FROM candles WHERE t > ? ORDER BY stock_id, t", [$tickNow - 40]) as $r) {
+    $spark[(int) $r['stock_id']][] = (float) $r['c'];
+}
+$sparkSvg = function (array $vals): string {
+    if (count($vals) < 2) return '';
+    $W = 84; $H = 24; $mn = min($vals); $mx = max($vals); $rng = ($mx - $mn) ?: 1; $n = count($vals); $pts = [];
+    foreach ($vals as $i => $v) $pts[] = round($i / ($n - 1) * $W, 1) . ',' . round(2 + (1 - ($v - $mn) / $rng) * ($H - 4), 1);
+    $col = end($vals) >= $vals[0] ? 'var(--up)' : 'var(--down)';
+    return "<svg class='spark' viewBox='0 0 $W $H' preserveAspectRatio='none'><polyline points='" . implode(' ', $pts) . "' fill='none' stroke='$col' stroke-width='1.3' stroke-linejoin='round'/></svg>";
+};
+
 layout_header('Rynek', $user, 'market');
 ?>
 <?php [$mhOn, $mhOpen, $mhClose] = Engine::marketHours(); $mhIsOpen = Engine::marketIsOpen(); ?>
@@ -77,7 +90,7 @@ layout_header('Rynek', $user, 'market');
 <div class="panel" style="padding:0;overflow:hidden">
   <div class="tbl-scroll">
     <table class="mw">
-      <thead><tr><th>Instrument</th><th class="num">Kurs</th><th class="num">Zmiana</th><th class="num">Bid</th><th class="num">Ask</th><th class="num">Obrót (sesja)<?= tip('Za ile PLN handlowano akcjami tej spółki od otwarcia sesji. Kropka pokazuje płynność: przy niskiej (czerwonej) kupno/sprzedaż większych pakietów rusza kursem.', 'plynnosc') ?></th></tr></thead>
+      <thead><tr><th>Instrument</th><th></th><th class="num">Kurs</th><th class="num">Zmiana</th><th class="num">Bid</th><th class="num">Ask</th><th class="num">Obrót (sesja)<?= tip('Za ile PLN handlowano akcjami tej spółki od otwarcia sesji. Kropka pokazuje płynność: przy niskiej (czerwonej) kupno/sprzedaż większych pakietów rusza kursem.', 'plynnosc') ?></th></tr></thead>
       <tbody>
       <?php foreach ($stocks as $s): $id = (int) $s['id'];
           $ref = (float) $s['day_open_price'] > 0 ? (float) $s['day_open_price'] : (float) $s['price'];
@@ -85,6 +98,7 @@ layout_header('Rynek', $user, 'market');
           [$liqCls, $liqTxt] = liq_label($s['liquidity']); ?>
         <tr onclick="location='stock.php?id=<?= $id ?>'">
           <td><div class="sym"><span class="tk"><?= h($s['ticker']) ?></span><span class="nm"><?= h($s['name']) ?></span><span class="tag"><?= h($s['sector']) ?></span></div></td>
+          <td style="padding:4px 6px"><?= $sparkSvg($spark[$id] ?? []) ?></td>
           <td class="num px" data-px="<?= $id ?>"><?= money($s['price']) ?></td>
           <td class="num"><span class="chg <?= $chg >= 0 ? 'p' : 'n' ?>" data-chg="<?= $id ?>"><span class="ar"><?= $chg >= 0 ? '▲' : '▼' ?></span><?= number_format(abs($chg), 2, ',', ' ') ?>%</span></td>
           <td class="num bid"><?= isset($bid[$id]) ? money($bid[$id]) : '—' ?></td>

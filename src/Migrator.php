@@ -216,6 +216,17 @@ final class Migrator
                 )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
                 "CREATE INDEX ix_journal ON player_journal (user_id, id)",
             ],
+            18 => [
+                "CREATE TABLE candles_daily (
+                    id " . (Db::driver() === 'mysql' ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT') . ",
+                    stock_id INT NOT NULL,
+                    session  INT NOT NULL,
+                    o DECIMAL(15,2) NOT NULL, h DECIMAL(15,2) NOT NULL, l DECIMAL(15,2) NOT NULL, c DECIMAL(15,2) NOT NULL,
+                    v BIGINT NOT NULL DEFAULT 0,
+                    UNIQUE (stock_id, session)
+                )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
+                "CREATE INDEX ix_cd ON candles_daily (stock_id, session)",
+            ],
         ];
     }
 

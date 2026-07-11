@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 17;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 18;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -296,6 +296,16 @@ final class Schema
                 created_at VARCHAR(19) NOT NULL
             )",
 
+            // --- ŚWIECE DZIENNE (D1: jedna świeca na sesję/dzień giełdowy — wykresy tydzień/miesiąc/rok) ---
+            "candles_daily" => "CREATE TABLE candles_daily (
+                id $pk,
+                stock_id INT NOT NULL,
+                session  INT NOT NULL,
+                o $money NOT NULL, h $money NOT NULL, l $money NOT NULL, c $money NOT NULL,
+                v BIGINT NOT NULL DEFAULT 0,
+                UNIQUE (stock_id, session)
+            )",
+
             // --- DZIENNIK GRACZA (oś czasu konta: zlecenia, SL/TP, dywidendy, wyzwania, odznaki) ---
             "player_journal" => "CREATE TABLE player_journal (
                 id $pk,
@@ -347,6 +357,7 @@ final class Schema
             "CREATE INDEX ix_chp_user ON challenge_players (user_id)",
             "CREATE INDEX ix_chp_shadow ON challenge_players (shadow_user_id)",
             "CREATE INDEX ix_journal ON player_journal (user_id, id)",
+            "CREATE INDEX ix_cd ON candles_daily (stock_id, session)",
         ];
     }
 }
