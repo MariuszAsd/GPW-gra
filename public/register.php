@@ -1,6 +1,6 @@
 <?php
 require __DIR__ . '/_boot.php';
-if (current_user()) redirect('market.php');
+if (current_user()) redirect('pulpit.php');
 
 $cfg = require __DIR__ . '/../config.php';
 $inviteRequired = (string) (Engine::one("SELECT v FROM game_state WHERE k='invite_code'") ?: '');
@@ -31,7 +31,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $goal = (float) (Engine::one("SELECT v FROM game_state WHERE k='goal_target'") ?: 0);
             flash('Witaj na giełdzie! Masz ' . money($cfg['starting_cash']) . ' PLN startowego kapitału' .
                   ($goal > 0 ? ' — cel: ' . money($goal) . ' PLN.' : '.'));
-            redirect('market.php');
+            redirect('pulpit.php');
         } catch (Throwable $e) {
             $err = 'Nie udało się utworzyć konta (login zajęty?).';
         }

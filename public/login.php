@@ -1,13 +1,13 @@
 <?php
 require __DIR__ . '/_boot.php';
-if (current_user()) redirect('market.php');
+if (current_user()) redirect('pulpit.php');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $u = Engine::row("SELECT id, password_hash FROM users WHERE username=? AND is_bot=0", [$_POST['username'] ?? '']);
     if ($u && password_verify($_POST['password'] ?? '', $u['password_hash'])) {
         session_regenerate_id(true);
         $_SESSION['uid'] = (int) $u['id'];
-        redirect('market.php');
+        redirect('pulpit.php');
     }
     Log::write('warn', 'auth', 'login_fail', 'nieudane logowanie: ' . mb_substr(trim($_POST['username'] ?? ''), 0, 30));
     flash('Błędny login lub hasło.', 'err');

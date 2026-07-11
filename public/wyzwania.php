@@ -55,6 +55,9 @@ layout_header('Wyzwania', $user, 'challenges');
 <h1 style="display:flex;align-items:center;gap:10px">Wyzwania
   <?= tip('Konkurs inwestycyjny na kilkanaście sesji. Wpłacasz buy-in + wpisowe; buy-in trafia na ODDZIELNY portfel wyzwania, którym handlujesz jak zwykłym kontem. Wpisowe wszystkich graczy tworzy pulę nagród — dzieli ją top ~20% uczestników (im wyższe miejsce, tym większy udział). Może być kilka wyzwań naraz o różnych stawkach — zapisujesz się tam, gdzie chcesz. Twoje konto główne przez ten czas gra normalnie dalej.', 'wyzwania') ?>
 </h1>
+<?php explainer('wyzwania', 'Wyzwania — konkurs z pulą nagród', [
+    '💸 wpłacasz buy-in + wpisowe', '⚔️ handlujesz OSOBNYM portfelem wyzwania',
+    '🏁 po kilkunastu sesjach ranking', '🏆 top ~20% graczy dzieli pulę']); ?>
 
 <?php if (!$signup && !$running): ?>
   <section class="panel" style="margin-bottom:16px">

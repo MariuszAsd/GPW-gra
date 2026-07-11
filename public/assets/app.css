@@ -283,3 +283,17 @@ td.nowrap{white-space:nowrap}
 .ch-stat{background:var(--bg3);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
 .ch-stat small{display:block;color:var(--faint);font-size:10.5px;letter-spacing:.4px;margin-bottom:3px}
 .ch-stat b{font-size:15px;font-family:var(--mono)}
+
+/* ---------- Pulpit / samouczek / podpowiedzi nad działami ---------- */
+.expl{position:relative;background:var(--info-bg);border:1px solid var(--info-border);border-radius:10px;
+  padding:10px 40px 10px 14px;margin-bottom:14px;font-size:13.5px;line-height:1.6}
+.expl-t{margin-right:10px}
+.expl-steps{display:inline}
+.expl-step{white-space:nowrap}
+.expl-arr{color:var(--faint);margin:0 7px}
+.expl-x{position:absolute;top:6px;right:8px;background:none;border:0;color:var(--faint);cursor:pointer;font-size:14px;padding:4px}
+.expl-x:hover{color:var(--ink)}
+.expl-menu{display:inline-block;margin-left:10px}
+.expl-menu .btn{width:auto;display:inline-block}
+.tut-step .tut-n{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:26px;min-width:44px}
+.tut-step .tut-n span{font-family:var(--mono);font-size:11px;color:var(--faint);border:1px solid var(--line2);border-radius:20px;padding:1px 8px}

@@ -43,6 +43,9 @@ $stratName = ['mm' => 'Animator rynku', 'trend' => 'Podążający za trendem', '
 layout_header('Ranking', $user, 'ranking');
 $medals = ['🥇', '🥈', '🥉'];
 ?>
+<?php explainer('ranking', 'Ranking — o co gramy', [
+    '🏆 cel: pierwszy milion', '📊 wynik = gotówka + akcje',
+    '🎖️ zbieraj odznaki', '👤 kliknij nick, aby zobaczyć profil gracza']); ?>
 <div class="page-head"><h1>Ranking</h1><span class="tag" style="color:var(--accent);border-color:var(--accent)">Sesja #<?= $sessionNo ?></span>
   <?php if ($goalTarget > 0): ?><span class="muted">cel: <?= money($goalTarget) ?> PLN w <?= $goalSessions ?> sesji — zwycięzcy wg tempa, reszta wg kapitału</span><?php endif; ?>
 </div>

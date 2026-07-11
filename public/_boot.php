@@ -34,6 +34,25 @@ function liq_label($liquidity): array {
 function flash(string $msg, string $type = 'ok'): void { $_SESSION['flash'] = ['m' => $msg, 't' => $type]; }
 function redirect(string $u): void { header("Location: $u"); exit; }
 
+/**
+ * Podpowiedź nad działem: prosta infografika "o co tu chodzi" z opcją ukrycia.
+ * ✕ pyta: "tylko teraz" (sessionStorage) czy "na zawsze" (localStorage).
+ * Przywracanie wszystkich: przycisk w Samouczku. Kroki to zaufany HTML z kodu.
+ */
+function explainer(string $key, string $title, array $steps): void {
+    echo "<div class='expl' data-exp='" . h($key) . "' hidden>";
+    echo "<button class='expl-x' title='Ukryj podpowiedź' onclick='explAsk(this)'>✕</button>";
+    echo "<span class='expl-menu' hidden>Ukryć tę podpowiedź? ";
+    echo "<button class='btn sm ghost' onclick='explOnce(this)'>Tylko teraz</button> ";
+    echo "<button class='btn sm ghost' onclick='explForever(this)'>Nie pokazuj więcej</button></span>";
+    echo "<b class='expl-t'>💡 " . h($title) . "</b><span class='expl-steps'>";
+    foreach ($steps as $i => $s) {
+        if ($i > 0) echo "<span class='expl-arr'>→</span>";
+        echo "<span class='expl-step'>$s</span>";
+    }
+    echo "</span></div>";
+}
+
 /** Dymek pomocy: znak zapytania z wyjaśnieniem po najechaniu/tapnięciu + link do Pomocy. */
 function tip(string $text, string $anchor = ''): string {
     $more = $anchor !== '' ? " <a href='pomoc.php#" . h($anchor) . "'>Dowiedz się więcej →</a>" : '';
@@ -89,10 +108,11 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
        . "function themeToggle(){var r=document.documentElement,t=r.getAttribute('data-theme')==='dark'?'light':'dark';"
        . "r.setAttribute('data-theme',t);try{localStorage.setItem('theme',t)}catch(e){}return false}</script>";
     echo "<title>" . h($title) . " · GPW-gra</title><link rel='stylesheet' href='assets/app.css'></head><body>";
-    echo "<header class='topbar'><a class='brand' href='market.php'><span class='mk'>G</span>GPW<span>-gra</span></a><nav>";
+    echo "<header class='topbar'><a class='brand' href='pulpit.php'><span class='mk'>G</span>GPW<span>-gra</span></a><nav>";
     if ($user) {
         $bellId = $actg ? (int) $actg['owner_id'] : (int) $user['id'];
         $unread = (int) Engine::one("SELECT COUNT(*) FROM notifications WHERE user_id=? AND read_at IS NULL", [$bellId]);
+        echo "<a class='" . trim($act('home')) . "' href='pulpit.php'>Pulpit</a>";
         echo "<a class='" . trim($act('market')) . "' href='market.php'>Rynek</a>";
         echo "<a class='" . trim($act('ranking')) . "' href='ranking.php'>Ranking</a>";
         echo "<a class='" . trim($act('challenges')) . "' href='wyzwania.php'>Wyzwania</a>";
@@ -117,6 +137,7 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
     }
     if ($user) {
         echo "<nav class='bottomnav'>";
+        echo "<a class='" . trim($act('home')) . "' href='pulpit.php'><span class='ic'>⌂</span>Pulpit</a>";
         echo "<a class='" . trim($act('market')) . "' href='market.php'><span class='ic'>▤</span>Rynek</a>";
         echo "<a class='" . trim($act('ranking')) . "' href='ranking.php'><span class='ic'>🏆</span>Ranking</a>";
         echo "<a class='" . trim($act('challenges')) . "' href='wyzwania.php'><span class='ic'>⚔️</span>Wyzwania</a>";
@@ -139,5 +160,11 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
 }
 function layout_footer(): void {
     echo "<div class='foot'>GPW-gra · symulacja giełdy · kursy fikcyjne</div>";
+    // podpowiedzi nad działami: pokaż tylko nieukryte; ✕ pyta "raz czy na zawsze"
+    echo "<script>document.querySelectorAll('.expl').forEach(function(e){var k='exp_'+e.dataset.exp;"
+       . "try{if(!localStorage.getItem(k)&&!sessionStorage.getItem(k))e.hidden=false}catch(_){e.hidden=false}});"
+       . "function explAsk(b){b.hidden=true;b.closest('.expl').querySelector('.expl-menu').hidden=false}"
+       . "function explOnce(b){var e=b.closest('.expl');try{sessionStorage.setItem('exp_'+e.dataset.exp,'1')}catch(_){}e.remove()}"
+       . "function explForever(b){var e=b.closest('.expl');try{localStorage.setItem('exp_'+e.dataset.exp,'1')}catch(_){}e.remove()}</script>";
     echo "</main></body></html>";
 }

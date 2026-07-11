@@ -48,6 +48,9 @@ layout_header('Rynek', $user, 'market');
     <span class="tag" style="<?= $mhIsOpen ? 'color:var(--up);border-color:var(--up)' : 'color:var(--faint)' ?>"><?= $mhIsOpen ? "🔔 otwarty do $mhClose" : "🌙 zamknięty · otwarcie $mhOpen" ?></span>
   <?php endif; ?>
   <span class="muted">zmiana liczona od otwarcia sesji · kliknij, aby handlować</span></div>
+<?php explainer('rynek', 'Rynek — tu wybierasz spółki', [
+    '👀 przeglądaj kursy i sektory', '🖱️ kliknij spółkę, aby ją otworzyć',
+    '🟢 kup taniej', '🔴 sprzedaj drożej', '💬 gadaj na czacie obok']); ?>
 
 <?php if ($event): $neg = $event['type'] === 'NEG'; $left = (int) $event['expire_tick'] - $tickNow; ?>
 <div class="panel" style="margin-bottom:16px;border-left:3px solid var(--<?= $neg ? 'down' : 'up' ?>);background:var(--<?= $neg ? 'down' : 'up' ?>-bg)">

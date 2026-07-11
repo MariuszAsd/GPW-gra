@@ -80,6 +80,9 @@ layout_header('Portfel', $user, 'portfolio');
 ?>
 <div class="page-head"><h1>Portfel</h1><span class="tag" style="color:var(--accent);border-color:var(--accent)">Sesja #<?= $sessionNo ?></span>
   <a class="btn sm ghost" style="margin-left:auto" href="dziennik.php">📜 Dziennik</a></div>
+<?php explainer('portfel', 'Portfel — Twoje akcje i zlecenia', [
+    '💼 pozycje ze średnią ceną i wynikiem', '🛡️ ustaw SL/TP przy pozycji',
+    '🖱️ kliknij zlecenie po szczegóły', '📜 pełna historia w Dzienniku']); ?>
 
 <?php if ($goalTarget > 0 && ($user['ctx'] ?? '') !== 'challenge'): // w portfelu wyzwania cel gry nie obowiązuje ?>
 <div class="panel goal <?= $me['goal_session'] !== null ? 'won' : ($sessionsLeft < 0 ? 'lost' : '') ?>">
