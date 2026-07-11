@@ -68,7 +68,8 @@ layout_header('Rynek', $user, 'market');
   <?php if ($mhOn): ?>
     <span class="tag" style="<?= $mhIsOpen ? 'color:var(--up);border-color:var(--up)' : 'color:var(--faint)' ?>"><?= $mhIsOpen ? "● otwarty do $mhClose" : "○ zamknięty · otwarcie $mhOpen" ?></span>
   <?php endif; ?>
-  <span class="muted">zmiana liczona od otwarcia sesji · kliknij, aby handlować</span></div>
+  <span class="muted hide-m">zmiana liczona od otwarcia sesji · kliknij, aby handlować</span></div>
+<?php market_subnav('not'); ?>
 <?php explainer('rynek', 'Jak korzystać z Rynku', [
     'przeglądaj kursy i sektory', 'kliknij spółkę, aby ją otworzyć',
     'kupuj taniej, sprzedawaj drożej', 'rozmawiaj na czacie obok']); ?>
@@ -89,7 +90,7 @@ layout_header('Rynek', $user, 'market');
   <div id="idxbox"><?= $idxSvg ?: "<p class='muted' style='margin:10px 0'>Historia indeksu buduje się z każdym tickiem rynku…</p>" ?></div>
   <div class="chips" style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 4px">
     <?php foreach ($sectorRows as $sr): $sc = (float) $sr['op'] > 0 ? ((float) $sr['cur'] - (float) $sr['op']) / (float) $sr['op'] * 100 : 0; ?>
-      <span class="tag" style="padding:4px 9px"><?= h($sr['name']) ?> <b class="<?= $sc >= 0 ? 'up' : 'down' ?> mono"><?= ($sc >= 0 ? '+' : '') . number_format($sc, 1, ',', ' ') ?>%</b></span>
+      <a class="tag" style="padding:4px 9px" href="branze.php" title="Trendy branżowe — zakładka Branże"><?= h($sr['name']) ?> <b class="<?= $sc >= 0 ? 'up' : 'down' ?> mono"><?= ($sc >= 0 ? '+' : '') . number_format($sc, 1, ',', ' ') ?>%</b></a>
     <?php endforeach; ?>
   </div>
 </div>

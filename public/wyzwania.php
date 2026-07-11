@@ -66,7 +66,33 @@ $archTotal = (int) Engine::one("SELECT COUNT(*) FROM challenges WHERE $archWhere
 $archPages = max(1, (int) ceil($archTotal / $per));
 $archPage = min($archPage, $archPages - 1);
 $finished = Engine::all("SELECT * FROM challenges WHERE $archWhere ORDER BY id DESC LIMIT $per OFFSET " . ($archPage * $per));
-$archUrl = fn(int $pg, bool $mine) => 'wyzwania.php?' . http_build_query(array_filter(['arch' => $mine ? 'moje' : null, 'p' => $pg ?: null])) . '#archiwum';
+$archUrl = fn(int $pg, bool $mine) => 'wyzwania.php?' . http_build_query(array_filter(['tab' => 'roz', 'arch' => $mine ? 'moje' : null, 'p' => $pg ?: null])) . '#archiwum';
+
+/** Tabela na żywo trwającego wyzwania (renderowana w Moich i w Dostępnych). */
+function render_running(array $active, int $uid, int $session): void {
+    $board = Challenges::leaderboard((int) $active['id']);
+    ?>
+  <section class="panel" style="margin-bottom:16px" id="tabela-<?= (int) $active['id'] ?>">
+    <h2><?= h($active['name']) ?> — tabela na żywo <small class="muted" style="font-weight:400">(do końca sesji #<?= (int) $active['end_session'] ?>, teraz #<?= $session ?>)</small></h2>
+    <p class="muted" style="margin:6px 0 12px">Pula nagród: <b class="up"><?= money($active['pot']) ?> PLN</b> ·
+      <?= split_label(count($board)) ?> ·
+      wynik = kapitał portfela wyzwania (gotówka + akcje po bieżącym kursie).</p>
+    <div style="overflow-x:auto"><table>
+      <thead><tr><th>#</th><th>Gracz</th><th class="num">Kapitał wyzwania</th><th class="num">Wynik</th></tr></thead>
+      <tbody>
+      <?php foreach ($board as $i => $b): $ret = (float) $b['buyin'] > 0 ? ((float) $b['equity'] / (float) $b['buyin'] - 1) * 100 : 0; ?>
+        <tr <?= (int) $b['user_id'] === $uid ? 'style="background:var(--info-bg)"' : '' ?>>
+          <td><?= $i === 0 ? '🥇' : ($i === 1 ? '🥈' : ($i === 2 ? '🥉' : $i + 1)) ?></td>
+          <td><a href="gracz.php?id=<?= (int) $b['user_id'] ?>"><?= h($b['username']) ?></a><?= (int) $b['user_id'] === $uid ? " <span class=\"tag\" style=\"color:var(--accent);border-color:var(--accent)\">Ty</span>" : '' ?></td>
+          <td class="num mono"><?= money($b['equity']) ?></td>
+          <td class="num"><span class="chg <?= $ret >= 0 ? 'p' : 'n' ?>"><span class="ar"><?= $ret >= 0 ? '▲' : '▼' ?></span><?= number_format(abs($ret), 2, ',', ' ') ?>%</span></td>
+        </tr>
+      <?php endforeach; ?>
+      </tbody>
+    </table></div>
+  </section>
+    <?php
+}
 
 /** krótki opis podziału puli dla N graczy: płatne miejsca + pierwsze udziały */
 function split_label(int $n): string {
@@ -119,32 +145,24 @@ layout_header('Wyzwania', $user, 'challenges');
   </section>
 <?php endif; ?>
 
-<?php /* ---------- JAK TO DZIAŁA: kroki + rozstrzygnięcie + link do pełnych zasad ---------- */ ?>
-<section class="panel" style="margin-bottom:16px">
-  <h2 style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">Jak działa wyzwanie?
-    <a class="btn sm ghost" style="margin-left:auto" href="pomoc.php#wyzwania">Pełne zasady krok po kroku →</a>
-  </h2>
-  <div class="ch-steps">
-    <div class="ch-step"><i>1</i><b>📝 Zgłaszasz się</b><span>z konta schodzi buy-in + wpisowe (znasz kwotę z góry)</span></div>
-    <div class="ch-step"><i>2</i><b>📈 Handlujesz</b><span>osobnym portfelem wyzwania — konto główne gra dalej normalnie</span></div>
-    <div class="ch-step"><i>3</i><b>🏁 Wracasz po finał</b><span>po ostatniej sesji liczy się kapitał portfela wyzwania</span></div>
-    <div class="ch-step"><i>4</i><b>🏆 Rozliczenie</b><span>buy-in wraca każdemu; top ~20% graczy dzieli dodatkowo pulę wpisowych</span></div>
-  </div>
-  <p class="muted" style="margin:8px 0 0;font-size:12.5px">
-    <b class="up">Wygrywasz</b> → nagroda z puli + Żetony Maklera + punkty sezonu i odznaka.
-    <b class="down">Przegrywasz</b> → tracisz najwyżej wpisowe (i ewentualną stratę z handlu) — buy-in w formie, do jakiej go doprowadziłeś (gotówka + akcje), wraca na konto.
-  </p>
-</section>
+<?php /* ---------- PODZAKŁADKI: Dostępne / Moje / Rozstrzygnięte ---------- */ ?>
+<?php
+  $mineActive = [];
+  foreach ($all as $c) if (in_array((int) $c['id'], $myIds, true)) $mineActive[] = $c;
+  $defTab = $mineActive ? 'moje' : 'dos';   // gram w czymś -> od razu Moje
+?>
+<div class="subtabs">
+  <button class="<?= $defTab === 'dos' ? 'on' : '' ?>" data-tab="dos">Dostępne<?= $signup ? ' (' . count($signup) . ')' : '' ?></button>
+  <button class="<?= $defTab === 'moje' ? 'on' : '' ?>" data-tab="moje">Moje<?= $mineActive ? ' (' . count($mineActive) . ')' : '' ?></button>
+  <button data-tab="roz">Rozstrzygnięte</button>
+</div>
 
-<?php /* ---------- MOJE WYZWANIA: aktywne wpisy + bilans historyczny ---------- */ ?>
+<?php /* ================= MOJE ================= */ ?>
+<div class="tabpane <?= $defTab === 'moje' ? 'on' : '' ?>" id="tab-moje">
 <section class="panel" style="margin-bottom:16px">
   <h2>Moje wyzwania</h2>
-  <?php
-    $mineActive = [];
-    foreach ($all as $c) if (in_array((int) $c['id'], $myIds, true)) $mineActive[] = $c;
-  ?>
   <?php if (!$mineActive && (int) $myStats['n'] === 0): ?>
-    <p class="muted">Jeszcze w żadnym nie grasz. Dołącz przez baner powyżej — pierwsza edycja uczy najwięcej.</p>
+    <p class="muted">Jeszcze w żadnym nie grasz. Zajrzyj do zakładki <b>Dostępne</b> — pierwsza edycja uczy najwięcej.</p>
   <?php endif; ?>
   <?php foreach ($mineActive as $c): ?>
     <?php if ($c['status'] === 'signup'): ?>
@@ -198,11 +216,21 @@ layout_header('Wyzwania', $user, 'challenges');
         <?php endforeach; ?>
         </tbody>
       </table></div>
-      <p class="muted" style="margin:8px 0 0;font-size:12px"><a href="<?= h($archUrl(0, true)) ?>">Wszystkie moje wyzwania w archiwum →</a></p>
+      <p class="muted" style="margin:8px 0 0;font-size:12px">Pełne tabele — zakładka <b>Rozstrzygnięte</b>.</p>
     <?php endif; ?>
   <?php endif; ?>
 </section>
+<?php foreach ($running as $active) if (in_array((int) $active['id'], $myIds, true)) render_running($active, $uid, $session); ?>
+</div><!-- /tab-moje -->
 
+<?php /* ================= DOSTĘPNE ================= */ ?>
+<div class="tabpane <?= $defTab === 'dos' ? 'on' : '' ?>" id="tab-dos">
+<?php if (!$signup): ?>
+  <section class="panel" style="margin-bottom:16px">
+    <h2>Brak otwartych zapisów</h2>
+    <p class="muted">Nowa edycja wystartuje automatycznie — dostaniesz powiadomienie 🔔, gdy ruszą zapisy.</p>
+  </section>
+<?php endif; ?>
 <?php /* ---------- OTWARTE ZAPISY (wszystkie edycje — może być kilka o różnych stawkach) ---------- */ ?>
 <?php foreach ($signup as $active): ?>
   <?php
@@ -240,33 +268,29 @@ layout_header('Wyzwania', $user, 'challenges');
   </section>
 <?php endforeach; ?>
 
-<?php /* ---------- TRWAJĄCE: tabele wyników na żywo ---------- */ ?>
-<?php foreach ($running as $active): ?>
-  <?php
-    $board = Challenges::leaderboard((int) $active['id']);
-    $iAmIn = in_array((int) $active['id'], $myIds, true);
-  ?>
-  <section class="panel" style="margin-bottom:16px" id="tabela-<?= (int) $active['id'] ?>">
-    <h2><?= h($active['name']) ?> — tabela na żywo <small class="muted" style="font-weight:400">(do końca sesji #<?= (int) $active['end_session'] ?>, teraz #<?= $session ?>)</small></h2>
-    <p class="muted" style="margin:6px 0 12px">Pula nagród: <b class="up"><?= money($active['pot']) ?> PLN</b> ·
-      <?= split_label(count($board)) ?> ·
-      wynik = kapitał portfela wyzwania (gotówka + akcje po bieżącym kursie).</p>
-    <div style="overflow-x:auto"><table>
-      <thead><tr><th>#</th><th>Gracz</th><th class="num">Kapitał wyzwania</th><th class="num">Wynik</th></tr></thead>
-      <tbody>
-      <?php foreach ($board as $i => $b): $ret = (float) $b['buyin'] > 0 ? ((float) $b['equity'] / (float) $b['buyin'] - 1) * 100 : 0; ?>
-        <tr <?= (int) $b['user_id'] === $uid ? 'style="background:var(--info-bg)"' : '' ?>>
-          <td><?= $i === 0 ? '🥇' : ($i === 1 ? '🥈' : ($i === 2 ? '🥉' : $i + 1)) ?></td>
-          <td><a href="gracz.php?id=<?= (int) $b['user_id'] ?>"><?= h($b['username']) ?></a><?= (int) $b['user_id'] === $uid ? " <span class=\"tag\" style=\"color:var(--accent);border-color:var(--accent)\">Ty</span>" : '' ?></td>
-          <td class="num mono"><?= money($b['equity']) ?></td>
-          <td class="num"><span class="chg <?= $ret >= 0 ? 'p' : 'n' ?>"><span class="ar"><?= $ret >= 0 ? '▲' : '▼' ?></span><?= number_format(abs($ret), 2, ',', ' ') ?>%</span></td>
-        </tr>
-      <?php endforeach; ?>
-      </tbody>
-    </table></div>
-  </section>
-<?php endforeach; ?>
+<?php /* trwające, w których NIE gram — do obserwowania */ ?>
+<?php foreach ($running as $active) if (!in_array((int) $active['id'], $myIds, true)) render_running($active, $uid, $session); ?>
 
+<?php /* ---------- JAK TO DZIAŁA: kroki + rozstrzygnięcie + link do pełnych zasad ---------- */ ?>
+<section class="panel" style="margin-bottom:16px">
+  <h2 style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">Jak działa wyzwanie?
+    <a class="btn sm ghost" style="margin-left:auto" href="pomoc.php#wyzwania">Pełne zasady krok po kroku →</a>
+  </h2>
+  <div class="ch-steps">
+    <div class="ch-step"><i>1</i><b>📝 Zgłaszasz się</b><span>z konta schodzi buy-in + wpisowe (znasz kwotę z góry)</span></div>
+    <div class="ch-step"><i>2</i><b>📈 Handlujesz</b><span>osobnym portfelem wyzwania — konto główne gra dalej normalnie</span></div>
+    <div class="ch-step"><i>3</i><b>🏁 Wracasz po finał</b><span>po ostatniej sesji liczy się kapitał portfela wyzwania</span></div>
+    <div class="ch-step"><i>4</i><b>🏆 Rozliczenie</b><span>buy-in wraca każdemu; top ~20% graczy dzieli dodatkowo pulę wpisowych</span></div>
+  </div>
+  <p class="muted" style="margin:8px 0 0;font-size:12.5px">
+    <b class="up">Wygrywasz</b> → nagroda z puli + Żetony Maklera + punkty sezonu i odznaka.
+    <b class="down">Przegrywasz</b> → tracisz najwyżej wpisowe (i ewentualną stratę z handlu) — buy-in w formie, do jakiej go doprowadziłeś (gotówka + akcje), wraca na konto.
+  </p>
+</section>
+</div><!-- /tab-dos -->
+
+<?php /* ================= ROZSTRZYGNIĘTE ================= */ ?>
+<div class="tabpane" id="tab-roz">
 <?php /* ---------- ARCHIWUM: rozstrzygnięte edycje (wszystkie / tylko moje) ---------- */ ?>
 <?php if ($finished || $archMine || $archTotal > 0): ?>
   <section class="panel" id="archiwum">
@@ -304,5 +328,22 @@ layout_header('Wyzwania', $user, 'challenges');
       </p>
     <?php endif; ?>
   </section>
+<?php else: ?>
+  <section class="panel"><h2>Rozstrzygnięte wyzwania</h2>
+    <p class="muted">Jeszcze żadna edycja się nie rozstrzygnęła — pierwsze wyniki pojawią się tu po finale.</p></section>
 <?php endif; ?>
+</div><!-- /tab-roz -->
+
+<script>
+document.querySelectorAll('.subtabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.subtabs button').forEach(x => x.classList.remove('on'));
+  document.querySelectorAll('.tabpane').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  document.getElementById('tab-' + b.dataset.tab)?.classList.add('on');
+});
+// głęboki link: ?tab=roz (archiwum/stronicowanie) albo #tabela-N / #archiwum
+const wtab = new URLSearchParams(location.search).get('tab');
+if (wtab) document.querySelector(`.subtabs button[data-tab="${wtab}"]`)?.click();
+else if (location.hash.startsWith('#archiwum')) document.querySelector('.subtabs button[data-tab="roz"]')?.click();
+</script>
 <?php layout_footer();

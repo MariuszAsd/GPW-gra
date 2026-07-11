@@ -92,6 +92,30 @@ function tip(string $text, string $anchor = ''): string {
 }
 
 /**
+ * Podzakładki modułu (funkcja główna -> podfunkcje): pasek linków pod tytułem.
+ * $items: [klucz, href, etykieta]; $active: klucz aktywnej podzakładki.
+ */
+function subnav(array $items, string $active): void {
+    echo "<nav class='subnav'>";
+    foreach ($items as [$key, $href, $label]) {
+        echo "<a class='" . ($key === $active ? 'on' : '') . "' href='" . h($href) . "'>$label</a>";
+    }
+    echo "</nav>";
+    // na wąskim ekranie pasek się przewija — aktywna podzakładka ma być widoczna od razu
+    echo "<script>document.querySelector('.subnav a.on')?.scrollIntoView({block:'nearest',inline:'center'});</script>";
+}
+
+/** Podzakładki modułu Rynek — jeden pasek na wszystkich stronach rynkowych. */
+function market_subnav(string $active): void {
+    subnav([
+        ['not', 'market.php', 'Notowania'],
+        ['bra', 'branze.php', 'Branże'],
+        ['rek', 'rekomendacje.php', 'Rekomendacje'],
+        ['new', 'wiadomosci.php', 'Newsy i ESPI'],
+    ], $active);
+}
+
+/**
  * Wykres kapitału (linia). Oś Y obejmuje CO NAJMNIEJ ±4% wartości — bez tego
  * autoskala min-max rozciąga grosze szumu na całą wysokość i drobny koszt
  * spreadu po zakupie wygląda jak krach. Pod wykresem jawna podziałka.

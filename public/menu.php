@@ -29,7 +29,9 @@ layout_header('Więcej', $user, 'more');
 
 <section class="panel menu-list" style="margin-bottom:14px">
   <a href="ranking.php"><?= icon('trophy') ?>Ranking<span class="arr">›</span></a>
-  <a href="wiadomosci.php"><?= icon('news') ?>Newsy i rekomendacje<span class="arr">›</span></a>
+  <a href="wiadomosci.php"><?= icon('news') ?>Newsy i ESPI<span class="arr">›</span></a>
+  <a href="branze.php"><?= icon('chart') ?>Trendy branżowe<span class="arr">›</span></a>
+  <a href="rekomendacje.php"><?= icon('case') ?>Rekomendacje i skaner AT<span class="arr">›</span></a>
   <a href="sklep.php"><?= icon('shop') ?>Sklep — Żetony Maklera<span class="sub">🪙 <?= (int) $me['tokens'] ?></span><span class="arr">›</span></a>
   <?php if ($seasonOn): ?><a href="sezon.php"><?= icon('flag') ?>Sezon i karnet<span class="arr">›</span></a><?php endif; ?>
   <a href="powiadomienia.php"><?= icon('bell') ?>Powiadomienia<?= $unread > 0 ? "<span class='sub' style='color:var(--down);font-weight:700'>$unread</span>" : '' ?><span class="arr">›</span></a>

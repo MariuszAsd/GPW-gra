@@ -90,33 +90,25 @@ layout_header('Portfel', $user, 'portfolio');
     'pozycje ze średnią ceną i wynikiem', 'ustaw SL/TP przy pozycji',
     'kliknij zlecenie po szczegóły', 'pełna historia w Dzienniku']); ?>
 
-<?php if ($goalTarget > 0 && ($user['ctx'] ?? '') !== 'challenge'): // w portfelu wyzwania cel gry nie obowiązuje ?>
-<div class="panel goal <?= $me['goal_session'] !== null ? 'won' : ($sessionsLeft < 0 ? 'lost' : '') ?>">
-  <div class="goal-row">
-    <div>
-      <h2>Cel gry<?= $me['my_goal'] !== null ? ' <span class="tag">osobisty</span>' : '' ?></h2>
-      <div class="goal-title">Zbuduj kapitał <b><?= money($goalTarget) ?> PLN</b><?= $me['my_goal'] === null ? ' w ' . $goalSessions . ' sesji' : '' ?></div>
-    </div>
-    <div class="goal-status">
-      <?php if ($me['goal_session'] !== null): ?>
-        <span class="chg p">🏆 Osiągnięty w sesji #<?= (int) $me['goal_session'] ?></span>
-      <?php elseif ($sessionsLeft >= 0): ?>
-        <span class="mono soft">pozostało sesji: <b class="up"><?= $sessionsLeft ?></b></span>
-      <?php else: ?>
-        <span class="chg n">czas minął — grasz dalej w trybie wolnym</span>
-      <?php endif; ?>
-    </div>
+<?php if ($goalTarget > 0 && ($user['ctx'] ?? '') !== 'challenge'): // cel gry = dyskretna wzmianka (szczegóły po rozwinięciu) ?>
+<details class="goal-mini">
+  <summary>🎯 Cel gry: <b><?= number_format($progress, 0, ',', ' ') ?>%</b> z <?= money_short($goalTarget) ?> PLN
+    <span class="bar"><i style="width:<?= round(min(100, $progress), 1) ?>%"></i></span>
+    <?php if ($me['goal_session'] !== null): ?><span class="up">🏆 osiągnięty (sesja #<?= (int) $me['goal_session'] ?>)</span>
+    <?php elseif ($sessionsLeft >= 0 && $me['my_goal'] === null): ?><span class="muted">zostało <?= $sessionsLeft ?> sesji</span><?php endif; ?>
+    <span class="muted" style="text-decoration:underline">szczegóły</span>
+  </summary>
+  <div class="panel" style="padding:12px 14px">
+    <div class="goal-nums mono"><span><?= money($equity) ?> PLN</span><span><?= number_format($progress, 1, ',', ' ') ?>%</span><span><?= money($goalTarget) ?> PLN</span></div>
+    <form method="post" class="inline" style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input type="hidden" name="set_goal" value="1">
+      <label style="margin:0;display:inline">Twój własny cel (PLN):</label>
+      <input type="number" name="goal_value" min="0" step="10000" value="<?= $me['my_goal'] !== null ? (int) $me['my_goal'] : '' ?>" placeholder="np. 500000" style="width:140px">
+      <button class="btn sm ghost">Zapisz</button>
+      <span class="muted" style="font-size:11.5px">puste = wróć do domyślnego · zmiana zaczyna polowanie od nowa</span>
+    </form>
   </div>
-  <div class="goalbar"><i style="width:<?= round($progress, 1) ?>%"></i></div>
-  <div class="goal-nums mono"><span><?= money($equity) ?> PLN</span><span><?= number_format($progress, 1, ',', ' ') ?>%</span><span><?= money($goalTarget) ?> PLN</span></div>
-  <form method="post" class="inline" style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-    <input type="hidden" name="set_goal" value="1">
-    <label style="margin:0;display:inline">Twój własny cel (PLN):</label>
-    <input type="number" name="goal_value" min="0" step="10000" value="<?= $me['my_goal'] !== null ? (int) $me['my_goal'] : '' ?>" placeholder="np. 500000" style="width:140px">
-    <button class="btn sm ghost">Zapisz</button>
-    <span class="muted" style="font-size:11.5px">puste = wróć do domyślnego · zmiana zaczyna polowanie od nowa</span>
-  </form>
-</div>
+</details>
 <?php endif; ?>
 
 <div class="stats">
@@ -126,6 +118,13 @@ layout_header('Portfel', $user, 'portfolio');
   <div class="stat"><div class="k">Wynik</div><div class="v <?= $pl >= 0 ? 'up' : 'down' ?>"><?= ($pl >= 0 ? '+' : '') . money($pl) ?><span style="font-size:13px"> (<?= ($plPct >= 0 ? '+' : '') . number_format($plPct, 1, ',', ' ') ?>%)</span></div></div>
 </div>
 
+<div class="subtabs">
+  <button class="on" data-tab="poz">Pozycje<?= $pos ? ' (' . count($pos) . ')' : '' ?></button>
+  <button data-tab="zle">Zlecenia<?= $orders ? ' (' . count($orders) . ')' : '' ?></button>
+  <button data-tab="his">Historia</button>
+</div>
+
+<div class="tabpane on" id="tab-poz">
 <div class="panel" style="margin-bottom:16px;padding:14px 16px 10px">
   <h2 style="margin:0">Wartość portfela w czasie</h2>
   <?= $eqSvg ?: "<p class='muted' style='margin:10px 0'>Wykres buduje się z każdym tickiem rynku…</p>" ?>
@@ -161,8 +160,10 @@ layout_header('Portfel', $user, 'portfolio');
     </table>
   </div>
 </div>
+</div><!-- /tab-poz -->
 
-<div class="panel" style="padding:0;overflow:hidden;margin-top:16px">
+<div class="tabpane" id="tab-zle">
+<div class="panel" style="padding:0;overflow:hidden">
   <div style="padding:14px 16px 0"><h2>Aktywne zlecenia <span class="muted" style="text-transform:none;letter-spacing:0">· kliknij wiersz, aby zobaczyć szczegóły</span></h2></div>
   <div class="tbl-scroll">
     <table>
@@ -183,9 +184,51 @@ layout_header('Portfel', $user, 'portfolio');
     </table>
   </div>
 </div>
-
-<?php if ($closed): ?>
+<?php /* archiwum zleceń — razem ze zleceniami (ta sama podzakładka) */ ?>
 <div class="panel" style="padding:0;overflow:hidden;margin-top:16px">
+  <div style="padding:14px 16px 0"><h2>Archiwum zleceń <span class="muted" style="text-transform:none;letter-spacing:0">· kliknij wiersz — pełna oś czasu: co, kiedy i dlaczego</span></h2></div>
+  <div class="tbl-scroll">
+    <table>
+      <thead><tr><th class="hide-m">Czas</th><th>Instrument</th><th>Strona</th><th>Status</th><th class="num hide-m">Obrót</th><th></th></tr></thead>
+      <tbody>
+      <?php
+      $stLabel = ['filled' => ['zrealizowane', 'up'], 'cancelled' => ['anulowane', 'muted'], 'expired' => ['wygasłe', 'muted'],
+                  'triggered' => ['SL/TP wyzwolone', 'soft']];
+      // obrót zrealizowany per zlecenie (suma transakcji podpiętych do zlecenia) — szczegóły w osi czasu
+      $ids = array_map(fn($o) => (int) $o['id'], $archive);
+      $turn = [];
+      if ($ids) {
+          $ph = implode(',', array_fill(0, count($ids), '?'));
+          foreach (Engine::all("SELECT COALESCE(buy_order_id, sell_order_id) oid, SUM(qty*price) v
+                                FROM transactions WHERE buy_order_id IN ($ph) OR sell_order_id IN ($ph)
+                                GROUP BY COALESCE(buy_order_id, sell_order_id)", array_merge($ids, $ids)) as $r) {
+              $turn[(int) $r['oid']] = (float) $r['v'];
+          }
+      }
+      foreach ($archive as $o):
+          [$lbl, $cls] = $stLabel[$o['status']] ?? [$o['status'], 'muted'];
+          $init = (int) $o['qty_init']; $done = $init > 0 ? $init - (int) $o['qty'] : 0;
+          if ($done > 0 && !in_array($o['status'], ['filled', 'triggered'], true)) { $lbl .= ' (częściowo)'; $cls = 'soft'; }
+          $v = $turn[(int) $o['id']] ?? 0.0;
+      ?>
+        <tr class="rowlink" onclick="location='order.php?id=<?= (int) $o['id'] ?>'">
+          <td class="muted mono hide-m"><?= h(substr($o['created_at'], 5, 11)) ?></td>
+          <td class="tk"><?= h($o['ticker']) ?></td>
+          <td><span class="chg <?= $o['side'] === 'buy' ? 'p' : 'n' ?>"><?= $o['side'] === 'buy' ? 'KUPNO' : 'SPRZEDAŻ' ?></span></td>
+          <td class="<?= $cls ?>"><?= h($lbl) ?></td>
+          <td class="num hide-m"><?= $v > 0 ? money($v) . ' PLN' : '<span class="muted">—</span>' ?></td>
+          <td style="text-align:right;padding-right:14px"><a class="btn sm ghost" href="order.php?id=<?= (int) $o['id'] ?>" onclick="event.stopPropagation()">Szczegóły →</a></td>
+        </tr>
+      <?php endforeach; if (!$archive) echo "<tr><td class='muted' colspan=6 style='padding:20px'>Brak zakończonych zleceń.</td></tr>"; ?>
+      </tbody>
+    </table>
+  </div>
+</div>
+</div><!-- /tab-zle -->
+
+<div class="tabpane" id="tab-his">
+<?php if ($closed): ?>
+<div class="panel" style="padding:0;overflow:hidden">
   <div style="padding:14px 16px 0"><h2>Zamknięte pozycje <span class="muted" style="text-transform:none;letter-spacing:0">· na czym zarobiłeś, na czym straciłeś (po prowizji, bez dywidend)</span>
     <span style="float:right" class="mono <?= $realizedTotal >= 0 ? 'up' : 'down' ?>"><?= ($realizedTotal >= 0 ? '+' : '') . money($realizedTotal) ?> PLN</span></h2></div>
   <div class="tbl-scroll">
@@ -228,44 +271,18 @@ layout_header('Portfel', $user, 'portfolio');
     </table>
   </div>
 </div>
+<p class="muted" style="margin:12px 2px;font-size:12px">Pełna oś czasu konta (dywidendy, SL/TP, odznaki, wyzwania) — w <a href="dziennik.php"><b>Dzienniku</b></a>.</p>
+</div><!-- /tab-his -->
 
-<div class="panel" style="padding:0;overflow:hidden;margin-top:16px">
-  <div style="padding:14px 16px 0"><h2>Archiwum zleceń <span class="muted" style="text-transform:none;letter-spacing:0">· kliknij wiersz — pełna oś czasu: co, kiedy i dlaczego</span></h2></div>
-  <div class="tbl-scroll">
-    <table>
-      <thead><tr><th class="hide-m">Czas</th><th>Instrument</th><th>Strona</th><th>Status</th><th class="num hide-m">Obrót</th><th></th></tr></thead>
-      <tbody>
-      <?php
-      $stLabel = ['filled' => ['zrealizowane', 'up'], 'cancelled' => ['anulowane', 'muted'], 'expired' => ['wygasłe', 'muted'],
-                  'triggered' => ['SL/TP wyzwolone', 'soft']];
-      // obrót zrealizowany per zlecenie (suma transakcji podpiętych do zlecenia) — szczegóły w osi czasu
-      $ids = array_map(fn($o) => (int) $o['id'], $archive);
-      $turn = [];
-      if ($ids) {
-          $ph = implode(',', array_fill(0, count($ids), '?'));
-          foreach (Engine::all("SELECT COALESCE(buy_order_id, sell_order_id) oid, SUM(qty*price) v
-                                FROM transactions WHERE buy_order_id IN ($ph) OR sell_order_id IN ($ph)
-                                GROUP BY COALESCE(buy_order_id, sell_order_id)", array_merge($ids, $ids)) as $r) {
-              $turn[(int) $r['oid']] = (float) $r['v'];
-          }
-      }
-      foreach ($archive as $o):
-          [$lbl, $cls] = $stLabel[$o['status']] ?? [$o['status'], 'muted'];
-          $init = (int) $o['qty_init']; $done = $init > 0 ? $init - (int) $o['qty'] : 0;
-          if ($done > 0 && !in_array($o['status'], ['filled', 'triggered'], true)) { $lbl .= ' (częściowo)'; $cls = 'soft'; }
-          $v = $turn[(int) $o['id']] ?? 0.0;
-      ?>
-        <tr class="rowlink" onclick="location='order.php?id=<?= (int) $o['id'] ?>'">
-          <td class="muted mono hide-m"><?= h(substr($o['created_at'], 5, 11)) ?></td>
-          <td class="tk"><?= h($o['ticker']) ?></td>
-          <td><span class="chg <?= $o['side'] === 'buy' ? 'p' : 'n' ?>"><?= $o['side'] === 'buy' ? 'KUPNO' : 'SPRZEDAŻ' ?></span></td>
-          <td class="<?= $cls ?>"><?= h($lbl) ?></td>
-          <td class="num hide-m"><?= $v > 0 ? money($v) . ' PLN' : '<span class="muted">—</span>' ?></td>
-          <td style="text-align:right;padding-right:14px"><a class="btn sm ghost" href="order.php?id=<?= (int) $o['id'] ?>" onclick="event.stopPropagation()">Szczegóły →</a></td>
-        </tr>
-      <?php endforeach; if (!$archive) echo "<tr><td class='muted' colspan=6 style='padding:20px'>Brak zakończonych zleceń.</td></tr>"; ?>
-      </tbody>
-    </table>
-  </div>
-</div>
+<script>
+document.querySelectorAll('.subtabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.subtabs button').forEach(x => x.classList.remove('on'));
+  document.querySelectorAll('.tabpane').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  document.getElementById('tab-' + b.dataset.tab)?.classList.add('on');
+});
+// głęboki link ?tab=zle / ?tab=his (np. z powiadomień)
+const ptab = new URLSearchParams(location.search).get('tab');
+if (ptab) document.querySelector(`.subtabs button[data-tab="${ptab}"]`)?.click();
+</script>
 <?php layout_footer();

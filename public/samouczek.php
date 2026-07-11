@@ -15,7 +15,7 @@ $kroki = [
      'Giełda działa jak prawdziwa: handel trwa 7:50–22:00. Po zamknięciu kursy stoją, a zlecenia złożysz dopiero po otwarciu. Jedna sesja = jeden dzień giełdowy.',
      'market.php', 'Sprawdź status rynku'],
     ['📊', 'Rynek — Twoja mapa',
-     'Tabela wszystkich spółek: kurs, zmiana od otwarcia, oferty kupna (BID) i sprzedaży (ASK), obrót. Kropka przy obrocie pokazuje płynność. Kliknij wiersz, żeby otworzyć spółkę.',
+     'Moduł Rynek ma podzakładki: NOTOWANIA (tabela spółek: kurs, zmiana, BID/ASK, obrót — kropka pokazuje płynność), BRANŻE (trendy sektorowe: która branża ciągnie, która tonie), REKOMENDACJE (wyceny analityków + skaner sygnałów AT) i NEWSY I ESPI. Kliknij wiersz w Notowaniach, żeby otworzyć spółkę.',
      'market.php', 'Otwórz Rynek'],
     ['🛒', 'Pierwsze zlecenie',
      'Na karcie spółki wybierz KUP, potem: LIMIT = kupisz po swojej cenie lub lepiej (czeka w arkuszu), PKC = kupujesz natychmiast po najlepszej ofercie. Podaj ilość i zatwierdź.',

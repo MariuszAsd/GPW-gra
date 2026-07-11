@@ -542,3 +542,35 @@ td.nowrap{white-space:nowrap}
 /* karta mojego wyzwania na dashboardzie */
 .ch-mine{padding:12px 2px;border-bottom:1px solid var(--line)}
 .ch-mine:last-of-type{border-bottom:none}
+
+/* ---------- Podzakładki modułu (funkcja główna -> podfunkcje) ---------- */
+.subnav{display:flex;gap:2px;margin:0 0 14px;background:var(--bg3);border-radius:10px;padding:3px;
+  width:fit-content;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.subnav a{color:var(--soft);padding:8px 15px;border-radius:8px;font-weight:650;font-size:13px;
+  white-space:nowrap;transition:all .12s;text-decoration:none}
+.subnav a.on{background:var(--bg2);color:var(--ink);box-shadow:0 1px 2px rgba(16,24,40,.1)}
+.subnav a:hover{color:var(--ink)}
+@media(max-width:760px){.subnav{width:100%;justify-content:stretch}.subnav a{flex:1;text-align:center;padding:9px 8px}}
+
+/* newsy: czytelne pozycje (meta nad nagłówkiem, nagłówek w osobnej linii) */
+.news-it{padding:11px 16px;border-bottom:1px solid var(--line)}
+.news-meta{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:4px}
+.news-meta .tag{font-size:9.5px;padding:2px 7px}
+.news-h{font-weight:650;font-size:14px;line-height:1.4}
+.news-b{font-size:12.5px;color:var(--soft);margin-top:3px;line-height:1.5}
+.news-t{font-size:10.5px;color:var(--faint);margin-top:4px;font-variant-numeric:tabular-nums}
+
+/* cel gry jako dyskretna wzmianka (rozwijana) */
+.goal-mini{margin:0 0 12px;font-size:12.5px}
+.goal-mini summary{cursor:pointer;color:var(--soft);list-style:none;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.goal-mini summary::-webkit-details-marker{display:none}
+.goal-mini .bar{flex:1;min-width:80px;max-width:220px;height:5px;border-radius:4px;background:var(--bg3);overflow:hidden}
+.goal-mini .bar i{display:block;height:100%;background:var(--accent)}
+.goal-mini[open] summary{margin-bottom:8px}
+
+/* karta branży */
+.sec-card{padding:13px 2px;border-bottom:1px solid var(--line)}
+.sec-card:last-of-type{border-bottom:none}
+.sec-head{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.sec-head b{font-size:14.5px}
+.sec-tickers{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
