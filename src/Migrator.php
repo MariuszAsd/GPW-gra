@@ -317,6 +317,34 @@ final class Migrator
                 "CREATE INDEX ix_pay_user ON payment_orders (user_id, id)",
                 "CREATE INDEX ix_season ON season_progress (series_id, points)",
             ],
+            // v22: konta na serio (email + reset hasła) i codzienna pętla (seria + misje dnia)
+            22 => [
+                "ALTER TABLE users ADD COLUMN email VARCHAR(120) NULL",
+                "CREATE TABLE password_resets (
+                    id " . (Db::driver() === 'mysql' ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT') . ",
+                    user_id INT NOT NULL,
+                    token_hash VARCHAR(64) NOT NULL,
+                    expires_at VARCHAR(19) NOT NULL,
+                    used_at VARCHAR(19) NULL,
+                    created_at VARCHAR(19) NOT NULL
+                )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
+                "CREATE TABLE daily_state (
+                    user_id INT PRIMARY KEY,
+                    last_day VARCHAR(10) NOT NULL,
+                    streak INT NOT NULL DEFAULT 0
+                )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
+                "CREATE TABLE daily_missions (
+                    id " . (Db::driver() === 'mysql' ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT') . ",
+                    user_id INT NOT NULL,
+                    day  VARCHAR(10) NOT NULL,
+                    code VARCHAR(30) NOT NULL,
+                    tokens INT NOT NULL,
+                    created_at VARCHAR(19) NOT NULL,
+                    UNIQUE (user_id, day, code)
+                )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
+                "CREATE UNIQUE INDEX ux_users_email ON users (email)",
+                "CREATE INDEX ix_pwreset ON password_resets (token_hash)",
+            ],
         ];
     }
 

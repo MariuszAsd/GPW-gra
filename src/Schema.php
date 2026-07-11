@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 21;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 22;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -32,6 +32,7 @@ final class Schema
                 goal_session   INT NULL,                 -- sesja, w której gracz osiągnął cel (NULL = jeszcze nie)
                 start_equity   $money NOT NULL DEFAULT 0, -- kapitał startowy (baza do wyniku % w rankingu)
                 tokens INT NOT NULL DEFAULT 0,             -- Żetony Maklera (waluta premium; księga w token_ledger)
+                email VARCHAR(120) NULL,                   -- do odzyskiwania hasła (opcjonalny; unikalny gdy podany)
                 -- kosmetyka (założone przedmioty; katalog w src/Cosmetics.php):
                 title      VARCHAR(40) NOT NULL DEFAULT '',  -- tytuł przy nicku (ranking/profil)
                 chat_color VARCHAR(7)  NOT NULL DEFAULT '',  -- kolor nicka na czacie (#rrggbb)
@@ -388,6 +389,32 @@ final class Schema
                 UNIQUE (series_id, user_id)
             )",
 
+            // --- RESET HASŁA (tokeny jednorazowe; wysyłka przez src/Mailer.php) ---
+            "password_resets" => "CREATE TABLE password_resets (
+                id $pk,
+                user_id INT NOT NULL,
+                token_hash VARCHAR(64) NOT NULL,       -- sha256 tokenu (token jawny tylko w mailu)
+                expires_at VARCHAR(19) NOT NULL,
+                used_at VARCHAR(19) NULL,
+                created_at VARCHAR(19) NOT NULL
+            )",
+
+            // --- CODZIENNA PĘTLA: seria logowań + misje dnia (logika w src/Daily.php) ---
+            "daily_state" => "CREATE TABLE daily_state (
+                user_id INT PRIMARY KEY,
+                last_day VARCHAR(10) NOT NULL,         -- ostatni dzień z aktywnością (YYYY-MM-DD)
+                streak INT NOT NULL DEFAULT 0          -- długość bieżącej serii dni
+            )",
+            "daily_missions" => "CREATE TABLE daily_missions (
+                id $pk,
+                user_id INT NOT NULL,
+                day  VARCHAR(10) NOT NULL,
+                code VARCHAR(30) NOT NULL,
+                tokens INT NOT NULL,
+                created_at VARCHAR(19) NOT NULL,       -- wiersz = misja zaliczona i wypłacona
+                UNIQUE (user_id, day, code)
+            )",
+
             // --- DZIENNIK GRACZA (oś czasu konta: zlecenia, SL/TP, dywidendy, wyzwania, odznaki) ---
             "player_journal" => "CREATE TABLE player_journal (
                 id $pk,
@@ -444,6 +471,8 @@ final class Schema
             "CREATE INDEX ix_reco ON recommendations (session)",
             "CREATE INDEX ix_pay_user ON payment_orders (user_id, id)",
             "CREATE INDEX ix_season ON season_progress (series_id, points)",
+            "CREATE UNIQUE INDEX ux_users_email ON users (email)",
+            "CREATE INDEX ix_pwreset ON password_resets (token_hash)",
         ];
     }
 }

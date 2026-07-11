@@ -37,6 +37,7 @@ layout_header('Więcej', $user, 'more');
 </section>
 
 <section class="panel menu-list" style="margin-bottom:14px">
+  <a href="konto.php"><?= icon('user') ?>Ustawienia konta — e-mail i hasło<span class="arr">›</span></a>
   <a href="samouczek.php"><?= icon('help') ?>Samouczek<span class="arr">›</span></a>
   <a href="pomoc.php"><?= icon('help') ?>Pomoc i infografiki<span class="arr">›</span></a>
   <button onclick="return themeToggle()"><?= icon('theme') ?>Przełącz motyw jasny / ciemny</button>

@@ -13,6 +13,9 @@ require_once __DIR__ . '/../src/Recommendations.php';
 require_once __DIR__ . '/../src/Payments.php';
 require_once __DIR__ . '/../src/Cosmetics.php';
 require_once __DIR__ . '/../src/Seasons.php';
+require_once __DIR__ . '/../src/Mailer.php';
+require_once __DIR__ . '/../src/PasswordReset.php';
+require_once __DIR__ . '/../src/Daily.php';
 
 session_set_cookie_params(['samesite' => 'Lax', 'httponly' => true]);
 session_start();
@@ -89,7 +92,13 @@ function tip(string $text, string $anchor = ''): string {
 
 function current_user(): ?array {
     if (empty($_SESSION['uid'])) return null;
-    return Engine::row("SELECT id, username, role, cash, cash_reserved FROM users WHERE id=?", [$_SESSION['uid']]);
+    $u = Engine::row("SELECT id, username, role, cash, cash_reserved FROM users WHERE id=?", [$_SESSION['uid']]);
+    // codzienna pętla: pierwszy wjazd dnia podbija serię (strażnik w sesji = zero kosztu potem)
+    if ($u && $u['role'] === 'player' && ($_SESSION['daily_day'] ?? '') !== Daily::today()) {
+        $_SESSION['daily_day'] = Daily::today();
+        Daily::touch((int) $u['id']);
+    }
+    return $u;
 }
 function require_login(): array {
     $u = current_user();

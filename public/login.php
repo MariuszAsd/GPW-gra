@@ -28,6 +28,7 @@ layout_header('Logowanie', null);
       <button class="btn">Zaloguj</button>
     </form>
     <p class="muted" style="margin-top:14px;font-size:13px">Nie masz konta? <a href="register.php" style="color:var(--accent)">Załóż konto — start 100 000 PLN</a></p>
+    <p class="muted" style="margin-top:6px;font-size:13px"><a href="reset.php" style="color:var(--accent)">Nie pamiętasz hasła?</a></p>
     <p class="muted" style="margin-top:8px;font-size:12px">Konto demo: <b>gracz / haslo123</b></p>
   </div>
 </div>

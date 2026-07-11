@@ -7,6 +7,7 @@ $inviteRequired = (string) (Engine::one("SELECT v FROM game_state WHERE k='invit
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = trim($_POST['username'] ?? '');
+    $email = mb_strtolower(trim($_POST['email'] ?? ''));
     $pass1 = $_POST['password'] ?? '';
     $pass2 = $_POST['password2'] ?? '';
     $invite = trim($_POST['invite'] ?? '');
@@ -17,13 +18,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     elseif (strlen($pass1) < 6)                              $err = 'Hasło musi mieć co najmniej 6 znaków.';
     elseif ($pass1 !== $pass2)                               $err = 'Hasła nie są identyczne.';
     elseif ($inviteRequired !== '' && !hash_equals($inviteRequired, $invite)) $err = 'Nieprawidłowy kod zaproszenia.';
+    elseif ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL))     $err = 'To nie wygląda na poprawny e-mail.';
+    elseif ($email !== '' && Engine::one("SELECT id FROM users WHERE email=?", [$email])) $err = 'Ten e-mail jest już przypisany do konta.';
     elseif (Engine::one("SELECT id FROM users WHERE LOWER(username)=LOWER(?)", [$username])) $err = 'Ten login jest już zajęty.';
 
     if ($err === null) {
         try {
             [$sessionNo] = Engine::sessionInfo();
-            Db::pdo()->prepare("INSERT INTO users (username, password_hash, is_bot, role, cash, joined_session, start_equity) VALUES (?,?,0,'player',?,?,?)")
-                ->execute([$username, password_hash($pass1, PASSWORD_DEFAULT), $cfg['starting_cash'], $sessionNo, $cfg['starting_cash']]);
+            Db::pdo()->prepare("INSERT INTO users (username, password_hash, email, is_bot, role, cash, joined_session, start_equity) VALUES (?,?,?,0,'player',?,?,?)")
+                ->execute([$username, password_hash($pass1, PASSWORD_DEFAULT), $email !== '' ? $email : null, $cfg['starting_cash'], $sessionNo, $cfg['starting_cash']]);
             $uid = (int) Db::pdo()->lastInsertId();
             Log::write('info', 'auth', 'register', "nowe konto: $username", ['uid' => $uid]);
             Tokens::grant($uid, 10, 'welcome', 'Żetony powitalne — zajrzyj do Sklepu');
@@ -50,6 +53,8 @@ layout_header('Rejestracja', null);
     <form method="post">
       <label for="username">Login</label>
       <input id="username" name="username" autofocus required minlength="3" maxlength="20" pattern="[A-Za-z0-9_\-]{3,20}">
+      <label for="email">E-mail <span class="muted">(opcjonalny — do odzyskiwania hasła)</span></label>
+      <input id="email" name="email" type="email" placeholder="twoj@email.pl">
       <label for="password">Hasło (min. 6 znaków)</label>
       <input id="password" name="password" type="password" required minlength="6">
       <label for="password2">Powtórz hasło</label>

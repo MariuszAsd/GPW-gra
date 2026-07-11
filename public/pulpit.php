@@ -38,6 +38,11 @@ $movers = Engine::all("SELECT id, ticker, name, price, day_open_price,
                        FROM stocks WHERE day_open_price > 0 ORDER BY ABS(price / day_open_price - 1) DESC LIMIT 6");
 usort($movers, fn($a, $b) => $b['chg'] <=> $a['chg']);
 
+// codzienna pętla: seria + misje dnia (sprawdzenie misji wypłaca świeżo zaliczone)
+$streak = Daily::streak($uid);
+$missions = Daily::missions($uid);
+$missionsDone = count(array_filter($missions, fn($m) => $m['done']));
+
 // obserwowane spółki (gwiazdki z Rynku) — z sygnałem AT dla posiadaczy Pakietu Analityka
 $watchRows = Engine::all("SELECT s.id, s.ticker, s.name, s.price, s.day_open_price, s.ta_signal,
                           CASE WHEN s.day_open_price > 0 THEN (s.price / s.day_open_price - 1) * 100 ELSE 0 END AS chg
@@ -70,6 +75,21 @@ layout_header('Pulpit', $user, 'home');
   <div class="stat"><div class="k">Wolna gotówka</div><div class="v"><?= money($user['cash']) ?></div></div>
   <div class="stat"><div class="k">Pozycje</div><div class="v"><?= $posCount ?></div></div>
 </div>
+
+<section class="panel" style="margin-bottom:16px">
+  <h2>Misje dnia (<?= $missionsDone ?>/<?= count($missions) ?>)
+    <span class="tag" style="margin-left:8px;color:var(--gold);border-color:var(--gold-border)">🔥 seria: <?= $streak ?> <?= $streak === 1 ? 'dzień' : 'dni' ?></span>
+    <?= tip('Codziennie trzy wspólne dla wszystkich misje — za każdą żetony. Wejście do gry podbija serię: +1 żeton dziennie i bonus +3 co 7. dzień z rzędu. Przerwa zeruje serię.', '') ?>
+  </h2>
+  <?php foreach ($missions as $m): ?>
+    <div class="check<?= $m['done'] ? ' done' : '' ?>">
+      <span class="cbx"><?= $m['done'] ? '✓' : '' ?></span>
+      <span style="flex:1"><?= h($m['desc']) ?></span>
+      <b style="color:var(--gold);font-size:12.5px;white-space:nowrap">🪙 <?= (int) $m['tokens'] ?></b>
+    </div>
+  <?php endforeach; ?>
+  <p class="muted" style="margin:8px 0 0;font-size:12px">Nagrody wpadają same, gdy misja jest zaliczona. Jutro trzy nowe — te same dla wszystkich graczy.</p>
+</section>
 
 <?php if ($goalTarget > 0): ?>
 <div class="panel" style="margin-bottom:16px;padding:12px 16px">
