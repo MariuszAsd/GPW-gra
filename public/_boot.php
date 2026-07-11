@@ -122,7 +122,7 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
     echo "<meta name='viewport' content='width=device-width,initial-scale=1'>";
     // motyw PRZED stylami (bez mignięcia): zapamiętany wybór gracza, domyślnie jasny
     echo "<script>(function(){var t=null;try{t=localStorage.getItem('theme')}catch(e){}"
-       . "if(t!=='dark'&&t!=='light')t='dark';document.documentElement.setAttribute('data-theme',t);})();"
+       . "if(t!=='dark'&&t!=='light')t='light';document.documentElement.setAttribute('data-theme',t);})();"
        . "function themeToggle(){var r=document.documentElement,t=r.getAttribute('data-theme')==='dark'?'light':'dark';"
        . "r.setAttribute('data-theme',t);try{localStorage.setItem('theme',t)}catch(e){}return false}</script>";
     echo "<title>" . h($title) . " · GPW-gra</title><link rel='stylesheet' href='assets/app.css'></head><body>";
