@@ -12,7 +12,10 @@ $ref = (float) $s['day_open_price'] > 0 ? (float) $s['day_open_price'] : (float)
 $chg = $ref > 0 ? ((float) $s['price'] - $ref) / $ref * 100 : 0;   // zmiana od otwarcia sesji
 [, , $tps] = Engine::sessionInfo();
 
-$candles = array_reverse(Engine::all("SELECT o,h,l,c FROM candles WHERE stock_id=? ORDER BY t DESC LIMIT 80", [$id]));
+$candles = array_reverse(Engine::all("SELECT o,h,l,c,v FROM candles WHERE stock_id=? ORDER BY t DESC LIMIT 80", [$id]));
+[$sessionNo] = Engine::sessionInfo();
+$sessTurnover = (float) (Engine::one("SELECT SUM(v * c) FROM candles WHERE stock_id=? AND t >= ?", [$id, ($sessionNo - 1) * $tps]) ?: 0);
+[$liqCls, $liqTxt] = liq_label($s['liquidity']);
 
 $bids = Engine::all("SELECT price, SUM(qty) q FROM orders WHERE stock_id=? AND side='buy'  AND status='active' GROUP BY price ORDER BY price DESC LIMIT 8", [$id]);
 $asks = Engine::all("SELECT price, SUM(qty) q FROM orders WHERE stock_id=? AND side='sell' AND status='active' GROUP BY price ORDER BY price ASC  LIMIT 8", [$id]);
@@ -25,14 +28,17 @@ $mcap = (float) $s['price'] * (float) $s['total_shares'];
 // --- świece (inline SVG) ---
 $chartSvg = "<div style='padding:40px;text-align:center;color:var(--faint)'>Zbieram dane do wykresu…</div>";
 if (count($candles) > 1) {
-    $W = 680; $H = 240; $pl = 4; $pr = 4; $pt = 10; $pb = 10;
+    // układ: góra 10..186 ceny, 192..236 słupki wolumenu (klasyka aplikacji tradingowych)
+    $W = 680; $H = 240; $pl = 4; $pr = 4; $pt = 10; $pb = 54; $volTop = 192; $volH = 44;
     $lows = array_map(fn($c) => (float) $c['l'], $candles);
     $highs = array_map(fn($c) => (float) $c['h'], $candles);
     $mn = min($lows); $mx = max($highs); $rng = ($mx - $mn) ?: 1;
+    $maxV = max(1, max(array_map(fn($c) => (int) $c['v'], $candles)));
     $n = count($candles); $slot = ($W - $pl - $pr) / $n; $bw = max(1.4, $slot * 0.62);
     $yv = fn($v) => round($pt + (1 - ($v - $mn) / $rng) * ($H - $pt - $pb), 1);
     $svg = "<svg class='chart' viewBox='0 0 $W $H' preserveAspectRatio='none'>";
     for ($g = 0; $g <= 3; $g++) { $gy = round($pt + $g / 3 * ($H - $pt - $pb), 1); $svg .= "<line x1='0' x2='$W' y1='$gy' y2='$gy' stroke='var(--line)' stroke-width='1'/>"; }
+    $svg .= "<line x1='0' x2='$W' y1='" . ($volTop - 4) . "' y2='" . ($volTop - 4) . "' stroke='var(--line)' stroke-width='1'/>";
     foreach ($candles as $i => $c) {
         $x = round($pl + $i * $slot + $slot / 2, 1);
         $o = (float) $c['o']; $cl = (float) $c['c']; $col = $cl >= $o ? 'var(--up)' : 'var(--down)';
@@ -40,6 +46,10 @@ if (count($candles) > 1) {
         $bx = round($x - $bw / 2, 1);
         $svg .= "<line x1='$x' x2='$x' y1='" . $yv((float) $c['h']) . "' y2='" . $yv((float) $c['l']) . "' stroke='$col' stroke-width='1'/>";
         $svg .= "<rect x='$bx' y='$top' width='" . round($bw, 1) . "' height='$bh' fill='$col'/>";
+        if ((int) $c['v'] > 0) {   // słupek wolumenu
+            $vh = max(1, round((int) $c['v'] / $maxV * $volH, 1));
+            $svg .= "<rect x='$bx' y='" . round($volTop + $volH - $vh, 1) . "' width='" . round($bw, 1) . "' height='$vh' fill='$col' opacity='0.45'/>";
+        }
     }
     $chartSvg = $svg . "</svg>";
 }
@@ -47,7 +57,10 @@ if (count($candles) > 1) {
 layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
 ?>
 <div class="shead">
-  <div class="idn"><div class="tk"><?= h($s['ticker']) ?></div><div class="nm"><?= h($s['name']) ?> · <?= h($s['sector']) ?></div></div>
+  <div class="idn"><div class="tk"><?= h($s['ticker']) ?></div><div class="nm"><?= h($s['name']) ?> · <?= h($s['sector']) ?></div>
+    <div class="nm" style="margin-top:3px">Obrót sesji: <b class="mono" data-turnover><?= money_short($sessTurnover) ?> PLN</b>
+      · <span class="liq <?= $liqCls ?>">●</span> <?= $liqTxt ?><?= tip('Płynność mówi, jak łatwo kupić/sprzedać bez ruszania kursu. Przy niskiej płynności widełki bid-ask są szersze, a PKC może zrealizować się po gorszej cenie.', 'plynnosc') ?></div>
+  </div>
   <div class="price">
     <div class="p" data-px><?= money($s['price']) ?> <span style="font-size:15px;color:var(--faint)">PLN</span></div>
     <span class="chg <?= $chg >= 0 ? 'p' : 'n' ?>" data-chg><span class="ar"><?= $chg >= 0 ? '▲' : '▼' ?></span><?= number_format(abs($chg), 2, ',', ' ') ?>%</span>
@@ -83,12 +96,12 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
 
       <div class="tabpane on" id="tab-book">
         <div class="book">
-          <div class="col b"><h3>Kupno (bid)</h3>
+          <div class="col b"><h3>Kupno (bid) <span class="muted" style="text-transform:none;letter-spacing:0">· razem <?= array_sum(array_map(fn($r) => (int) $r['q'], $bids)) ?> szt.</span></h3>
             <?php foreach ($bids as $r): ?>
               <div class="lvl"><span class="depth" style="width:<?= (int) round($r['q'] / $maxDepth * 100) ?>%"></span><span class="p"><?= money($r['price']) ?></span><span class="q"><?= (int) $r['q'] ?></span></div>
             <?php endforeach; if (!$bids) echo "<div class='muted' style='padding:6px'>brak</div>"; ?>
           </div>
-          <div class="col s"><h3>Sprzedaż (ask)</h3>
+          <div class="col s"><h3>Sprzedaż (ask) <span class="muted" style="text-transform:none;letter-spacing:0">· razem <?= array_sum(array_map(fn($r) => (int) $r['q'], $asks)) ?> szt.</span></h3>
             <?php foreach ($asks as $r): ?>
               <div class="lvl"><span class="depth" style="width:<?= (int) round($r['q'] / $maxDepth * 100) ?>%"></span><span class="p"><?= money($r['price']) ?></span><span class="q"><?= (int) $r['q'] ?></span></div>
             <?php endforeach; if (!$asks) echo "<div class='muted' style='padding:6px'>brak</div>"; ?>
@@ -115,7 +128,7 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
       <div class="tabpane" id="tab-news">
         <?php foreach ($news as $nw): $tc = $nw['type'] === 'POS' ? 'up' : ($nw['type'] === 'NEG' ? 'down' : 'soft'); ?>
           <div style="padding:9px 2px;border-bottom:1px solid var(--line)">
-            <?php if ($nw['is_espi']): ?><span class="tag" style="color:#ffd27a;border-color:#5a4a1e">ESPI</span> <?php endif; ?>
+            <?php if ($nw['is_espi']): ?><span class="tag" style="color:var(--gold);border-color:var(--gold-border)">ESPI</span> <?php endif; ?>
             <span class="<?= $tc ?>" style="font-weight:600"><?= h($nw['headline']) ?></span>
             <div class="muted" style="font-size:12px;margin-top:2px"><?= h(substr($nw['published_at'], 0, 16)) ?> · <?= h($nw['scope']) ?></div>
           </div>
@@ -168,6 +181,9 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
         </select>
       </div>
       <div class="summary"><span id="val-label">Wartość zlecenia</span><b id="val">—</b></div>
+      <?php if ($liqCls === 'lo'): ?>
+      <p class="muted" style="font-size:12px;margin:0 0 4px"><span class="liq lo">●</span> <b>Niska płynność</b> — arkusz jest płytki: zlecenie PKC może zrealizować się po wyraźnie gorszej cenie (poślizg). Bezpieczniej użyć zlecenia LIMIT.</p>
+      <?php endif; ?>
       <div id="f-sltp">
         <div class="adv">
           <div><label>Stop-Loss<?= tip('Automatyczny hamulec strat: gdy kurs SPADNIE do progu, gra sama sprzeda ten pakiet.', 'sl') ?></label><input type="number" step="0.01" name="sl_price" placeholder="—"></div>
@@ -219,15 +235,20 @@ let cIv=1, cType='candles';
 async function drawChart(){ try{
   const j=await (await fetch('api_chart.php?id=<?= $id ?>&iv='+cIv)).json();
   if(!j.ok||j.candles.length<2) return;
-  const W=680,H=240,pl=4,pr=4,pt=10,pb=10,cs=j.candles,n=cs.length;
+  const W=680,H=240,pl=4,pr=4,pt=10,pb=54,volTop=192,volH=44,cs=j.candles,n=cs.length;
   let mn,mx;
   if(cType==='line'){ const v=cs.map(c=>c.c); mn=Math.min(...v); mx=Math.max(...v); }
   else { mn=Math.min(...cs.map(c=>c.l)); mx=Math.max(...cs.map(c=>c.h)); }
   const rng=(mx-mn)||1, slot=(W-pl-pr)/n, bw=Math.max(1.4,slot*0.62);
+  const maxV=Math.max(1,...cs.map(c=>c.v||0));
   const yv=v=>(pt+(1-(v-mn)/rng)*(H-pt-pb)).toFixed(1);
   let s='<svg class="chart" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none">';
   for(let g=0;g<=3;g++){ const gy=(pt+g/3*(H-pt-pb)).toFixed(1);
     s+='<line x1="0" x2="'+W+'" y1="'+gy+'" y2="'+gy+'" stroke="var(--line)" stroke-width="1"/>'; }
+  s+='<line x1="0" x2="'+W+'" y1="'+(volTop-4)+'" y2="'+(volTop-4)+'" stroke="var(--line)" stroke-width="1"/>';
+  for(let i=0;i<n;i++){ const c=cs[i]; if(!(c.v>0)) continue;
+    const col=c.c>=c.o?'var(--up)':'var(--down)', vh=Math.max(1,c.v/maxV*volH);
+    s+='<rect x="'+(pl+i*slot+slot/2-bw/2).toFixed(1)+'" y="'+(volTop+volH-vh).toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+vh.toFixed(1)+'" fill="'+col+'" opacity="0.45"/>'; }
   if(cType==='line'){
     const pts=cs.map((c,i)=>(pl+i*slot+slot/2).toFixed(1)+','+yv(c.c)).join(' ');
     const col=cs[n-1].c>=cs[0].c?'var(--up)':'var(--down)';

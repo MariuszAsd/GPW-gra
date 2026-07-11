@@ -55,7 +55,7 @@ $medals = ['🥇', '🥈', '🥉'];
       <?php foreach ($players as $i => $p):
           $deadline = (int) $p['joined_session'] + $goalSessions - 1;
           $left = $deadline - $sessionNo; ?>
-        <tr <?= (int) $p['id'] === (int) $user['id'] ? 'style="background:rgba(47,123,255,.08)"' : '' ?>>
+        <tr <?= (int) $p['id'] === (int) $user['id'] ? 'style="background:var(--info-bg)"' : '' ?>>
           <td class="mono" style="font-size:16px"><?= $medals[$i] ?? ($i + 1) ?></td>
           <td><b><?= h($p['username']) ?></b><?= (int) $p['id'] === (int) $user['id'] ? ' <span class="tag" style="color:var(--accent);border-color:var(--accent)">Ty</span>' : '' ?></td>
           <td class="num mono"><?= money($p['equity']) ?></td>

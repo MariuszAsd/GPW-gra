@@ -2,8 +2,11 @@
 require __DIR__ . '/_boot.php';
 $user = require_login();
 
-$stocks = Engine::all("SELECT s.id, s.ticker, s.name, sec.name AS sector, s.price, s.day_open_price FROM stocks s JOIN sectors sec ON sec.id=s.sector_id ORDER BY s.ticker");
 [$sessionNo, , $tps] = Engine::sessionInfo();
+$sessStart = ($sessionNo - 1) * $tps;
+$stocks = Engine::all("SELECT s.id, s.ticker, s.name, sec.name AS sector, s.price, s.day_open_price, s.liquidity,
+                              (SELECT SUM(c.v * c.c) FROM candles c WHERE c.stock_id = s.id AND c.t >= $sessStart) AS turnover
+                       FROM stocks s JOIN sectors sec ON sec.id=s.sector_id ORDER BY s.ticker");
 
 // --- indeks giełdowy ---
 $idxSeries = array_reverse(array_map('floatval', Engine::col("SELECT value FROM index_history ORDER BY t DESC LIMIT 120")));
@@ -42,7 +45,7 @@ layout_header('Rynek', $user, 'market');
 <div class="page-head"><h1>Rynek</h1><span class="tag" style="color:var(--accent);border-color:var(--accent)">Sesja #<?= $sessionNo ?></span><span class="muted">zmiana liczona od otwarcia sesji · kliknij, aby handlować</span></div>
 
 <?php if ($event): $neg = $event['type'] === 'NEG'; $left = (int) $event['expire_tick'] - $tickNow; ?>
-<div class="panel" style="margin-bottom:16px;border-left:3px solid var(--<?= $neg ? 'down' : 'up' ?>);background:<?= $neg ? 'rgba(234,57,67,.07)' : 'rgba(22,199,132,.07)' ?>">
+<div class="panel" style="margin-bottom:16px;border-left:3px solid var(--<?= $neg ? 'down' : 'up' ?>);background:var(--<?= $neg ? 'down' : 'up' ?>-bg)">
   <b class="<?= $neg ? 'down' : 'up' ?>" style="font-size:15px"><?= h($event['headline']) ?></b>
   <div class="muted" style="font-size:12px;margin-top:3px"><?= h($event['body']) ?> · siła wydarzenia wygasa za ~<?= max(1, $left) ?> ticków</div>
 </div>
@@ -64,17 +67,19 @@ layout_header('Rynek', $user, 'market');
 <div class="panel" style="padding:0;overflow:hidden">
   <div class="tbl-scroll">
     <table class="mw">
-      <thead><tr><th>Instrument</th><th class="num">Kurs</th><th class="num">Zmiana</th><th class="num">Bid</th><th class="num">Ask</th></tr></thead>
+      <thead><tr><th>Instrument</th><th class="num">Kurs</th><th class="num">Zmiana</th><th class="num">Bid</th><th class="num">Ask</th><th class="num">Obrót (sesja)<?= tip('Za ile PLN handlowano akcjami tej spółki od otwarcia sesji. Kropka pokazuje płynność: przy niskiej (czerwonej) kupno/sprzedaż większych pakietów rusza kursem.', 'plynnosc') ?></th></tr></thead>
       <tbody>
       <?php foreach ($stocks as $s): $id = (int) $s['id'];
           $ref = (float) $s['day_open_price'] > 0 ? (float) $s['day_open_price'] : (float) $s['price'];
-          $chg = $ref > 0 ? ((float) $s['price'] - $ref) / $ref * 100 : 0; ?>
+          $chg = $ref > 0 ? ((float) $s['price'] - $ref) / $ref * 100 : 0;
+          [$liqCls, $liqTxt] = liq_label($s['liquidity']); ?>
         <tr onclick="location='stock.php?id=<?= $id ?>'">
           <td><div class="sym"><span class="tk"><?= h($s['ticker']) ?></span><span class="nm"><?= h($s['name']) ?></span><span class="tag"><?= h($s['sector']) ?></span></div></td>
           <td class="num px" data-px="<?= $id ?>"><?= money($s['price']) ?></td>
           <td class="num"><span class="chg <?= $chg >= 0 ? 'p' : 'n' ?>" data-chg="<?= $id ?>"><span class="ar"><?= $chg >= 0 ? '▲' : '▼' ?></span><?= number_format(abs($chg), 2, ',', ' ') ?>%</span></td>
           <td class="num bid"><?= isset($bid[$id]) ? money($bid[$id]) : '—' ?></td>
           <td class="num ask"><?= isset($ask[$id]) ? money($ask[$id]) : '—' ?></td>
+          <td class="num"><span class="mono" data-vol="<?= $id ?>"><?= money_short((float) $s['turnover']) ?></span> <span class="liq <?= $liqCls ?>" title="<?= $liqTxt ?>">●</span></td>
         </tr>
       <?php endforeach; ?>
       </tbody>
@@ -105,6 +110,7 @@ setInterval(async () => {
     for (const [id, d] of Object.entries(j.data)) {
       const px = document.querySelector(`[data-px="${id}"]`), cg = document.querySelector(`[data-chg="${id}"]`);
       if (px) px.textContent = Number(d.price).toLocaleString('pl-PL', {minimumFractionDigits:2, maximumFractionDigits:2});
+      const vc = document.querySelector(`[data-vol="${id}"]`); if (vc && d.vol !== undefined) vc.textContent = d.vol;
       if (cg) { const up = d.chg >= 0; cg.className = 'chg ' + (up ? 'p' : 'n');
         cg.innerHTML = '<span class="ar">' + (up ? '▲' : '▼') + '</span>' + Math.abs(d.chg).toFixed(2).replace('.', ',') + '%'; }
     }

@@ -154,7 +154,7 @@ layout_header('Portfel', $user, 'portfolio');
       <?php foreach ($orders as $o): $isStop = $o['status'] === 'pending'; ?>
         <tr class="rowlink" onclick="location='order.php?id=<?= (int) $o['id'] ?>'" title="Kliknij — szczegóły zlecenia">
           <td class="tk"><?= h($o['ticker']) ?></td>
-          <td><?php if ($isStop): ?><span class="chg" style="color:#ffd27a;background:rgba(255,210,122,.12)">OBRONNE</span>
+          <td><?php if ($isStop): ?><span class="chg" style="color:var(--gold);background:var(--gold-bg)">OBRONNE</span>
               <?php else: ?><span class="chg <?= $o['side'] === 'buy' ? 'p' : 'n' ?>"><?= $o['side'] === 'buy' ? 'KUPNO' : 'SPRZEDAŻ' ?></span><?php endif; ?></td>
           <td class="num"><?= (int) $o['qty'] ?></td>
           <td class="num"><?php if ($isStop): ?><span class="mono" style="font-size:12px"><?= $o['sl_price'] !== null ? 'SL ' . money($o['sl_price']) : '' ?><?= $o['sl_price'] !== null && $o['tp_price'] !== null ? ' · ' : '' ?><?= $o['tp_price'] !== null ? 'TP ' . money($o['tp_price']) : '' ?></span><?php else: ?><?= money($o['price']) ?><?php endif; ?></td>

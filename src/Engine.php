@@ -446,6 +446,8 @@ final class Engine
             else     { $c = $o; $h = $o; $l = $o; $v = 0; }
             $pdo->prepare("INSERT INTO candles (stock_id,t,o,h,l,c,v) VALUES (?,?,?,?,?,?,?)")->execute([$sid, $t, $o, $h, $l, $c, $v]);
         }
+        // retencja: świece rosną 50/tick — trzymaj ~20k ticków wstecz (wystarcza na wykres sesyjny 80×200)
+        if ($t % 500 === 0) $pdo->prepare("DELETE FROM candles WHERE t < ?")->execute([$t - 20000]);
     }
 
     /* ---------- Raporty finansowe (miesięczne) ---------- */

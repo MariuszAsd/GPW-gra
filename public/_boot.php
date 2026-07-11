@@ -13,6 +13,21 @@ try { Migrator::ensure(); } catch (Throwable $e) { error_log('Migracja: ' . $e->
 
 function h($s): string { return htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8'); }
 function money($v): string { return number_format((float) $v, 2, ',', ' '); }
+/** Krótki zapis kwot: 1,2 mln · 84 tys. · 950 */
+function money_short($v): string {
+    $v = (float) $v;
+    if ($v >= 1e6) return number_format($v / 1e6, 1, ',', ' ') . ' mln';
+    if ($v >= 1e4) return number_format($v / 1e3, 0, ',', ' ') . ' tys.';
+    if ($v >= 1e3) return number_format($v / 1e3, 1, ',', ' ') . ' tys.';
+    return number_format($v, 0, ',', ' ');
+}
+/** Etykieta płynności spółki z DNA (liquidity ~0.7-1.5): [klasa css, tekst]. */
+function liq_label($liquidity): array {
+    $l = (float) $liquidity;
+    if ($l >= 1.2)  return ['hi', 'wysoka płynność'];
+    if ($l >= 0.95) return ['mid', 'średnia płynność'];
+    return ['lo', 'niska płynność'];
+}
 function flash(string $msg, string $type = 'ok'): void { $_SESSION['flash'] = ['m' => $msg, 't' => $type]; }
 function redirect(string $u): void { header("Location: $u"); exit; }
 
@@ -38,6 +53,11 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
     $act = fn($k) => $active === $k ? ' active' : '';
     echo "<!doctype html><html lang='pl'><head><meta charset='utf-8'>";
     echo "<meta name='viewport' content='width=device-width,initial-scale=1'>";
+    // motyw PRZED stylami (bez mignięcia): zapamiętany wybór gracza, domyślnie jasny
+    echo "<script>(function(){var t=null;try{t=localStorage.getItem('theme')}catch(e){}"
+       . "if(t!=='dark'&&t!=='light')t='light';document.documentElement.setAttribute('data-theme',t);})();"
+       . "function themeToggle(){var r=document.documentElement,t=r.getAttribute('data-theme')==='dark'?'light':'dark';"
+       . "r.setAttribute('data-theme',t);try{localStorage.setItem('theme',t)}catch(e){}return false}</script>";
     echo "<title>" . h($title) . " · GPW-gra</title><link rel='stylesheet' href='assets/app.css'></head><body>";
     echo "<header class='topbar'><a class='brand' href='market.php'><span class='mk'>G</span>GPW<span>-gra</span></a><nav>";
     if ($user) {
@@ -48,6 +68,7 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
         echo "<a class='" . trim($act('help')) . "' href='pomoc.php'>Pomoc</a>";
         if ($isAdmin) echo "<a class='gm" . $act('gm') . "' href='gm.php'>GM</a>";
         echo "<a class='bell" . $act('notif') . "' href='powiadomienia.php' title='Powiadomienia'>🔔<b class='bell-n" . ($unread > 0 ? '' : ' off') . "' data-bell>" . $unread . "</b></a>";
+        echo "<a class='thm' href='#' onclick='return themeToggle()' title='Przełącz motyw jasny/ciemny'>◐</a>";
         echo "<span class='bal'><b>" . money($user['cash']) . " PLN</b><small>zamrożone +" . money($user['cash_reserved']) . "</small></span>";
         echo "<a class='hide-sm' href='logout.php' style='color:var(--faint)'>" . h($user['username']) . " ⏻</a>";
     }

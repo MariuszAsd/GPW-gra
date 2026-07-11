@@ -13,7 +13,7 @@ layout_header('Powiadomienia', $user, 'notif');
 
 <div class="panel" style="padding:0;overflow:hidden">
   <?php foreach ($rows as $r): $fresh = $r['read_at'] === null; ?>
-    <a href="<?= h($r['link'] ?: 'portfolio.php') ?>" style="display:flex;gap:12px;align-items:flex-start;padding:13px 16px;border-bottom:1px solid var(--line);<?= $fresh ? 'background:rgba(47,123,255,.07)' : '' ?>">
+    <a href="<?= h($r['link'] ?: 'portfolio.php') ?>" style="display:flex;gap:12px;align-items:flex-start;padding:13px 16px;border-bottom:1px solid var(--line);<?= $fresh ? 'background:var(--info-bg)' : '' ?>">
       <span style="font-size:18px;line-height:1.3"><?= $icon[$r['type']] ?? 'ℹ️' ?></span>
       <span style="flex:1">
         <span style="display:block;font-size:14px;<?= $fresh ? 'font-weight:600' : '' ?>"><?= h($r['message']) ?></span>

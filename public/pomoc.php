@@ -9,6 +9,7 @@ layout_header('Pomoc', $user, 'help');
   <a href="#arkusz">Arkusz zleceń</a>
   <a href="#limit">Zlecenie LIMIT</a>
   <a href="#pkc">Zlecenie PKC</a>
+  <a href="#plynnosc">Płynność i obrót</a>
   <a href="#waznosc">Ważność zlecenia</a>
   <a href="#sl">Stop-Loss</a>
   <a href="#tp">Take-Profit</a>
@@ -26,10 +27,10 @@ layout_header('Pomoc', $user, 'help');
   <svg class="help-svg" viewBox="0 0 560 150">
     <text x="120" y="22" fill="var(--up)" font-size="13" font-weight="bold" text-anchor="middle">KUPNO (bid)</text>
     <text x="440" y="22" fill="var(--down)" font-size="13" font-weight="bold" text-anchor="middle">SPRZEDAŻ (ask)</text>
-    <rect x="30" y="34" width="180" height="24" rx="5" fill="rgba(22,199,132,.15)"/><text x="45" y="51" fill="var(--up)" font-size="13" font-family="monospace">99,50</text><text x="195" y="51" fill="var(--soft)" font-size="12" font-family="monospace" text-anchor="end">40 szt.</text>
-    <rect x="30" y="64" width="150" height="24" rx="5" fill="rgba(22,199,132,.10)"/><text x="45" y="81" fill="var(--up)" font-size="13" font-family="monospace">99,00</text><text x="165" y="81" fill="var(--soft)" font-size="12" font-family="monospace" text-anchor="end">25 szt.</text>
-    <rect x="350" y="34" width="180" height="24" rx="5" fill="rgba(234,57,67,.15)"/><text x="365" y="51" fill="var(--down)" font-size="13" font-family="monospace">100,50</text><text x="515" y="51" fill="var(--soft)" font-size="12" font-family="monospace" text-anchor="end">35 szt.</text>
-    <rect x="350" y="64" width="150" height="24" rx="5" fill="rgba(234,57,67,.10)"/><text x="365" y="81" fill="var(--down)" font-size="13" font-family="monospace">101,00</text><text x="485" y="81" fill="var(--soft)" font-size="12" font-family="monospace" text-anchor="end">20 szt.</text>
+    <rect x="30" y="34" width="180" height="24" rx="5" fill="var(--up-bg)"/><text x="45" y="51" fill="var(--up)" font-size="13" font-family="monospace">99,50</text><text x="195" y="51" fill="var(--soft)" font-size="12" font-family="monospace" text-anchor="end">40 szt.</text>
+    <rect x="30" y="64" width="150" height="24" rx="5" fill="var(--up-bg)"/><text x="45" y="81" fill="var(--up)" font-size="13" font-family="monospace">99,00</text><text x="165" y="81" fill="var(--soft)" font-size="12" font-family="monospace" text-anchor="end">25 szt.</text>
+    <rect x="350" y="34" width="180" height="24" rx="5" fill="var(--down-bg)"/><text x="365" y="51" fill="var(--down)" font-size="13" font-family="monospace">100,50</text><text x="515" y="51" fill="var(--soft)" font-size="12" font-family="monospace" text-anchor="end">35 szt.</text>
+    <rect x="350" y="64" width="150" height="24" rx="5" fill="var(--down-bg)"/><text x="365" y="81" fill="var(--down)" font-size="13" font-family="monospace">101,00</text><text x="485" y="81" fill="var(--soft)" font-size="12" font-family="monospace" text-anchor="end">20 szt.</text>
     <path d="M 218 46 L 342 46" stroke="var(--line2)" stroke-width="1.5" stroke-dasharray="4 4"/>
     <text x="280" y="40" fill="var(--faint)" font-size="11" text-anchor="middle" class="pulse">spread 1,00</text>
     <text x="280" y="125" fill="var(--soft)" font-size="12" text-anchor="middle">kupisz od ręki po 100,50 · sprzedasz od ręki po 99,50</text>
@@ -55,6 +56,18 @@ layout_header('Pomoc', $user, 'help');
   <div class="help-ex">💡 PKC = szybkość kosztem ceny. LIMIT = cena kosztem czekania.</div>
 </div>
 
+<div class="panel help-sec" id="plynnosc">
+  <h3>💧 Płynność i obrót — czy łatwo tu kupić i sprzedać?</h3>
+  <p><b>Obrót</b> to wartość wszystkich transakcji (w PLN) — pokazujemy go pod wykresem spółki (słupki)
+     i w kolumnie „Obrót (sesja)" na Rynku. <b>Płynność</b> mówi, jak łatwo zawrzeć transakcję bez ruszania kursu.
+     Oznaczamy ją kropką: <span class="liq hi">●</span> wysoka · <span class="liq mid">●</span> średnia · <span class="liq lo">●</span> niska.</p>
+  <p>Przy <b>wysokiej płynności</b> w arkuszu stoi dużo ofert, widełki bid–ask są wąskie — kupisz i sprzedasz
+     blisko kursu z ekranu. Przy <b>niskiej płynności</b> ofert jest mało i są rozstrzelone: większe zlecenie PKC
+     „zjada" kolejne poziomy cen i realizuje się po gorszej średniej (to tzw. <b>poślizg</b>).</p>
+  <div class="help-ex">💡 W mało płynnych spółkach składaj zlecenia LIMIT i dziel większe zakupy na mniejsze części.
+     Zanim klikniesz PKC, spójrz na arkusz: ile sztuk stoi po drugiej stronie i po jakich cenach.</div>
+</div>
+
 <div class="panel help-sec" id="waznosc">
   <h3>⏳ Ważność zlecenia</h3>
   <p><b>Bezterminowe</b> — czeka w arkuszu, aż je zrealizujesz lub anulujesz.
@@ -71,8 +84,8 @@ layout_header('Pomoc', $user, 'help');
     <polyline points="30,60 90,52 150,66 210,58 270,72 330,64" fill="none" stroke="var(--up)" stroke-width="2"/>
     <g class="drop"><polyline points="330,64 390,80 450,96" fill="none" stroke="var(--down)" stroke-width="2"/>
       <circle cx="450" cy="96" r="5" fill="var(--down)"/></g>
-    <line x1="20" y1="110" x2="540" y2="110" stroke="#ffd27a" stroke-width="1.5" stroke-dasharray="6 4"/>
-    <text x="28" y="104" fill="#ffd27a" font-size="12" font-weight="bold">próg Stop-Loss</text>
+    <line x1="20" y1="110" x2="540" y2="110" stroke="var(--gold)" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <text x="28" y="104" fill="var(--gold)" font-size="12" font-weight="bold">próg Stop-Loss</text>
     <text x="470" y="128" fill="var(--down)" font-size="12" class="pulse">SPRZEDAŻ! 🛡️</text>
     <text x="280" y="160" fill="var(--soft)" font-size="12" text-anchor="middle">kurs spada do progu → gra sprzedaje za Ciebie → strata ucięta</text>
   </svg>
@@ -104,12 +117,12 @@ layout_header('Pomoc', $user, 'help');
      zamrożone w zleceniach). Ile spółka płaci, sprawdzisz na jej podstronie w zakładce <b>Info</b>
      („Polityka dywidendy") i w <b>Raportach</b>.</p>
   <svg class="help-svg" viewBox="0 0 560 145">
-    <rect x="40" y="30" width="150" height="64" rx="10" fill="rgba(47,123,255,.12)" stroke="var(--accent)"/>
+    <rect x="40" y="30" width="150" height="64" rx="10" fill="var(--info-bg)" stroke="var(--accent)"/>
     <text x="115" y="57" fill="var(--ink)" font-size="13" font-weight="bold" text-anchor="middle">SPÓŁKA</text>
     <text x="115" y="76" fill="var(--soft)" font-size="11" text-anchor="middle">zysk z raportu</text>
     <g class="pulse"><path d="M 200 62 L 340 62" stroke="var(--up)" stroke-width="2"/><path d="M 332 54 L 346 62 L 332 70" fill="none" stroke="var(--up)" stroke-width="2"/>
     <text x="270" y="50" fill="var(--up)" font-size="12" text-anchor="middle">0,45 PLN / akcję</text></g>
-    <rect x="360" y="30" width="160" height="64" rx="10" fill="rgba(22,199,132,.12)" stroke="var(--up)"/>
+    <rect x="360" y="30" width="160" height="64" rx="10" fill="var(--up-bg)" stroke="var(--up)"/>
     <text x="440" y="57" fill="var(--ink)" font-size="13" font-weight="bold" text-anchor="middle">TY 💰</text>
     <text x="440" y="76" fill="var(--soft)" font-size="11" text-anchor="middle">100 szt. = +45 PLN</text>
     <text x="280" y="118" fill="var(--soft)" font-size="12" text-anchor="middle">uwaga: w dniu wypłaty kurs spada o wartość dywidendy (odcięcie) —</text>
