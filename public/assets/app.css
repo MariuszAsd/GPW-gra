@@ -574,3 +574,11 @@ td.nowrap{white-space:nowrap}
 .sec-head{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
 .sec-head b{font-size:14.5px}
 .sec-tickers{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
+
+/* skróty na Pulpicie: kafelki do modułów */
+.shortcuts{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:8px}
+.shortcuts a{display:flex;flex-direction:column;align-items:center;gap:6px;padding:13px 6px;
+  background:var(--bg3);border-radius:12px;color:var(--soft);font-size:11.5px;font-weight:650;
+  text-align:center;text-decoration:none;transition:all .12s}
+.shortcuts a:hover{color:var(--ink);background:var(--line)}
+.shortcuts .ico{width:20px;height:20px}

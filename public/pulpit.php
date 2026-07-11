@@ -1,5 +1,5 @@
 <?php
-/** Pulpit: pierwsza strona po zalogowaniu — co się dzieje i co warto teraz zrobić. */
+/** Pulpit: kapitał -> moje spółki -> misje dnia -> skróty (ustalona kolejność wagi informacji). */
 require __DIR__ . '/_boot.php';
 $user = require_login();
 $uid = (int) $user['id'];
@@ -8,12 +8,26 @@ $uid = (int) $user['id'];
 [$mhOn, $mhOpen, $mhClose] = Engine::marketHours();
 $mhIsOpen = Engine::marketIsOpen();
 
-// kapitał
+// kapitał + wykres
 $stockVal = (float) (Engine::one("SELECT COALESCE(SUM((w.qty + w.qty_reserved) * s.price), 0) FROM wallets w JOIN stocks s ON s.id=w.stock_id WHERE w.user_id=?", [$uid]) ?: 0);
 $equity = (float) $user['cash'] + (float) $user['cash_reserved'] + $stockVal;
 $startEq = (float) (Engine::one("SELECT start_equity FROM users WHERE id=?", [$uid]) ?: 0);
 $ret = $startEq > 0 ? ($equity / $startEq - 1) * 100 : 0;
-$posCount = (int) Engine::one("SELECT COUNT(*) FROM wallets WHERE user_id=? AND (qty + qty_reserved) > 0", [$uid]);
+$eqSeries = array_reverse(array_map('floatval', Engine::col("SELECT equity FROM equity_history WHERE user_id=? ORDER BY t DESC LIMIT 150", [$uid])));
+$eqSvg = equity_svg($eqSeries, 72);
+
+// moje spółki: pozycje (wg wartości) + obserwowane
+$pos = Engine::all("SELECT s.id, s.ticker, s.name, s.price, s.day_open_price, s.ta_signal, w.qty, w.qty_reserved, w.avg_price,
+                    CASE WHEN s.day_open_price > 0 THEN (s.price / s.day_open_price - 1) * 100 ELSE 0 END AS chg
+                    FROM wallets w JOIN stocks s ON s.id = w.stock_id
+                    WHERE w.user_id=? AND (w.qty + w.qty_reserved) > 0
+                    ORDER BY (w.qty + w.qty_reserved) * s.price DESC LIMIT 8", [$uid]);
+$watchRows = Engine::all("SELECT s.id, s.ticker, s.name, s.price, s.ta_signal,
+                          CASE WHEN s.day_open_price > 0 THEN (s.price / s.day_open_price - 1) * 100 ELSE 0 END AS chg
+                          FROM watchlist w JOIN stocks s ON s.id = w.stock_id
+                          WHERE w.user_id = ? AND s.id NOT IN (SELECT stock_id FROM wallets WHERE user_id=? AND (qty + qty_reserved) > 0)
+                          ORDER BY s.ticker LIMIT 8", [$uid, $uid]);
+$watchPremium = Tokens::hasPass($uid, 'analityk');
 
 // pierwsze kroki (znikają, gdy wszystko odhaczone)
 $steps = [
@@ -43,13 +57,6 @@ $streak = Daily::streak($uid);
 $missions = Daily::missions($uid);
 $missionsDone = count(array_filter($missions, fn($m) => $m['done']));
 
-// obserwowane spółki (gwiazdki z Rynku) — z sygnałem AT dla posiadaczy Pakietu Analityka
-$watchRows = Engine::all("SELECT s.id, s.ticker, s.name, s.price, s.day_open_price, s.ta_signal,
-                          CASE WHEN s.day_open_price > 0 THEN (s.price / s.day_open_price - 1) * 100 ELSE 0 END AS chg
-                          FROM watchlist w JOIN stocks s ON s.id = w.stock_id
-                          WHERE w.user_id = ? ORDER BY s.ticker LIMIT 12", [$uid]);
-$watchPremium = Tokens::hasPass($uid, 'analityk');
-
 // newsy i powiadomienia
 $news = Engine::all("SELECT id, headline, type, published_at FROM news ORDER BY id DESC LIMIT 4");
 $notifs = Engine::all("SELECT message, link, created_at, read_at FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 4", [$uid]);
@@ -60,6 +67,22 @@ $goalTarget = ($myGoal !== false && $myGoal !== null) ? (float) $myGoal : (float
 $progress = $goalTarget > 0 ? min(100, $equity / $goalTarget * 100) : 0;
 
 layout_header('Pulpit', $user, 'home');
+
+/** wiersz spółki w "Moich spółkach": kurs, zmiana dnia, (premium) sygnał AT, (pozycje) wynik */
+function stock_row(array $w, bool $premium, bool $withPl): void {
+    ?>
+    <tr class="rowlink" onclick="location='stock.php?id=<?= (int) $w['id'] ?>'">
+      <td class="tk" style="font-weight:700"><?= h($w['ticker']) ?> <span class="muted hide-m" style="font-weight:400;font-size:12px"><?= h($w['name']) ?></span></td>
+      <td class="num mono"><?= money($w['price']) ?></td>
+      <td class="num"><span class="chg <?= $w['chg'] >= 0 ? 'p' : 'n' ?>"><span class="ar"><?= $w['chg'] >= 0 ? '▲' : '▼' ?></span><?= number_format(abs((float) $w['chg']), 2, ',', ' ') ?>%</span></td>
+      <?php if ($withPl): $q = (int) $w['qty'] + (int) $w['qty_reserved']; $pl = $q * ((float) $w['price'] - (float) $w['avg_price']); ?>
+        <td class="num <?= $pl >= 0 ? 'up' : 'down' ?>"><?= ($pl >= 0 ? '+' : '') . money($pl) ?></td>
+      <?php elseif ($premium): [$vTxt, $vCls] = Technical::verdict((float) $w['ta_signal']); ?>
+        <td class="num"><span class="chg <?= $vCls ?>" style="font-size:11px"><?= h($vTxt) ?></span></td>
+      <?php endif; ?>
+    </tr>
+    <?php
+}
 ?>
 <div class="page-head">
   <h1>Dzień dobry, <?= h($user['username']) ?></h1>
@@ -67,16 +90,64 @@ layout_header('Pulpit', $user, 'home');
   <?php if ($mhOn): ?>
     <span class="tag" style="<?= $mhIsOpen ? 'color:var(--up);border-color:var(--up)' : 'color:var(--faint)' ?>"><?= $mhIsOpen ? "rynek otwarty do $mhClose" : "rynek zamknięty · otwarcie $mhOpen" ?></span>
   <?php endif; ?>
-  <a class="btn sm" style="margin-left:auto;width:auto" href="samouczek.php">🎓 Samouczek</a>
 </div>
 
+<?php /* ---------- 1. KAPITAŁ ---------- */ ?>
 <div class="stats">
   <div class="stat"><div class="k">Kapitał</div><div class="v"><?= money($equity) ?></div></div>
   <div class="stat"><div class="k">Wynik od startu</div><div class="v <?= $ret >= 0 ? 'up' : 'down' ?>"><?= ($ret >= 0 ? '+' : '') . number_format($ret, 1, ',', ' ') ?>%</div></div>
   <div class="stat"><div class="k">Wolna gotówka</div><div class="v"><?= money($user['cash']) ?></div></div>
-  <div class="stat"><div class="k">Pozycje</div><div class="v"><?= $posCount ?></div></div>
+  <div class="stat"><div class="k">Pozycje</div><div class="v"><?= count($pos) ?></div></div>
 </div>
+<?php if ($eqSvg): ?>
+<div class="panel" style="margin-bottom:12px;padding:10px 14px 8px"><?= $eqSvg ?></div>
+<?php endif; ?>
+<?php if ($goalTarget > 0): ?>
+<details class="goal-mini">
+  <summary>🎯 Cel gry: <b><?= number_format($progress, 0, ',', ' ') ?>%</b> z <?= money_short($goalTarget) ?> PLN
+    <span class="bar"><i style="width:<?= round(min(100, $progress), 1) ?>%"></i></span>
+    <span class="muted" style="text-decoration:underline">szczegóły</span>
+  </summary>
+  <div class="panel" style="padding:10px 14px">
+    <p class="muted" style="margin:0;font-size:12.5px">Kapitał <b><?= money($equity) ?> PLN</b> z celu <b><?= money($goalTarget) ?> PLN</b>.
+      Własny próg ustawisz w <a href="portfolio.php">Portfelu</a> (sekcja Cel gry).</p>
+  </div>
+</details>
+<?php endif; ?>
 
+<?php /* onboarding tuż po kapitale — znika po odhaczeniu wszystkiego */ ?>
+<?php if ($stepsDone < count($steps)): ?>
+<section class="panel" style="margin-bottom:16px">
+  <h2>Pierwsze kroki (<?= $stepsDone ?>/<?= count($steps) ?>)</h2>
+  <?php foreach ($steps as $s): ?>
+    <div class="check<?= $s['done'] ? ' done' : '' ?>">
+      <span class="cbx"><?= $s['done'] ? '✓' : '' ?></span>
+      <?php if ($s['done']): ?><span><?= h($s['txt']) ?></span>
+      <?php else: ?><a href="<?= h($s['link']) ?>"><?= h($s['txt']) ?></a><?php endif; ?>
+    </div>
+  <?php endforeach; ?>
+  <p class="muted" style="margin:10px 0 0">Nie wiesz, od czego zacząć? <a href="samouczek.php">Przejdź samouczek</a> — 3 minuty i wszystko jasne.</p>
+</section>
+<?php endif; ?>
+
+<?php /* ---------- 2. MOJE SPÓŁKI: pozycje + obserwowane ---------- */ ?>
+<section class="panel" style="margin-bottom:16px">
+  <h2>Moje spółki</h2>
+  <?php if (!$pos && !$watchRows): ?>
+    <p class="muted">Jeszcze pusto: kup akcje na <a href="market.php"><b>Rynku</b></a> albo oznacz spółki gwiazdką ★, żeby je tu widzieć.</p>
+  <?php endif; ?>
+  <?php if ($pos): ?>
+    <p class="muted" style="margin:2px 0 4px;font-size:11.5px">W portfelu · wynik po bieżącym kursie</p>
+    <table><tbody><?php foreach ($pos as $w) stock_row($w, $watchPremium, true); ?></tbody></table>
+    <p style="margin:6px 0 0;font-size:12.5px"><a href="portfolio.php">Pełny portfel →</a></p>
+  <?php endif; ?>
+  <?php if ($watchRows): ?>
+    <p class="muted" style="margin:<?= $pos ? '14px' : '2px' ?> 0 4px;font-size:11.5px">★ Obserwowane<?= $watchPremium ? ' · sygnał AT' : ' — sygnały AT i alerty 🔔 z Pakietem Analityka' ?></p>
+    <table><tbody><?php foreach ($watchRows as $w) stock_row($w, $watchPremium, false); ?></tbody></table>
+  <?php endif; ?>
+</section>
+
+<?php /* ---------- 3. MISJE DNIA ---------- */ ?>
 <section class="panel" style="margin-bottom:16px">
   <h2>Misje dnia (<?= $missionsDone ?>/<?= count($missions) ?>)
     <span class="tag" style="margin-left:8px;color:var(--gold);border-color:var(--gold-border)">🔥 seria: <?= $streak ?> <?= $streak === 1 ? 'dzień' : 'dni' ?></span>
@@ -92,51 +163,21 @@ layout_header('Pulpit', $user, 'home');
   <p class="muted" style="margin:8px 0 0;font-size:12px">Nagrody wpadają same, gdy misja jest zaliczona. Jutro trzy nowe — te same dla wszystkich graczy.</p>
 </section>
 
-<?php if ($goalTarget > 0): ?>
-<div class="panel" style="margin-bottom:16px;padding:12px 16px">
-  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-    <b>Cel gry: <?= money_short($goalTarget) ?> PLN <a href="portfolio.php" class="muted" style="font-weight:400;font-size:11.5px">(zmień w Portfelu)</a></b>
-    <span class="muted mono"><?= number_format($progress, 1, ',', ' ') ?>%</span>
-  </div>
-  <div style="background:var(--bg3);border-radius:20px;height:8px;margin-top:8px;overflow:hidden">
-    <div style="background:var(--accent);height:100%;width:<?= max(1, $progress) ?>%"></div>
-  </div>
-</div>
-<?php endif; ?>
-
-<?php if ($stepsDone < count($steps)): ?>
+<?php /* ---------- 4. SKRÓTY + puls gry ---------- */ ?>
 <section class="panel" style="margin-bottom:16px">
-  <h2>Pierwsze kroki (<?= $stepsDone ?>/<?= count($steps) ?>)</h2>
-  <?php foreach ($steps as $s): ?>
-    <div class="check<?= $s['done'] ? ' done' : '' ?>">
-      <span class="cbx"><?= $s['done'] ? '✓' : '' ?></span>
-      <?php if ($s['done']): ?><span><?= h($s['txt']) ?></span>
-      <?php else: ?><a href="<?= h($s['link']) ?>"><?= h($s['txt']) ?></a><?php endif; ?>
-    </div>
-  <?php endforeach; ?>
-  <p class="muted" style="margin:10px 0 0">Nie wiesz, od czego zacząć? <a href="samouczek.php">Przejdź samouczek</a> — 3 minuty i wszystko jasne.</p>
+  <h2>Skróty</h2>
+  <div class="shortcuts">
+    <a href="market.php"><?= icon('chart') ?><span>Notowania</span></a>
+    <a href="branze.php"><?= icon('chart') ?><span>Branże</span></a>
+    <a href="rekomendacje.php"><?= icon('case') ?><span>Rekomendacje</span></a>
+    <a href="wiadomosci.php?f=moje"><?= icon('news') ?><span>Newsy moich spółek</span></a>
+    <a href="wyzwania.php"><?= icon('flag') ?><span>Wyzwania</span></a>
+    <a href="ranking.php"><?= icon('trophy') ?><span>Ranking</span></a>
+    <a href="sklep.php"><?= icon('shop') ?><span>Sklep</span></a>
+    <a href="dziennik.php"><?= icon('book') ?><span>Dziennik</span></a>
+    <a href="samouczek.php"><?= icon('help') ?><span>Samouczek</span></a>
+  </div>
 </section>
-<?php endif; ?>
-
-<?php if ($watchRows): ?>
-<section class="panel" style="margin-bottom:16px">
-  <h2>★ Obserwowane<?= $watchPremium ? '' : ' <span class="muted" style="text-transform:none;letter-spacing:0;font-size:12px">— sygnały AT i alerty 🔔 z Pakietem Analityka</span>' ?></h2>
-  <table>
-    <tbody>
-    <?php foreach ($watchRows as $w): ?>
-      <tr class="rowlink" onclick="location='stock.php?id=<?= (int) $w['id'] ?>'">
-        <td class="tk" style="font-weight:700"><?= h($w['ticker']) ?> <span class="muted" style="font-weight:400;font-size:12px"><?= h($w['name']) ?></span></td>
-        <td class="num mono"><?= money($w['price']) ?></td>
-        <td class="num"><span class="chg <?= $w['chg'] >= 0 ? 'p' : 'n' ?>"><span class="ar"><?= $w['chg'] >= 0 ? '▲' : '▼' ?></span><?= number_format(abs((float) $w['chg']), 2, ',', ' ') ?>%</span></td>
-        <?php if ($watchPremium): [$vTxt, $vCls] = Technical::verdict((float) $w['ta_signal']); ?>
-          <td class="num"><span class="chg <?= $vCls ?>" style="font-size:11px"><?= h($vTxt) ?></span></td>
-        <?php endif; ?>
-      </tr>
-    <?php endforeach; ?>
-    </tbody>
-  </table>
-</section>
-<?php endif; ?>
 
 <div class="gm-grid">
   <section class="panel">
