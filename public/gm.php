@@ -85,6 +85,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($a === 'tempo') {
         Engine::setState('sub_rounds', (string) max(0, min(3, (int) ($_POST['sub_rounds'] ?? 2))));
         flash('Ustawiono tempo handlu.');
+    } elseif ($a === 'tokens_grant') {
+        $tu = Engine::row("SELECT id, username FROM users WHERE username=? AND is_bot=0", [trim($_POST['t_user'] ?? '')]);
+        $tn = max(1, min(1000, (int) ($_POST['t_amount'] ?? 0)));
+        if ($tu) { Tokens::grant((int) $tu['id'], $tn, 'gm', 'od administratora gry'); flash("Przyznano 🪙 $tn dla {$tu['username']}."); }
+        else flash('Nie ma takiego gracza.', 'err');
     } elseif ($a === 'ta') {
         Engine::setState('ta_influence', (string) max(0, min(2, (float) str_replace(',', '.', $_POST['ta_influence'] ?? '1'))));
         flash('Ustawiono wpływ analizy technicznej na boty.');
@@ -297,6 +302,15 @@ layout_header('Panel GM', $user, 'gm');
     <div><label>Otwarcie</label><input name="mh_open" value="<?= h($mhOpen2) ?>" style="width:80px" placeholder="07:50"></div>
     <div><label>Zamknięcie</label><input name="mh_close" value="<?= h($mhClose2) ?>" style="width:80px" placeholder="22:00"></div>
     <button class="btn sm">Zapisz</button>
+  </form>
+
+  <h2 style="margin-top:18px">Żetony Maklera (monetyzacja)</h2>
+  <p class="muted" style="margin:4px 0 8px">Przyznaj żetony graczowi (do czasu podpięcia płatności — ręczna realizacja zakupów). Wydane łącznie: <b>🪙 <?= (int) Engine::one("SELECT COALESCE(SUM(delta),0) FROM token_ledger WHERE delta > 0") ?></b>, aktywnych pakietów: <b><?= (int) Engine::one("SELECT COUNT(*) FROM premium_passes WHERE until_session >= ?", [$sessionNo]) ?></b>.</p>
+  <form method="post" class="inline">
+    <input type="hidden" name="action" value="tokens_grant">
+    <input name="t_user" placeholder="login gracza" style="width:150px">
+    <input type="number" name="t_amount" min="1" max="1000" value="20" style="width:80px">
+    <button class="btn sm">Przyznaj żetony</button>
   </form>
 
   <h2 style="margin-top:18px">Rejestracja (graczy: <?= $playerCount ?>)</h2>

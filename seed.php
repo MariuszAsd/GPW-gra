@@ -17,7 +17,7 @@ function rf(float $a, float $b, int $dec = 2): float { return round($a + mt_rand
 $pdo->beginTransaction();
 
 // --- konta ---
-$pdo->prepare("INSERT INTO users (username, password_hash, is_bot, role, cash, start_equity) VALUES (?,?,0,'player',?,?)")
+$pdo->prepare("INSERT INTO users (username, password_hash, is_bot, role, cash, start_equity, tokens) VALUES (?,?,0,'player',?,?,10)")
     ->execute(['gracz', password_hash('haslo123', PASSWORD_DEFAULT), $cfg['starting_cash'], $cfg['starting_cash']]);
 $pdo->prepare("INSERT INTO users (username, password_hash, is_bot, role, cash) VALUES (?,?,0,'admin',0)")
     ->execute(['admin', password_hash('admin123', PASSWORD_DEFAULT)]);

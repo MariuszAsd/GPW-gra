@@ -16,6 +16,36 @@ $calendar = Engine::all("SELECT id, ticker, name, next_report_tick, dividend_pay
 
 layout_header('Wiadomości', $user, 'news');
 ?>
+<?php [$recoRows, $recoHidden, $recoPremium, $recoSession] = Recommendations::visibleFor((int) $user['id'], 10); ?>
+<?php if ($recoRows || $recoHidden): ?>
+<section class="panel" style="margin-bottom:16px">
+  <h2>Rekomendacje DM GPW-gra
+    <?= tip('Analitycy domu maklerskiego wydają rekomendacje z ceną docelową na otwarciu każdej sesji. Klienci z Pakietem Analityka widzą je NATYCHMIAST — pozostali dzień później. Rekomendacja to wskazówka, nie gwarancja.', '') ?>
+  </h2>
+  <?php if (!$recoPremium && $recoHidden > 0): ?>
+    <?php $odm = $recoHidden === 1 ? 'nową rekomendację'
+        : (($recoHidden % 10 >= 2 && $recoHidden % 10 <= 4 && ($recoHidden % 100 < 12 || $recoHidden % 100 > 14)) ? 'nowe rekomendacje' : 'nowych rekomendacji'); ?>
+    <p class="flash info" style="margin:0 0 12px">Dziś rano analitycy wydali <b><?= $recoHidden ?></b> <?= $odm ?> —
+      dostępne od razu dla klientów premium. <a href="sklep.php"><b>Aktywuj Pakiet Analityka →</b></a>
+      <span class="muted">(Ty zobaczysz je jutro)</span></p>
+  <?php endif; ?>
+  <table>
+    <thead><tr><th>Sesja</th><th>Spółka</th><th>Werdykt</th><th class="num">Cena docelowa</th><th class="num">Kurs</th><th class="num">Potencjał</th></tr></thead>
+    <tbody>
+    <?php foreach ($recoRows as $r): $up = (float) $r['price'] > 0 ? ((float) $r['target_price'] / (float) $r['price'] - 1) * 100 : 0; ?>
+      <tr class="rowlink" onclick="location='stock.php?id=<?= (int) $r['stock_id'] ?>'">
+        <td class="muted">#<?= (int) $r['session'] ?><?= (int) $r['session'] === $recoSession ? ' <span class="chg p" style="font-size:10px">DZIŚ</span>' : '' ?></td>
+        <td><b><?= h($r['ticker']) ?></b> <span class="muted" style="font-size:12px"><?= h($r['name']) ?></span></td>
+        <td><span class="chg <?= $r['verdict'] === 'kupuj' ? 'p' : ($r['verdict'] === 'sprzedaj' ? 'n' : '') ?>"><?= h($r['verdict']) ?></span></td>
+        <td class="num"><?= money($r['target_price']) ?></td>
+        <td class="num muted"><?= money($r['price']) ?></td>
+        <td class="num"><span class="<?= $up >= 0 ? 'up' : 'down' ?>"><?= ($up >= 0 ? '+' : '') . number_format($up, 1, ',', ' ') ?>%</span></td>
+      </tr>
+    <?php endforeach; if (!$recoRows) echo "<tr><td colspan=6 class='muted' style='padding:16px'>Pierwsze rekomendacje pojawią się na otwarciu najbliższej sesji.</td></tr>"; ?>
+    </tbody>
+  </table>
+</section>
+<?php endif; ?>
 <?php explainer('newsy', 'Jak czytać newsy', [
     'ESPI = jedna spółka', 'wydarzenia = sektor albo cały rynek',
     'dobre wieści podnoszą kurs, złe zbijają', 'reaguj przed botami']); ?>

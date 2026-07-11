@@ -52,7 +52,7 @@ usort($items, fn($a, $b) => strcmp($b['ts'], $a['ts']));
 $items = array_slice($items, 0, 200);
 
 $ikona = ['order' => '📝', 'trade' => '🤝', 'stop' => '🛡️', 'dividend' => '💰', 'challenge' => '⚔️',
-          'achievement' => '🎖️', 'ipo' => '📈', 'goal' => '🏆', 'event' => '📢', 'report' => '📊', 'system' => 'ℹ️'];
+          'achievement' => '🎖️', 'ipo' => '📈', 'goal' => '🏆', 'event' => '📢', 'report' => '📊', 'token' => '🪙', 'system' => 'ℹ️'];
 
 layout_header('Dziennik', $user, 'portfolio');
 ?>

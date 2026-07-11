@@ -369,3 +369,8 @@ td.nowrap{white-space:nowrap}
 .ta-bar::after{content:'';position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--line2)}
 .ta-bar i{position:absolute;top:0;bottom:0}
 .ta-bar i.p{background:var(--up)} .ta-bar i.n{background:var(--down)}
+
+/* ---------- Żetony Maklera ---------- */
+.topbar .tokens{display:inline-flex;align-items:center;gap:4px;padding:5px 10px;border-radius:20px;
+  background:var(--gold-bg);border:1px solid var(--gold-border);color:var(--gold);font-size:12.5px;margin-left:6px}
+.topbar .tokens b{font-variant-numeric:tabular-nums}

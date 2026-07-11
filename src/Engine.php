@@ -907,6 +907,12 @@ final class Engine
             if (!class_exists('Ipo')) require_once __DIR__ . '/Ipo.php';
             Ipo::onRoll($n, $tick);
         } catch (\Throwable $e) { Log::write('error', 'engine', 'ipo.roll', $e->getMessage()); }
+        // rekomendacje DM na otwarcie sesji (premium widzi od razu, reszta od jutra)
+        try {
+            if (!class_exists('Recommendations')) require_once __DIR__ . '/Recommendations.php';
+            if (!class_exists('Tokens')) require_once __DIR__ . '/Tokens.php';
+            Recommendations::onRoll($n, $tick);
+        } catch (\Throwable $e) { Log::write('error', 'engine', 'reco.roll', $e->getMessage()); }
         self::setState('session_start_tick', (string) $tick);
         self::setState('session', (string) $n);
     }
@@ -996,6 +1002,12 @@ final class Engine
         $tickTrades = [];
         foreach (self::all("SELECT id FROM stocks") as $st) self::matchBook((int) $st['id'], $tickTrades);
         self::recordCandles($t, $tickTrades);
+        // cache sygnału AT per spółka (skaner na Rynku i rekomendacje czytają kolumnę)
+        try {
+            if (!class_exists('Technical')) require_once __DIR__ . '/Technical.php';
+            $upTa = $pdo->prepare("UPDATE stocks SET ta_signal=? WHERE id=?");
+            foreach (self::col("SELECT id FROM stocks") as $sidTa) $upTa->execute([Technical::composite((int) $sidTa), (int) $sidTa]);
+        } catch (\Throwable $e) { Log::write('warn', 'engine', 'ta.cache', $e->getMessage()); }
         self::recordIndex($t);    // indeks giełdowy (historia pod wykres)
         self::recordEquity($t);   // kapitał graczy (wykres portfela)
         self::checkGoal($t);      // czy któryś gracz osiągnął cel gry
@@ -1244,6 +1256,10 @@ final class Engine
         self::$achCache[$userId][$code] = true;
         self::notify($userId, 'achievement', "🎖️ Nowa odznaka: {$a[0]} {$a[1]} — {$a[2]}", 'gracz.php?id=' . $userId);
         Log::write('info', 'engine', 'achievement', "odznaka $code dla gracza #$userId");
+        try {
+            if (!class_exists('Tokens')) require_once __DIR__ . '/Tokens.php';
+            Tokens::grant($userId, 2, 'achievement', 'odznaka: ' . $a[1]);
+        } catch (\Throwable $e) { /* żetony nie psują odznak */ }
         return true;
     }
 

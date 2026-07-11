@@ -8,6 +8,8 @@ require_once __DIR__ . '/../src/Log.php';
 require_once __DIR__ . '/../src/Challenges.php';
 require_once __DIR__ . '/../src/Ipo.php';
 require_once __DIR__ . '/../src/Technical.php';
+require_once __DIR__ . '/../src/Tokens.php';
+require_once __DIR__ . '/../src/Recommendations.php';
 
 session_set_cookie_params(['samesite' => 'Lax', 'httponly' => true]);
 session_start();
@@ -133,6 +135,10 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
         $unread = (int) Engine::one("SELECT COUNT(*) FROM notifications WHERE user_id=? AND read_at IS NULL", [$bellId]);
         echo "<a class='bell" . $act('notif') . "' href='powiadomienia.php' title='Powiadomienia'>" . icon('bell') . "<b class='bell-n" . ($unread > 0 ? '' : ' off') . "' data-bell>" . $unread . "</b></a>";
         echo "<a class='thm' href='#' onclick='return themeToggle()' title='Przełącz motyw jasny/ciemny'>" . icon('theme') . "</a>";
+        if ($user['role'] === 'player') {
+            $tk = (int) Engine::one("SELECT tokens FROM users WHERE id=?", [$actg ? $actg['owner_id'] : $user['id']]);
+            echo "<a href='sklep.php' class='tokens' title='Żetony Maklera — Sklep'>🪙 <b>$tk</b></a>";
+        }
         if ($actg) {
             echo "<span class='bal'><b>" . money($actg['cash']) . " PLN</b><small>portfel wyzwania</small></span>";
             echo "<a class='hide-sm' href='logout.php' style='color:var(--faint)'>" . h($actg['owner_name']) . " ⏻</a>";

@@ -274,6 +274,10 @@ final class Challenges
             Engine::notify((int) $cp['user_id'], 'challenge', $msg, 'wyzwania.php');
             if ($rank <= 3) $podium[] = $rank . '. ' . $cp['username'] . ' (' . number_format($ret, 1, ',', ' ') . '%)';
             if ($rank === 1) Engine::award((int) $cp['user_id'], 'zwyciezca_wyzwania');
+            // Żetony Maklera za podium (monetyzacja zdobywalna grą, nie tylko portfelem)
+            if (!class_exists('Tokens')) require_once __DIR__ . '/Tokens.php';
+            if ($rank === 1) Tokens::grant((int) $cp['user_id'], 10, 'challenge', 'wygrana: ' . $ch['name']);
+            elseif ($rank <= 3) Tokens::grant((int) $cp['user_id'], 5, 'challenge', 'podium: ' . $ch['name']);
         }
         $pdo->prepare("UPDATE challenges SET status='finished', pot=0 WHERE id=?")->execute([$cid]);
         $pdo->prepare("INSERT INTO news (headline,body,type,scope,target_id,is_espi,impact_strength,publish_tick,expire_tick,published_at)

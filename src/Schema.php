@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 19;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 20;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -30,7 +30,8 @@ final class Schema
                 cash_reserved $money NOT NULL DEFAULT 0,
                 joined_session INT NOT NULL DEFAULT 1,   -- sesja dołączenia (liczy się od niej limit celu)
                 goal_session   INT NULL,                 -- sesja, w której gracz osiągnął cel (NULL = jeszcze nie)
-                start_equity   $money NOT NULL DEFAULT 0 -- kapitał startowy (baza do wyniku % w rankingu)
+                start_equity   $money NOT NULL DEFAULT 0, -- kapitał startowy (baza do wyniku % w rankingu)
+                tokens INT NOT NULL DEFAULT 0              -- Żetony Maklera (waluta premium; księga w token_ledger)
             )",
 
             // --- SEKTOR (branża) ---
@@ -69,6 +70,7 @@ final class Schema
                 growth_potential     $f NOT NULL DEFAULT 0,
                 aggressiveness       $f NOT NULL DEFAULT 1,
                 tech_affinity        DECIMAL(4,2) NOT NULL DEFAULT 0.5,  -- podatność na analizę techniczną (0=fundamentalna, 1=techniczna)
+                ta_signal            DECIMAL(5,3) NOT NULL DEFAULT 0,    -- zbiorczy sygnał AT (cache per tick; skaner na Rynku)
                 -- sterowanie GM:
                 bias $f NOT NULL DEFAULT 0,
                 profit_trend $f NOT NULL DEFAULT 0,   -- ręczny miernik trendu zysków (%/miesiąc, edytowalny w GM)
@@ -307,6 +309,35 @@ final class Schema
                 UNIQUE (stock_id, session)
             )",
 
+            // --- MONETYZACJA: Żetony Maklera (księga), pakiety premium, rekomendacje DM ---
+            "token_ledger" => "CREATE TABLE token_ledger (
+                id $pk,
+                user_id INT NOT NULL,
+                delta   INT NOT NULL,                 -- +zdobyte / -wydane
+                balance INT NOT NULL,                 -- saldo PO operacji
+                reason  VARCHAR(40) NOT NULL,         -- welcome | challenge | achievement | pass | gm | purchase
+                note    VARCHAR(160) NULL,
+                created_at VARCHAR(19) NOT NULL
+            )",
+            "premium_passes" => "CREATE TABLE premium_passes (
+                id $pk,
+                user_id INT NOT NULL,
+                kind VARCHAR(24) NOT NULL,            -- analityk (skaner AT + rekomendacje dzień wcześniej)
+                until_session INT NOT NULL,           -- pakiet aktywny DO tej sesji włącznie
+                created_at VARCHAR(19) NOT NULL,
+                UNIQUE (user_id, kind)
+            )",
+            "recommendations" => "CREATE TABLE recommendations (
+                id $pk,
+                stock_id INT NOT NULL,
+                session  INT NOT NULL,                -- sesja publikacji (premium widzi od razu, reszta od następnej)
+                verdict  VARCHAR(10) NOT NULL,        -- kupuj | trzymaj | sprzedaj
+                target_price DECIMAL(15,2) NOT NULL,
+                note VARCHAR(200) NULL,
+                created_at VARCHAR(19) NOT NULL,
+                UNIQUE (stock_id, session)
+            )",
+
             // --- DZIENNIK GRACZA (oś czasu konta: zlecenia, SL/TP, dywidendy, wyzwania, odznaki) ---
             "player_journal" => "CREATE TABLE player_journal (
                 id $pk,
@@ -359,6 +390,8 @@ final class Schema
             "CREATE INDEX ix_chp_shadow ON challenge_players (shadow_user_id)",
             "CREATE INDEX ix_journal ON player_journal (user_id, id)",
             "CREATE INDEX ix_cd ON candles_daily (stock_id, session)",
+            "CREATE INDEX ix_ledger ON token_ledger (user_id, id)",
+            "CREATE INDEX ix_reco ON recommendations (session)",
         ];
     }
 }
