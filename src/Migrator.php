@@ -114,6 +114,29 @@ final class Migrator
                 )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
                 "CREATE INDEX ix_notif ON notifications (user_id, read_at)",
             ],
+            // v13: rozbudowane wydarzenia — modyfikatory czasowe + kolejka kaskad/plotek
+            13 => [
+                "CREATE TABLE active_effects (
+                    id " . (Db::driver() === 'mysql' ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT') . ",
+                    target_type VARCHAR(10) NOT NULL,
+                    target_id INT NULL,
+                    field VARCHAR(20) NOT NULL,
+                    delta DECIMAL(8,3) NOT NULL,
+                    expire_tick INT NOT NULL,
+                    source VARCHAR(40) NOT NULL
+                )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
+                "CREATE TABLE scheduled_events (
+                    id " . (Db::driver() === 'mysql' ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT') . ",
+                    due_tick INT NOT NULL,
+                    template_code VARCHAR(40) NOT NULL,
+                    sector_id INT NULL,
+                    stock_id INT NULL,
+                    resolve_json TEXT NULL,
+                    fired TINYINT NOT NULL DEFAULT 0
+                )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
+                "CREATE INDEX ix_effects ON active_effects (expire_tick)",
+                "CREATE INDEX ix_sched ON scheduled_events (fired, due_tick)",
+            ],
         ];
     }
 

@@ -65,6 +65,7 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
         echo "<a class='" . trim($act('market')) . "' href='market.php'>Rynek</a>";
         echo "<a class='" . trim($act('ranking')) . "' href='ranking.php'>Ranking</a>";
         echo "<a class='" . trim($act('portfolio')) . "' href='portfolio.php'>Portfel</a>";
+        echo "<a class='" . trim($act('news')) . "' href='wiadomosci.php'>Newsy</a>";
         echo "<a class='" . trim($act('help')) . "' href='pomoc.php'>Pomoc</a>";
         if ($isAdmin) echo "<a class='gm" . $act('gm') . "' href='gm.php'>GM</a>";
         echo "<a class='bell" . $act('notif') . "' href='powiadomienia.php' title='Powiadomienia'>🔔<b class='bell-n" . ($unread > 0 ? '' : ' off') . "' data-bell>" . $unread . "</b></a>";
@@ -82,6 +83,7 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
         echo "<a class='" . trim($act('market')) . "' href='market.php'><span class='ic'>▤</span>Rynek</a>";
         echo "<a class='" . trim($act('ranking')) . "' href='ranking.php'><span class='ic'>🏆</span>Ranking</a>";
         echo "<a class='" . trim($act('portfolio')) . "' href='portfolio.php'><span class='ic'>◈</span>Portfel</a>";
+        echo "<a class='" . trim($act('news')) . "' href='wiadomosci.php'><span class='ic'>📰</span>Newsy</a>";
         echo "<a class='" . trim($act('help')) . "' href='pomoc.php'><span class='ic'>❓</span>Pomoc</a>";
         if ($isAdmin) echo "<a class='" . trim($act('gm')) . "' href='gm.php'><span class='ic'>⚙</span>GM</a>";
         echo "<a href='logout.php'><span class='ic'>⏻</span>Wyjście</a>";

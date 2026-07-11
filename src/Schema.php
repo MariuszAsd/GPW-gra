@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 12;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 13;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -202,6 +202,28 @@ final class Schema
                 equity $money NOT NULL
             )",
 
+            // --- WYDARZENIA: modyfikatory czasowe (nakładki na bazowe wartości, SAME wygasają) ---
+            "active_effects" => "CREATE TABLE active_effects (
+                id $pk,
+                target_type VARCHAR(10) NOT NULL,   -- market | sector | stock
+                target_id INT NULL,                 -- id sektora/spółki (NULL dla market)
+                field VARCHAR(20) NOT NULL,         -- sentiment|trend|profit_climate|volatility|profit_trend|dividend_pause
+                delta DECIMAL(8,3) NOT NULL,
+                expire_tick INT NOT NULL,
+                source VARCHAR(40) NOT NULL         -- kod wydarzenia (diagnostyka)
+            )",
+
+            // --- WYDARZENIA: kolejka kaskad i rozstrzygnięć plotek ---
+            "scheduled_events" => "CREATE TABLE scheduled_events (
+                id $pk,
+                due_tick INT NOT NULL,
+                template_code VARCHAR(40) NOT NULL,
+                sector_id INT NULL,
+                stock_id INT NULL,
+                resolve_json TEXT NULL,             -- wykluczające alternatywy [[szansa, code], ...]
+                fired TINYINT NOT NULL DEFAULT 0
+            )",
+
             // --- POWIADOMIENIA (dzwonek gracza: dywidendy, SL/TP, raporty, realizacje zleceń) ---
             "notifications" => "CREATE TABLE notifications (
                 id $pk,
@@ -243,6 +265,8 @@ final class Schema
             "CREATE INDEX ix_tx_buyorder ON transactions (buy_order_id)",
             "CREATE INDEX ix_tx_sellorder ON transactions (sell_order_id)",
             "CREATE INDEX ix_notif ON notifications (user_id, read_at)",
+            "CREATE INDEX ix_effects ON active_effects (expire_tick)",
+            "CREATE INDEX ix_sched ON scheduled_events (fired, due_tick)",
         ];
     }
 }

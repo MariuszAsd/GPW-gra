@@ -68,15 +68,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash('Błąd ticka (zapisany w dzienniku): ' . $e->getMessage(), 'err');
         }
     } elseif ($a === 'world_event') {
-        $kind = in_array($_POST['kind'] ?? '', ['krach', 'hossa'], true) ? $_POST['kind'] : 'krach';
-        $head = Engine::triggerEvent($kind);
-        Engine::runTick();
-        flash("Wydarzenie uruchomione: $head (+1 tick).");
+        $kind = $_POST['kind'] ?? '';
+        $tpl = EventCatalog::get($kind);
+        if ($tpl && $tpl['scope'] === 'MARKET') { $head = Engine::triggerEvent($kind); Engine::runTick(); flash("Wydarzenie: $head (+1 tick)."); }
+        else flash('Nieznane wydarzenie rynkowe.', 'err');
     } elseif ($a === 'sector_event') {
-        $kind = in_array($_POST['kind'] ?? '', ['sector_panic', 'sector_boom'], true) ? $_POST['kind'] : 'sector_panic';
-        $head = Engine::triggerEvent($kind, (int) $_POST['sector_id']);
-        Engine::runTick();
-        flash("Wydarzenie uruchomione: $head (+1 tick).");
+        $kind = $_POST['kind'] ?? '';
+        $tpl = EventCatalog::get($kind);
+        if ($tpl && $tpl['scope'] === 'SECTOR') { $head = Engine::triggerEvent($kind, (int) $_POST['sector_id']); Engine::runTick(); flash("Wydarzenie: $head (+1 tick)."); }
+        else flash('Nieznane wydarzenie sektorowe.', 'err');
+    } elseif ($a === 'company_event') {
+        $kind = $_POST['kind'] ?? '';
+        $tpl = EventCatalog::get($kind);
+        if ($tpl && $tpl['scope'] === 'COMPANY') { $head = Engine::triggerEvent($kind, null, (int) $_POST['stock_id']); Engine::runTick(); flash("Wydarzenie: $head (+1 tick)."); }
+        else flash('Nieznane wydarzenie spółkowe.', 'err');
     } elseif ($a === 'events_toggle') {
         $on = ($_POST['enabled'] ?? '1') === '1';
         Engine::setState('events_enabled', $on ? '1' : '0');
@@ -199,24 +204,54 @@ layout_header('Panel GM', $user, 'gm');
     Wpływ zanika stopniowo — boty newsowe panikują/kupują, animatorzy podążają za fundamentem.
     <?php if ($lastEv): ?><br>Ostatnie: <b><?= h($lastEv['message']) ?></b> (<?= h($lastEv['ts']) ?>)<?php endif; ?>
   </p>
-  <div class="row" style="margin-bottom:10px">
-    <form method="post" class="inline" onsubmit="return confirm('Uruchomić KRACH na całym rynku?')"><input type="hidden" name="action" value="world_event"><input type="hidden" name="kind" value="krach"><button class="btn sm down">🚨 Krach rynkowy</button></form>
-    <form method="post" class="inline" onsubmit="return confirm('Uruchomić HOSSĘ na całym rynku?')"><input type="hidden" name="action" value="world_event"><input type="hidden" name="kind" value="hossa"><button class="btn sm up">🚀 Hossa rynkowa</button></form>
+  <?php
+    $cat = EventCatalog::all();
+    $byScope = ['MARKET' => [], 'SECTOR' => [], 'COMPANY' => []];
+    foreach ($cat as $code => $t) $byScope[$t['scope']][$code] = $t;
+    $activeFx = Engine::all("SELECT ae.*, sec.name AS sname, st.ticker FROM active_effects ae
+                             LEFT JOIN sectors sec ON ae.target_type='sector' AND sec.id=ae.target_id
+                             LEFT JOIN stocks st ON ae.target_type='stock' AND st.id=ae.target_id
+                             WHERE ae.expire_tick > (SELECT v FROM game_state WHERE k='tick') ORDER BY ae.expire_tick");
+  ?>
+  <div class="row" style="margin-bottom:10px;align-items:flex-end">
+    <form method="post" class="inline" onsubmit="return confirm('Uruchomić wydarzenie RYNKOWE?')">
+      <input type="hidden" name="action" value="world_event">
+      <label>Rynkowe (globalne)</label>
+      <select name="kind" style="width:250px"><?php foreach ($byScope['MARKET'] as $code => $t): ?><option value="<?= $code ?>"><?= h(mb_substr($t['head'], 0, 46)) ?></option><?php endforeach; ?></select>
+      <button class="btn sm">Uruchom</button>
+    </form>
     <form method="post" class="inline">
       <input type="hidden" name="action" value="events_toggle">
       <input type="hidden" name="enabled" value="<?= $evOn ? '0' : '1' ?>">
-      <button class="btn sm ghost"><?= $evOn ? '⏸ Wyłącz losowe wydarzenia' : '▶ Włącz losowe wydarzenia' ?></button>
+      <button class="btn sm ghost"><?= $evOn ? '⏸ Wyłącz losowe' : '▶ Włącz losowe' ?></button>
     </form>
   </div>
-  <form method="post" class="row" style="align-items:flex-end">
+  <form method="post" class="row" style="align-items:flex-end;margin-bottom:10px">
     <input type="hidden" name="action" value="sector_event">
+    <div><label>Sektorowe</label>
+      <select name="kind" style="width:250px"><?php foreach ($byScope['SECTOR'] as $code => $t): ?><option value="<?= $code ?>"><?= h(mb_substr($t['head'], 0, 46)) ?></option><?php endforeach; ?></select></div>
     <div><label>Sektor</label>
-      <select name="sector_id" style="width:200px">
-        <?php foreach ($sectors as $sec): ?><option value="<?= (int) $sec['id'] ?>"><?= h($sec['name']) ?></option><?php endforeach; ?>
-      </select></div>
-    <button class="btn sm down" name="kind" value="sector_panic">🔥 Kryzys sektora</button>
-    <button class="btn sm up" name="kind" value="sector_boom">⭐ Boom sektora</button>
+      <select name="sector_id" style="width:170px"><?php foreach ($sectors as $sec): ?><option value="<?= (int) $sec['id'] ?>"><?= h($sec['name']) ?></option><?php endforeach; ?></select></div>
+    <button class="btn sm">Uruchom</button>
   </form>
+  <form method="post" class="row" style="align-items:flex-end">
+    <input type="hidden" name="action" value="company_event">
+    <div><label>Spółkowe</label>
+      <select name="kind" style="width:250px"><?php foreach ($byScope['COMPANY'] as $code => $t): ?><option value="<?= $code ?>"><?= h(mb_substr($t['head'], 0, 46)) ?></option><?php endforeach; ?></select></div>
+    <div><label>Spółka</label>
+      <select name="stock_id" style="width:170px"><?php foreach ($stocks as $st): ?><option value="<?= (int) $st['id'] ?>"><?= h($st['ticker']) ?></option><?php endforeach; ?></select></div>
+    <button class="btn sm">Uruchom</button>
+  </form>
+  <?php if ($activeFx): ?>
+    <p class="muted" style="margin:12px 0 4px"><b>Aktywne skutki wydarzeń</b> (same wygasną):</p>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <?php foreach ($activeFx as $fx): ?>
+        <span class="tag" title="źródło: <?= h($fx['source']) ?>"><?= h($fx['target_type'] === 'market' ? 'RYNEK' : ($fx['sname'] ?? $fx['ticker'] ?? '?')) ?>
+          · <?= h($fx['field']) ?> <?= (float) $fx['delta'] >= 0 ? '+' : '' ?><?= rtrim(rtrim(number_format((float) $fx['delta'], 3, '.', ''), '0'), '.') ?>
+          · do t<?= (int) $fx['expire_tick'] ?></span>
+      <?php endforeach; ?>
+    </div>
+  <?php endif; ?>
 </section>
 
 <section class="panel" style="margin-top:16px">

@@ -9,6 +9,8 @@
  *   - poprawna średnia cena zakupu, upsert portfela po UNIQUE(user_id, stock_id),
  *   - działająca egzekucja Stop-Loss / Take-Profit.
  */
+require_once __DIR__ . '/EventCatalog.php';
+
 final class Engine
 {
     /* ---------- Zlecenia gracza / botów ---------- */
@@ -459,6 +461,7 @@ final class Engine
         if (!$due) return;
         $globalPer = max(1, (int) (self::one("SELECT v FROM game_state WHERE k='ticks_per_month'") ?: 20));
 
+        $mods = self::activeMods($tick);
         foreach ($due as $s) {
             $sid = (int) $s['id'];
             $per = max(1, (int) $s['report_period']);   // kadencja raportu per spółka
@@ -466,7 +469,10 @@ final class Engine
             $prev = ((float) $s['last_profit']) ?: (float) $s['base_profit'];
 
             // oczekiwany wynik = poprzedni × ZNANY trend (miernik spółki + koniunktura branży + growth)
-            $trend_m  = ((float) $s['profit_trend'] + (float) $s['sector_climate'] + (float) $s['growth_potential'] * $per) / 100.0;
+            // + CZASOWE nakładki z wydarzeń (kryzysy/boomy branż, kontrakty i afery spółek)
+            $evTrend   = self::modVal($mods, 'stock', $sid, 'profit_trend');
+            $evClimate = self::modVal($mods, 'sector', (int) $s['sector_id'], 'profit_climate');
+            $trend_m  = ((float) $s['profit_trend'] + $evTrend + (float) $s['sector_climate'] + $evClimate + (float) $s['growth_potential'] * $per) / 100.0;
             $expected = $prev * (1 + $trend_m);
             // faktyczny wynik = oczekiwany × niespodzianka (szum × agresywność)
             $noise    = (mt_rand(-12, 12) / 100.0) * max(0.2, (float) $s['aggressiveness']);
@@ -485,9 +491,11 @@ final class Engine
             $pdo->prepare("UPDATE stocks SET fundamental=?, last_profit=?, last_eps=?, next_report_tick=next_report_tick+? WHERE id=?")
                 ->execute([$newFund, $profit, $eps, $per, $sid]);
 
-            // dywidenda: spółka dzieli się zyskiem wg swojej polityki wypłat (payout% zysku / liczbę akcji)
+            // dywidenda: spółka dzieli się zyskiem wg swojej polityki wypłat (payout% zysku / liczbę akcji);
+            // wydarzenie (np. afera księgowa) może ją czasowo zawiesić
             $dps = 0.0;
             $payout = (float) ($s['dividend_payout'] ?? 0);
+            if (self::modVal($mods, 'stock', $sid, 'dividend_pause') > 0) $payout = 0;
             if ($payout > 0 && $profit > 0) {
                 $dps = floor($payout * $profit / $shares * 100) / 100;   // w dół, do grosza
                 if ($dps >= 0.01) self::payDividend($sid, (string) $s['ticker'], $dps, $tick);
@@ -731,19 +739,29 @@ final class Engine
         $t = (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?? 0) + 1;
         self::rollSession($t);   // nowa sesja giełdowa -> kurs otwarcia dnia
 
+        // wydarzenia: wygaś stare modyfikatory, odpal zaplanowane kaskady/plotki
+        $pdo->prepare("DELETE FROM active_effects WHERE expire_tick <= ?")->execute([$t]);
+        self::$modsTick = -1;
+        self::fireScheduledEvents($t);
+        $mods = self::activeMods($t);
+
         // dynamika ceny fundamentalnej — STEROWALNA i zależna od otoczenia:
-        //   dryf = trend rynku*beta + trend sektora*beta + bias(GM) + growth(spółki+sektora)
-        //   szum skalowany zmiennością spółki × sektora
-        $market = (float) (self::one("SELECT v FROM game_state WHERE k='sentiment'") ?: 0);  // trend rynku %/tick
-        $stocks = self::all("SELECT s.id, s.fundamental, s.bias, s.beta, s.volatility, s.growth_potential,
+        //   dryf = (trend rynku+wydarzenia)*beta + (trend sektora+wydarzenia)*beta + bias(GM)
+        //   szum skalowany zmiennością spółki × sektora (± modyfikatory z wydarzeń)
+        $market = (float) (self::one("SELECT v FROM game_state WHERE k='sentiment'") ?: 0)
+                + self::modVal($mods, 'market', null, 'sentiment');
+        $stocks = self::all("SELECT s.id, s.sector_id, s.fundamental, s.bias, s.beta, s.volatility, s.growth_potential,
                                     sec.trend AS sector_trend, sec.market_beta AS sector_beta,
                                     sec.volatility AS sector_vol, sec.growth AS sector_growth
                              FROM stocks s JOIN sectors sec ON sec.id = s.sector_id");
         foreach ($stocks as $st) {
-            $vol = (max(0.1, (float) $st['volatility'])) * (max(0.1, (float) $st['sector_vol']));
+            $sid = (int) $st['id']; $secId = (int) $st['sector_id'];
+            $vol = max(0.1, (float) $st['volatility'] + self::modVal($mods, 'stock', $sid, 'volatility'))
+                 * max(0.1, (float) $st['sector_vol'] + self::modVal($mods, 'sector', $secId, 'volatility')
+                          + self::modVal($mods, 'market', null, 'volatility'));
             // uwaga: growth idzie teraz kanałem raportów (zyski -> wycena), nie w ciągłym dryfie
             $drift = ( $market * (float) $st['beta']
-                     + (float) $st['sector_trend'] * (float) $st['sector_beta']
+                     + ((float) $st['sector_trend'] + self::modVal($mods, 'sector', $secId, 'trend')) * (float) $st['sector_beta']
                      + (float) $st['bias'] ) / 100.0;
             // kalibracja: szum tła niski (~4-6% na sesję) — duże ruchy mają pochodzić
             // z WYDARZEŃ (raporty, ESPI, sterowanie GM), nie z losowego tła
@@ -797,65 +815,160 @@ final class Engine
         return $al == 0 ? 100 : 100 - 100 / (1 + $ag / $al);
     }
 
-    /* ---------- Wydarzenia rynkowe (krach / hossa / kryzys i boom sektorowy) ---------- */
+    /* ---------- Wydarzenia świata (katalog w EventCatalog, skutki 3-warstwowe) ---------- */
 
-    /** Katalog wydarzeń: wpływ %/tick (szczyt, zanika) + czas trwania w tickach. */
-    public static function eventCatalog(): array
+    /**
+     * Wyzwól wydarzenie z katalogu (GM / losowe / kaskada). Tworzy news, nakłada
+     * modyfikatory czasowe, planuje kaskady i rozstrzygnięcia plotek, powiadamia
+     * zainteresowanych graczy. Zwraca nagłówek.
+     */
+    public static function triggerEvent(string $code, ?int $sectorId = null, ?int $stockId = null, string $source = 'gm'): string
     {
-        return [
-            'krach'        => ['scope' => 'MARKET', 'type' => 'NEG', 'impact' => -1.5, 'duration' => 20,
-                               'head' => '🚨 KRACH NA GIEŁDZIE! Panika — inwestorzy masowo uciekają od akcji',
-                               'body' => 'Gwałtowna wyprzedaż na całym rynku. Fundamenty spółek pod silną presją przez najbliższe sesje.'],
-            'hossa'        => ['scope' => 'MARKET', 'type' => 'POS', 'impact' => 1.2, 'duration' => 20,
-                               'head' => '🚀 HOSSA! Euforia zakupów rozlewa się po całym rynku',
-                               'body' => 'Kapitał płynie na giełdę szerokim strumieniem. Wyceny rosną na wszystkich parkietach.'],
-            'sector_panic' => ['scope' => 'SECTOR', 'type' => 'NEG', 'impact' => -1.5, 'duration' => 15,
-                               'head' => '🔥 Kryzys w sektorze [T]! Afera i odpływ kapitału',
-                               'body' => 'Branża w ogniu krytyki — inwestorzy wycofują się z całego sektora.'],
-            'sector_boom'  => ['scope' => 'SECTOR', 'type' => 'POS', 'impact' => 1.3, 'duration' => 15,
-                               'head' => '⭐ Boom w sektorze [T]! Rynek wierzy w branżę',
-                               'body' => 'Przełomowe perspektywy dla całej branży przyciągają kapitał.'],
-        ];
-    }
-
-    /** Wyzwól wydarzenie (GM albo losowe). Zwraca nagłówek. */
-    public static function triggerEvent(string $kind, ?int $sectorId = null, string $source = 'gm'): string
-    {
-        $ev = self::eventCatalog()[$kind] ?? null;
+        $ev = EventCatalog::get($code);
         if (!$ev) return '';
         $tick = (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
-        $label = '';
+        $rand = Db::driver() === 'mysql' ? 'RAND()' : 'RANDOM()';
+
+        // cel: sektor / spółka (losowany, gdy nie wskazano; spółki ważone news_frequency)
+        $label = ''; $newsScope = $ev['scope']; $newsTarget = null;
         if ($ev['scope'] === 'SECTOR') {
-            if ($sectorId === null) $sectorId = (int) self::one("SELECT id FROM sectors ORDER BY " . (Db::driver() === 'mysql' ? 'RAND()' : 'RANDOM()') . " LIMIT 1");
+            if (!empty($ev['fixed_sector'])) $sectorId = (int) (self::one("SELECT id FROM sectors WHERE symbol=?", [$ev['fixed_sector']]) ?: 0);
+            if (!$sectorId) $sectorId = (int) self::one("SELECT id FROM sectors ORDER BY $rand LIMIT 1");
             $label = (string) self::one("SELECT name FROM sectors WHERE id=?", [$sectorId]);
+            $newsTarget = $sectorId;
+        } elseif ($ev['scope'] === 'COMPANY') {
+            if (!$stockId) {
+                $rows = self::all("SELECT id, news_frequency FROM stocks");
+                $tot = 0; foreach ($rows as $r) $tot += max(1, (int) round((float) $r['news_frequency'] * 10));
+                $pick = mt_rand(1, max(1, $tot)); $acc = 0;
+                foreach ($rows as $r) { $acc += max(1, (int) round((float) $r['news_frequency'] * 10)); if ($pick <= $acc) { $stockId = (int) $r['id']; break; } }
+            }
+            $st = self::row("SELECT ticker, sector_id FROM stocks WHERE id=?", [$stockId]);
+            $label = (string) ($st['ticker'] ?? ''); $sectorId = (int) ($st['sector_id'] ?? 0) ?: $sectorId;
+            $newsTarget = $stockId;
         }
+
         $head = str_replace('[T]', $label, $ev['head']);
+        $body = str_replace('[T]', $label, $ev['body']);
         Db::pdo()->prepare("INSERT INTO news (headline,body,type,scope,target_id,is_espi,impact_strength,publish_tick,expire_tick,published_at)
                             VALUES (?,?,?,?,?,0,?,?,?,?)")
-            ->execute([$head, $ev['body'], $ev['type'], $ev['scope'], $ev['scope'] === 'SECTOR' ? $sectorId : null,
-                       $ev['impact'], $tick, $tick + $ev['duration'], Db::now()]);
-        self::setState('last_event_tick', (string) $tick);
-        Log::write('info', 'engine', 'event.' . $kind, $head . " (źródło: $source, wpływ {$ev['impact']}%/tick przez {$ev['duration']} ticków)");
-        foreach (self::humanIds() as $uid) {
-            self::notify($uid, 'event', ($ev['type'] === 'NEG' ? '🚨 ' : '🚀 ') . $head, 'market.php');
+            ->execute([$head, $body, $ev['type'], $newsScope, $newsTarget, $ev['impact'], $tick, $tick + $ev['duration'], Db::now()]);
+
+        // modyfikatory czasowe (nakładki na bazę — same wygasają)
+        foreach ($ev['effects'] ?? [] as [$target, $field, $delta, $dur]) {
+            $tt = 'market'; $tid = null;
+            if ($target === 'market' || $target === 'all_stocks') { $tt = 'market'; }
+            elseif ($target === 'sector')                          { $tt = 'sector'; $tid = $sectorId; }
+            elseif (str_starts_with($target, 'sector:'))           { $tt = 'sector'; $tid = (int) (self::one("SELECT id FROM sectors WHERE symbol=?", [substr($target, 7)]) ?: 0); }
+            elseif ($target === 'stock')                           { $tt = 'stock';  $tid = $stockId; }
+            if (($tt !== 'market' && !$tid)) continue;
+            Db::pdo()->prepare("INSERT INTO active_effects (target_type, target_id, field, delta, expire_tick, source) VALUES (?,?,?,?,?,?)")
+                ->execute([$tt, $tid, $field, $delta, $tick + (int) $dur, $code]);
         }
+        self::$modsTick = -1;   // unieważnij cache modyfikatorów
+
+        // kaskady (niezależne rzuty) — rzut od razu, odpalenie później
+        foreach ($ev['follow_ups'] ?? [] as [$fcode, $chance, $dMin, $dMax]) {
+            if (mt_rand(1, 100) > $chance) continue;
+            Db::pdo()->prepare("INSERT INTO scheduled_events (due_tick, template_code, sector_id, stock_id) VALUES (?,?,?,?)")
+                ->execute([$tick + mt_rand($dMin, $dMax), $fcode, $sectorId, null]);   // kaskada dziedziczy sektor
+        }
+        // rozstrzygnięcie plotki (wykluczające) — losujemy dopiero w dniu rozstrzygnięcia
+        if (!empty($ev['resolve'])) {
+            [$dMin, $dMax] = $ev['resolve_delay'] ?? [15, 30];
+            Db::pdo()->prepare("INSERT INTO scheduled_events (due_tick, template_code, sector_id, stock_id, resolve_json) VALUES (?,?,?,?,?)")
+                ->execute([$tick + mt_rand($dMin, $dMax), $code . '.resolve', $sectorId, $stockId, json_encode($ev['resolve'])]);
+        }
+
+        if ($ev['scope'] === 'MARKET') self::setState('last_event_tick', (string) $tick);   // cooldown tylko dla dużych
+        Log::write('info', 'engine', "event.$code", $head . " (źródło: $source, wpływ {$ev['impact']}%/tick przez {$ev['duration']} t.)",
+            ['sector_id' => $sectorId, 'stock_id' => $stockId]);
+        self::notifyEventAudience($ev, $head, $sectorId, $stockId);
         return $head;
     }
 
-    /** Losowe wydarzenie: rzadkie, z cooldownem, wyłączalne w GM (events_enabled). */
+    /** Powiadomienia celowane: rynek = wszyscy; sektor/spółka = tylko posiadacze akcji. */
+    private static function notifyEventAudience(array $ev, string $head, ?int $sectorId, ?int $stockId): void
+    {
+        $prefix = $ev['type'] === 'NEG' ? '🚨 ' : '🚀 ';
+        if ($ev['scope'] === 'MARKET') {
+            foreach (self::humanIds() as $uid) self::notify($uid, 'event', $prefix . $head, 'wiadomosci.php');
+        } elseif ($ev['scope'] === 'SECTOR' && $sectorId) {
+            $uids = self::col("SELECT DISTINCT w.user_id FROM wallets w JOIN stocks s ON s.id=w.stock_id JOIN users u ON u.id=w.user_id
+                               WHERE s.sector_id=? AND u.is_bot=0 AND (w.qty + w.qty_reserved) > 0", [$sectorId]);
+            foreach ($uids as $uid) self::notify((int) $uid, 'event', $prefix . $head . ' (masz akcje z tej branży)', 'wiadomosci.php');
+        } elseif ($ev['scope'] === 'COMPANY' && $stockId) {
+            $uids = self::col("SELECT w.user_id FROM wallets w JOIN users u ON u.id=w.user_id
+                               WHERE w.stock_id=? AND u.is_bot=0 AND (w.qty + w.qty_reserved) > 0", [$stockId]);
+            foreach ($uids as $uid) self::notify((int) $uid, 'event', $prefix . $head . ' (masz te akcje!)', 'stock.php?id=' . $stockId);
+        }
+    }
+
+    /** Odpal zaplanowane kaskady/rozstrzygnięcia, których czas nadszedł. */
+    private static function fireScheduledEvents(int $tick): void
+    {
+        foreach (self::all("SELECT * FROM scheduled_events WHERE fired=0 AND due_tick <= ?", [$tick]) as $se) {
+            Db::pdo()->prepare("UPDATE scheduled_events SET fired=1 WHERE id=?")->execute([$se['id']]);
+            if ($se['resolve_json']) {   // plotka: wykluczający rzut w dniu rozstrzygnięcia
+                $alts = json_decode((string) $se['resolve_json'], true) ?: [];
+                $r = mt_rand(1, 100); $acc = 0;
+                foreach ($alts as [$chance, $code]) {
+                    $acc += (int) $chance;
+                    if ($r <= $acc) { self::triggerEvent($code, $se['sector_id'] ? (int) $se['sector_id'] : null, $se['stock_id'] ? (int) $se['stock_id'] : null, 'plotka'); break; }
+                }
+            } else {
+                self::triggerEvent((string) $se['template_code'], $se['sector_id'] ? (int) $se['sector_id'] : null, $se['stock_id'] ? (int) $se['stock_id'] : null, 'kaskada');
+            }
+        }
+    }
+
+    /* ---------- Modyfikatory czasowe (nakładki z wydarzeń) ---------- */
+
+    private static int $modsTick = -1;
+    private static array $mods = [];
+
+    /** Aktywne modyfikatory pogrupowane: ['market'=>[pole=>Σ], 'sector'=>[id=>[pole=>Σ]], 'stock'=>[id=>[pole=>Σ]]]. */
+    public static function activeMods(int $tick): array
+    {
+        if (self::$modsTick === $tick) return self::$mods;
+        $m = ['market' => [], 'sector' => [], 'stock' => []];
+        try {
+            foreach (self::all("SELECT target_type, target_id, field, SUM(delta) d FROM active_effects WHERE expire_tick > ? GROUP BY target_type, target_id, field", [$tick]) as $r) {
+                if ($r['target_type'] === 'market') $m['market'][$r['field']] = (float) $r['d'];
+                else $m[$r['target_type']][(int) $r['target_id']][$r['field']] = (float) $r['d'];
+            }
+        } catch (\Throwable $e) { /* tabela może jeszcze nie istnieć w trakcie migracji */ }
+        self::$modsTick = $tick; self::$mods = $m;
+        return $m;
+    }
+
+    private static function modVal(array $m, string $type, ?int $id, string $field): float
+    {
+        return $type === 'market' ? (float) ($m['market'][$field] ?? 0) : (float) ($m[$type][$id][$field] ?? 0);
+    }
+
+    /** Losowe wydarzenia: duże rynkowe (rzadkie, cooldown) + mniejsze sektorowe/spółkowe (częstsze). */
     private static function maybeRandomEvent(int $tick): void
     {
         $on = self::one("SELECT v FROM game_state WHERE k='events_enabled'");
         if ($on !== false && $on !== null && (int) $on !== 1) return;   // brak klucza = włączone
+
+        // duże wydarzenia rynkowe
         $chance = max(50, (int) (self::one("SELECT v FROM game_state WHERE k='event_chance'") ?: 500));
-        if (mt_rand(1, $chance) !== 1) return;
         $cooldown = (int) (self::one("SELECT v FROM game_state WHERE k='event_cooldown'") ?: 300);
         $last = (int) (self::one("SELECT v FROM game_state WHERE k='last_event_tick'") ?: -100000);
-        if ($tick - $last < $cooldown) return;
-        // rozkład: wydarzenia sektorowe częstsze niż rynkowe
-        $r = mt_rand(1, 100);
-        $kind = $r <= 40 ? 'sector_panic' : ($r <= 80 ? 'sector_boom' : ($r <= 90 ? 'krach' : 'hossa'));
-        self::triggerEvent($kind, null, 'los');
+        if (mt_rand(1, $chance) === 1 && $tick - $last >= $cooldown) {
+            $code = EventCatalog::pickRandom('MARKET');
+            if ($code) { self::triggerEvent($code, null, null, 'los'); return; }
+        }
+        // mniejsze wydarzenia (sektor/spółka) — częstsze, własny krótszy cooldown
+        $mChance = max(20, (int) (self::one("SELECT v FROM game_state WHERE k='minor_event_chance'") ?: 150));
+        $mCooldown = (int) (self::one("SELECT v FROM game_state WHERE k='minor_event_cooldown'") ?: 45);
+        $mLast = (int) (self::one("SELECT v FROM game_state WHERE k='last_minor_event_tick'") ?: -100000);
+        if (mt_rand(1, $mChance) === 1 && $tick - $mLast >= $mCooldown) {
+            $code = EventCatalog::pickRandom(mt_rand(1, 100) <= 65 ? 'COMPANY' : 'SECTOR');
+            if ($code) { self::triggerEvent($code, null, null, 'los'); self::setState('last_minor_event_tick', (string) $tick); }
+        }
     }
 
     /* ---------- Powiadomienia (dzwonek gracza) ---------- */
