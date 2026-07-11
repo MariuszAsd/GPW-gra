@@ -158,6 +158,36 @@ final class Migrator
                 "CREATE INDEX ix_tx_buyer ON transactions (buyer_id)",
                 "CREATE INDEX ix_tx_seller ON transactions (seller_id)",
             ],
+            15 => [
+                "CREATE TABLE challenges (
+                    id " . (Db::driver() === 'mysql' ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT') . ",
+                    name VARCHAR(80) NOT NULL,
+                    status VARCHAR(12) NOT NULL DEFAULT 'signup',
+                    buyin  DECIMAL(15,2) NOT NULL,
+                    fee_pct DECIMAL(6,3) NOT NULL DEFAULT 10,
+                    pot    DECIMAL(15,2) NOT NULL DEFAULT 0,
+                    min_players INT NOT NULL DEFAULT 3,
+                    start_session INT NOT NULL,
+                    end_session   INT NOT NULL,
+                    created_at VARCHAR(19) NOT NULL
+                )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
+                "CREATE TABLE challenge_players (
+                    id " . (Db::driver() === 'mysql' ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT') . ",
+                    challenge_id INT NOT NULL,
+                    user_id      INT NOT NULL,
+                    shadow_user_id INT NULL,
+                    buyin DECIMAL(15,2) NOT NULL,
+                    fee   DECIMAL(15,2) NOT NULL,
+                    final_equity DECIMAL(15,2) NULL,
+                    final_rank INT NULL,
+                    prize DECIMAL(15,2) NOT NULL DEFAULT 0,
+                    joined_at VARCHAR(19) NOT NULL,
+                    UNIQUE (challenge_id, user_id)
+                )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
+                "CREATE INDEX ix_chp_ch ON challenge_players (challenge_id)",
+                "CREATE INDEX ix_chp_user ON challenge_players (user_id)",
+                "CREATE INDEX ix_chp_shadow ON challenge_players (shadow_user_id)",
+            ],
         ];
     }
 

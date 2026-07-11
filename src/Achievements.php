@@ -22,6 +22,7 @@ final class Achievements
             'lekcja_pokory'       => ['🎢', 'Lekcja pokory',            '-10% kapitału w jednej sesji. Bywa.'],
             'kupil_w_krachu'      => ['🩸', 'Kupował, gdy lała się krew', 'Kupiłeś akcje w trakcie krachu rynkowego.'],
             'milioner'            => ['🏆', 'Milioner',                 'Osiągnąłeś cel gry.'],
+            'zwyciezca_wyzwania'  => ['🏅', 'Zwycięzca wyzwania',       'Wygrałeś wyzwanie inwestycyjne.'],
         ];
     }
 

@@ -403,6 +403,14 @@ final class Engine
         $pdo->prepare("UPDATE orders SET status='cancelled' WHERE user_id=? AND status='active'")->execute([$uid]);
     }
 
+    /** Anuluj WSZYSTKIE zlecenia konta (też obronne SL/TP) i zwolnij rezerwacje — likwidacja subkonta wyzwania. */
+    public static function releaseAllOrders(int $uid): void
+    {
+        $pdo = Db::pdo();
+        foreach (self::all("SELECT * FROM orders WHERE user_id=? AND status IN ('active','pending')", [$uid]) as $o) self::release($o);
+        $pdo->prepare("UPDATE orders SET status='cancelled' WHERE user_id=? AND status IN ('active','pending')")->execute([$uid]);
+    }
+
     /**
      * Presja arbitrażowa: gdy kurs odbiega od wartości fundamentalnej (sterowanej przez
      * bias/sentiment/eventy w panelu GM), losowy market maker krzyżuje spread w stronę
@@ -700,7 +708,7 @@ final class Engine
              FROM users u
              LEFT JOIN (SELECT w.user_id AS uid, SUM((w.qty + w.qty_reserved) * s.price) AS v
                         FROM wallets w JOIN stocks s ON s.id = w.stock_id GROUP BY w.user_id) sv ON sv.uid = u.id
-             WHERE u.is_bot = 0 AND u.role = 'player'"
+             WHERE (u.is_bot = 0 AND u.role = 'player') OR u.role = 'challenger'"
         )->execute([$t]);
         if ($t % 500 === 0) Db::pdo()->prepare("DELETE FROM equity_history WHERE t < ?")->execute([$t - 10000]);
     }
@@ -750,6 +758,11 @@ final class Engine
                 }
             }
         } catch (\Throwable $e) { /* odznaki nie psują sesji */ }
+        // wyzwania: start/rozstrzygnięcie/kolejna edycja na granicy sesji
+        try {
+            if (!class_exists('Challenges')) require_once __DIR__ . '/Challenges.php';
+            Challenges::onRoll($n, $tick);
+        } catch (\Throwable $e) { Log::write('error', 'engine', 'challenge.roll', $e->getMessage()); }
         self::setState('session', (string) $n);
     }
 
@@ -1073,6 +1086,7 @@ final class Engine
     /** Przyznaj odznakę (raz na gracza). Zwraca true, gdy przyznano po raz pierwszy. */
     public static function award(int $userId, string $code): bool
     {
+        $userId = self::challengeOwner($userId);   // odznaki z handlu w wyzwaniu liczą się właścicielowi
         $a = Achievements::get($code);
         if (!$a || self::hasAch($userId, $code)) return false;
         try {
@@ -1122,10 +1136,21 @@ final class Engine
         return self::$humanIds;
     }
 
+    /** Konto-cień wyzwania -> id właściciela; zwykłe konta bez zmian. */
+    public static function challengeOwner(int $userId): int
+    {
+        $role = self::one("SELECT role FROM users WHERE id=?", [$userId]);
+        if ($role !== 'challenger') return $userId;
+        $owner = (int) (self::one("SELECT user_id FROM challenge_players WHERE shadow_user_id=?", [$userId]) ?: 0);
+        return $owner > 0 ? $owner : $userId;
+    }
+
     /** Dodaj powiadomienie dla gracza (+ przytnij do ~50 najnowszych na gracza). */
     public static function notify(int $userId, string $type, string $message, string $link = ''): void
     {
         try {
+            $owner = self::challengeOwner($userId);
+            if ($owner !== $userId) { $message = '⚔️ [wyzwanie] ' . $message; $userId = $owner; }
             $pdo = Db::pdo();
             $pdo->prepare("INSERT INTO notifications (user_id, type, message, link, created_at) VALUES (?,?,?,?,?)")
                 ->execute([$userId, $type, mb_substr($message, 0, 250), $link ?: null, Db::now()]);

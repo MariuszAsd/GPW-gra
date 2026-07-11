@@ -274,3 +274,12 @@ td.nowrap{white-space:nowrap}
 .badge .bd{color:var(--soft);font-size:11.5px}
 .badge.locked{opacity:.6;filter:grayscale(1)}
 .badge.locked .bn::before{content:'🔒 ';font-size:11px}
+
+/* ---------- Wyzwania ---------- */
+.ctxbar{background:linear-gradient(90deg,var(--info-bg),transparent);border-bottom:1px solid var(--line);
+  padding:8px 22px;font-size:13.5px}
+.ctxbar a{font-weight:700}
+.ch-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:10px 0}
+.ch-stat{background:var(--bg3);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
+.ch-stat small{display:block;color:var(--faint);font-size:10.5px;letter-spacing:.4px;margin-bottom:3px}
+.ch-stat b{font-size:15px;font-family:var(--mono)}

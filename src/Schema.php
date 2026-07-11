@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 14;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 15;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -253,6 +253,33 @@ final class Schema
                 UNIQUE (user_id, code)
             )",
 
+            // --- WYZWANIA (konkursy inwestycyjne; logika w src/Challenges.php) ---
+            "challenges" => "CREATE TABLE challenges (
+                id $pk,
+                name VARCHAR(80) NOT NULL,
+                status VARCHAR(12) NOT NULL DEFAULT 'signup',  -- signup | running | finished | cancelled
+                buyin  $money NOT NULL,                        -- kapitał wyzwania (zablokowany z konta głównego)
+                fee_pct $f NOT NULL DEFAULT 10,                -- wpisowe (% buy-inu) -> pula nagród
+                pot    $money NOT NULL DEFAULT 0,              -- pula nagród (suma wpisowego)
+                min_players INT NOT NULL DEFAULT 3,
+                start_session INT NOT NULL,                    -- pierwsza sesja handlu (do niej trwają zapisy)
+                end_session   INT NOT NULL,                    -- ostatnia sesja handlu
+                created_at VARCHAR(19) NOT NULL
+            )",
+            "challenge_players" => "CREATE TABLE challenge_players (
+                id $pk,
+                challenge_id INT NOT NULL,
+                user_id      INT NOT NULL,                     -- właściciel (konto główne)
+                shadow_user_id INT NULL,                       -- subkonto wyzwania (tworzone na starcie)
+                buyin $money NOT NULL,
+                fee   $money NOT NULL,
+                final_equity $money NULL,
+                final_rank INT NULL,
+                prize $money NOT NULL DEFAULT 0,
+                joined_at VARCHAR(19) NOT NULL,
+                UNIQUE (challenge_id, user_id)
+            )",
+
             // --- DZIENNIK LOGÓW (dane do analizy błędów; pisany przez QA, silnik i akcje graczy) ---
             "logs" => "CREATE TABLE logs (
                 id $pk,
@@ -289,6 +316,9 @@ final class Schema
             "CREATE INDEX ix_ach_user ON achievements (user_id)",
             "CREATE INDEX ix_tx_buyer ON transactions (buyer_id)",
             "CREATE INDEX ix_tx_seller ON transactions (seller_id)",
+            "CREATE INDEX ix_chp_ch ON challenge_players (challenge_id)",
+            "CREATE INDEX ix_chp_user ON challenge_players (user_id)",
+            "CREATE INDEX ix_chp_shadow ON challenge_players (shadow_user_id)",
         ];
     }
 }

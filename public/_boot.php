@@ -5,6 +5,7 @@ require_once __DIR__ . '/../src/Schema.php';
 require_once __DIR__ . '/../src/Migrator.php';
 require_once __DIR__ . '/../src/Engine.php';
 require_once __DIR__ . '/../src/Log.php';
+require_once __DIR__ . '/../src/Challenges.php';
 
 session_set_cookie_params(['samesite' => 'Lax', 'httponly' => true]);
 session_start();
@@ -48,10 +49,37 @@ function require_login(): array {
     return $u;
 }
 
+/**
+ * Konto, którym gracz AKTUALNIE handluje: główne albo subkonto trwającego
+ * wyzwania (przełącznik na stronie Wyzwania). Strony transakcyjne
+ * (zlecenia, portfel) używają tego zamiast require_login().
+ */
+function acting_user(array $u): array {
+    if (($u['role'] ?? '') !== 'player' || empty($_SESSION['ctx_challenge'])) return $u;
+    $row = Engine::row(
+        "SELECT su.id, su.username, su.role, su.cash, su.cash_reserved, c.name AS ch_name, c.id AS ch_id, c.end_session AS ch_end
+         FROM challenge_players cp
+         JOIN challenges c ON c.id = cp.challenge_id AND c.status = 'running'
+         JOIN users su ON su.id = cp.shadow_user_id
+         WHERE cp.user_id = ?", [$u['id']]);
+    if (!$row) { unset($_SESSION['ctx_challenge']); return $u; }
+    $row['ctx'] = 'challenge';
+    $row['owner_id'] = (int) $u['id'];
+    $row['owner_name'] = $u['username'];
+    return $row;
+}
+
 function layout_header(string $title, ?array $user, string $active = ''): void {
     $flash = $_SESSION['flash'] ?? null; unset($_SESSION['flash']);
     $isAdmin = $user && ($user['role'] ?? '') === 'admin';
     $act = fn($k) => $active === $k ? ' active' : '';
+    // kontekst wyzwania: strona mogła podać już konto-cień (acting_user) albo zwykłe konto gracza
+    $actg = null;
+    if ($user && ($user['ctx'] ?? '') === 'challenge') $actg = $user;
+    elseif ($user && ($user['role'] ?? '') === 'player' && !empty($_SESSION['ctx_challenge'])) {
+        $tmp = acting_user($user);
+        if (($tmp['ctx'] ?? '') === 'challenge') $actg = $tmp;
+    }
     echo "<!doctype html><html lang='pl'><head><meta charset='utf-8'>";
     echo "<meta name='viewport' content='width=device-width,initial-scale=1'>";
     // motyw PRZED stylami (bez mignięcia): zapamiętany wybór gracza, domyślnie jasny
@@ -62,17 +90,24 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
     echo "<title>" . h($title) . " · GPW-gra</title><link rel='stylesheet' href='assets/app.css'></head><body>";
     echo "<header class='topbar'><a class='brand' href='market.php'><span class='mk'>G</span>GPW<span>-gra</span></a><nav>";
     if ($user) {
-        $unread = (int) Engine::one("SELECT COUNT(*) FROM notifications WHERE user_id=? AND read_at IS NULL", [$user['id']]);
+        $bellId = $actg ? (int) $actg['owner_id'] : (int) $user['id'];
+        $unread = (int) Engine::one("SELECT COUNT(*) FROM notifications WHERE user_id=? AND read_at IS NULL", [$bellId]);
         echo "<a class='" . trim($act('market')) . "' href='market.php'>Rynek</a>";
         echo "<a class='" . trim($act('ranking')) . "' href='ranking.php'>Ranking</a>";
+        echo "<a class='" . trim($act('challenges')) . "' href='wyzwania.php'>Wyzwania</a>";
         echo "<a class='" . trim($act('portfolio')) . "' href='portfolio.php'>Portfel</a>";
         echo "<a class='" . trim($act('news')) . "' href='wiadomosci.php'>Newsy</a>";
         echo "<a class='" . trim($act('help')) . "' href='pomoc.php'>Pomoc</a>";
         if ($isAdmin) echo "<a class='gm" . $act('gm') . "' href='gm.php'>GM</a>";
         echo "<a class='bell" . $act('notif') . "' href='powiadomienia.php' title='Powiadomienia'>🔔<b class='bell-n" . ($unread > 0 ? '' : ' off') . "' data-bell>" . $unread . "</b></a>";
         echo "<a class='thm' href='#' onclick='return themeToggle()' title='Przełącz motyw jasny/ciemny'>◐</a>";
-        echo "<span class='bal'><b>" . money($user['cash']) . " PLN</b><small>zamrożone +" . money($user['cash_reserved']) . "</small></span>";
-        echo "<a class='hide-sm' href='logout.php' style='color:var(--faint)'>" . h($user['username']) . " ⏻</a>";
+        if ($actg) {
+            echo "<span class='bal'><b>" . money($actg['cash']) . " PLN</b><small>⚔️ portfel wyzwania</small></span>";
+            echo "<a class='hide-sm' href='logout.php' style='color:var(--faint)'>" . h($actg['owner_name']) . " ⏻</a>";
+        } else {
+            echo "<span class='bal'><b>" . money($user['cash']) . " PLN</b><small>zamrożone +" . money($user['cash_reserved']) . "</small></span>";
+            echo "<a class='hide-sm' href='logout.php' style='color:var(--faint)'>" . h($user['username']) . " ⏻</a>";
+        }
     }
     echo "</nav></header>";
     if ($user) {
@@ -83,12 +118,20 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
         echo "<nav class='bottomnav'>";
         echo "<a class='" . trim($act('market')) . "' href='market.php'><span class='ic'>▤</span>Rynek</a>";
         echo "<a class='" . trim($act('ranking')) . "' href='ranking.php'><span class='ic'>🏆</span>Ranking</a>";
+        echo "<a class='" . trim($act('challenges')) . "' href='wyzwania.php'><span class='ic'>⚔️</span>Wyzwania</a>";
         echo "<a class='" . trim($act('portfolio')) . "' href='portfolio.php'><span class='ic'>◈</span>Portfel</a>";
         echo "<a class='" . trim($act('news')) . "' href='wiadomosci.php'><span class='ic'>📰</span>Newsy</a>";
         echo "<a class='" . trim($act('help')) . "' href='pomoc.php'><span class='ic'>❓</span>Pomoc</a>";
         if ($isAdmin) echo "<a class='" . trim($act('gm')) . "' href='gm.php'><span class='ic'>⚙</span>GM</a>";
         echo "<a href='logout.php'><span class='ic'>⏻</span>Wyjście</a>";
         echo "</nav>";
+    }
+    // baner kontekstu: gracz handluje teraz portfelem wyzwania (widoczny na każdej stronie)
+    if ($actg) {
+        echo "<div class='ctxbar'>⚔️ Handlujesz portfelem wyzwania <b>" . h($actg['ch_name']) . "</b>"
+           . " · gotówka: <b>" . money($actg['cash']) . " PLN</b>"
+           . " · do końca sesji #" . (int) $actg['ch_end']
+           . " · <a href='wyzwania.php?ctx=0'>wróć na konto główne</a></div>";
     }
     echo "<main class='wrap'>";
     if ($flash) echo "<div class='flash " . h($flash['t']) . "'>" . h($flash['m']) . "</div>";

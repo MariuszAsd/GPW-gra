@@ -89,6 +89,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $on = ($_POST['enabled'] ?? '1') === '1';
         Engine::setState('events_enabled', $on ? '1' : '0');
         flash($on ? 'Losowe wydarzenia WŁĄCZONE.' : 'Losowe wydarzenia wyłączone (ręczne nadal działają).');
+    } elseif ($a === 'challenge_create') {
+        if (Challenges::active()) { flash('Jest już aktywne wyzwanie — najpierw je odwołaj lub poczekaj na finał.', 'err'); redirect('gm.php'); }
+        [$sess] = Engine::sessionInfo();
+        Challenges::create([
+            'name'        => trim($_POST['ch_name'] ?? ''),
+            'buyin'       => max(1000, (float) str_replace(',', '.', $_POST['ch_buyin'] ?? '20000')),
+            'fee_pct'     => max(0, min(50, (float) str_replace(',', '.', $_POST['ch_fee'] ?? '10'))),
+            'signup_sess' => max(1, (int) ($_POST['ch_signup'] ?? 2)),
+            'duration'    => max(1, (int) ($_POST['ch_dur'] ?? 14)),
+            'min_players' => max(2, (int) ($_POST['ch_min'] ?? 3)),
+        ], $sess);
+        flash('Utworzono wyzwanie — zapisy otwarte.');
+    } elseif ($a === 'challenge_cancel') {
+        Challenges::cancel((int) $_POST['challenge_id'], 'decyzja GM');
+        flash('Wyzwanie odwołane, środki zwrócone.');
+    } elseif ($a === 'challenge_auto') {
+        Engine::setState('challenge_auto', ($_POST['enabled'] ?? '1') === '1' ? '1' : '0');
+        flash(($_POST['enabled'] ?? '1') === '1' ? 'Automatyczne edycje wyzwań WŁĄCZONE.' : 'Automatyczne edycje wyzwań wyłączone.');
     } elseif ($a === 'reset') {
         $pdo->exec("UPDATE stocks SET bias=0, volatility=1, profit_trend=0");
         $pdo->exec("UPDATE sectors SET trend=0, profit_climate=0");
@@ -135,6 +153,43 @@ layout_header('Panel GM', $user, 'gm');
     <button class="btn sm">Zapisz</button>
   </form>
   <p class="muted" style="margin-top:8px">Gracz ma osiągnąć zadany kapitał w limicie sesji od dołączenia. Sesja = dzień giełdowy (na otwarciu zapisuje się kurs odniesienia dla dziennej zmiany).</p>
+
+  <?php
+    $chActive = Challenges::active();
+    $chAutoV = Engine::one("SELECT v FROM game_state WHERE k='challenge_auto'");
+    $chAuto = ($chAutoV === false || $chAutoV === null) ? true : ((int) $chAutoV === 1);
+  ?>
+  <h2 style="margin-top:18px">⚔️ Wyzwania</h2>
+  <?php if ($chActive): ?>
+    <?php $chCnt = (int) Engine::one("SELECT COUNT(*) FROM challenge_players WHERE challenge_id=?", [$chActive['id']]); ?>
+    <p class="muted" style="margin:4px 0 8px">
+      <b><?= h($chActive['name']) ?></b> — <?= $chActive['status'] === 'signup' ? 'zapisy (start: sesja #' . (int) $chActive['start_session'] . ')' : 'trwa (do sesji #' . (int) $chActive['end_session'] . ')' ?>
+      · graczy: <?= $chCnt ?> · pula: <?= money($chActive['pot']) ?> PLN · buy-in: <?= money($chActive['buyin']) ?> PLN
+    </p>
+    <form method="post" class="inline" onsubmit="return confirm('Odwołać wyzwanie i zwrócić wszystkim środki?')">
+      <input type="hidden" name="action" value="challenge_cancel">
+      <input type="hidden" name="challenge_id" value="<?= (int) $chActive['id'] ?>">
+      <button class="btn sm ghost">Odwołaj wyzwanie (zwrot środków)</button>
+    </form>
+  <?php else: ?>
+    <form method="post" class="row" style="align-items:flex-end">
+      <input type="hidden" name="action" value="challenge_create">
+      <div><label>Nazwa <span class="muted">(puste = automatyczna)</span></label><input name="ch_name" style="width:160px"></div>
+      <div><label>Buy-in (PLN)</label><input type="number" min="1000" step="1000" name="ch_buyin" value="20000" style="width:110px"></div>
+      <div><label>Wpisowe (%)</label><input type="number" min="0" max="50" step="1" name="ch_fee" value="10" style="width:90px"></div>
+      <div><label>Zapisy (sesje)</label><input type="number" min="1" name="ch_signup" value="2" style="width:90px"></div>
+      <div><label>Czas trwania (sesje)</label><input type="number" min="1" name="ch_dur" value="14" style="width:90px"></div>
+      <div><label>Min. graczy</label><input type="number" min="2" name="ch_min" value="3" style="width:80px"></div>
+      <button class="btn sm">Utwórz wyzwanie</button>
+    </form>
+  <?php endif; ?>
+  <form method="post" class="inline" style="margin-top:8px">
+    <input type="hidden" name="action" value="challenge_auto">
+    <input type="hidden" name="enabled" value="<?= $chAuto ? '0' : '1' ?>">
+    <button class="btn sm <?= $chAuto ? '' : 'ghost' ?>"><?= $chAuto ? 'Auto-edycje: WŁĄCZONE (kliknij, by wyłączyć)' : 'Auto-edycje: wyłączone (kliknij, by włączyć)' ?></button>
+  </form>
+  <p class="muted" style="margin-top:6px">Auto-edycje: gdy nie ma aktywnego wyzwania, silnik sam otwiera zapisy na kolejną edycję (domyślne parametry) na granicy sesji.</p>
+
   <h2 style="margin-top:18px">Rejestracja (graczy: <?= $playerCount ?>)</h2>
   <form method="post" class="row" style="align-items:flex-end">
     <input type="hidden" name="action" value="invite">

@@ -1,6 +1,6 @@
 <?php
 require __DIR__ . '/_boot.php';
-$user = require_login();
+$user = acting_user(require_login());
 
 $id = (int) ($_GET['id'] ?? 0);
 $s = Engine::row("SELECT s.*, sec.name AS sector FROM stocks s JOIN sectors sec ON sec.id=s.sector_id WHERE s.id=?", [$id]);

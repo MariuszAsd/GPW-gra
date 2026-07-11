@@ -1,6 +1,6 @@
 <?php
 require __DIR__ . '/_boot.php';
-$user = require_login();
+$user = acting_user(require_login());
 
 $pos = Engine::all("SELECT w.stock_id, s.ticker, s.name, s.price, w.qty, w.qty_reserved, w.avg_price
                     FROM wallets w JOIN stocks s ON s.id=w.stock_id
@@ -80,7 +80,7 @@ layout_header('Portfel', $user, 'portfolio');
 ?>
 <div class="page-head"><h1>Portfel</h1><span class="tag" style="color:var(--accent);border-color:var(--accent)">Sesja #<?= $sessionNo ?></span></div>
 
-<?php if ($goalTarget > 0): ?>
+<?php if ($goalTarget > 0 && ($user['ctx'] ?? '') !== 'challenge'): // w portfelu wyzwania cel gry nie obowiązuje ?>
 <div class="panel goal <?= $me['goal_session'] !== null ? 'won' : ($sessionsLeft < 0 ? 'lost' : '') ?>">
   <div class="goal-row">
     <div>

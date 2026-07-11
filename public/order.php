@@ -5,7 +5,10 @@ $user = require_login();
 
 $oid = (int) ($_GET['id'] ?? 0);
 $o = Engine::row("SELECT o.*, s.ticker, s.name, s.price AS cur_price FROM orders o JOIN stocks s ON s.id=o.stock_id WHERE o.id=?", [$oid]);
-if (!$o || ((int) $o['user_id'] !== (int) $user['id'] && ($user['role'] ?? '') !== 'admin')) {
+// dostęp: właściciel zlecenia, admin — albo właściciel subkonta wyzwania, z którego zlecenie poszło
+$mine = [(int) $user['id']];
+foreach (Engine::col("SELECT shadow_user_id FROM challenge_players WHERE user_id=? AND shadow_user_id IS NOT NULL", [$user['id']]) as $sid) $mine[] = (int) $sid;
+if (!$o || (!in_array((int) $o['user_id'], $mine, true) && ($user['role'] ?? '') !== 'admin')) {
     flash('Nie znaleziono takiego zlecenia.', 'err');
     redirect('portfolio.php');
 }

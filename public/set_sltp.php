@@ -1,6 +1,6 @@
 <?php
 require __DIR__ . '/_boot.php';
-$user = require_login();
+$user = acting_user(require_login());
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') redirect('portfolio.php');
 
 $sid = (int) ($_POST['stock_id'] ?? 0);
