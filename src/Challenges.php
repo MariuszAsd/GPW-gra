@@ -23,24 +23,30 @@ final class Challenges
         'min_players' => 3,
     ];
 
-    /** Podział puli zależny od liczby uczestników: [udziały % dla kolejnych miejsc]. */
+    /**
+     * Podział puli SKALUJE SIĘ z liczbą uczestników: nagradzane top ~20% miejsc
+     * (min. 1), udziały maleją geometrycznie — im wyższe miejsce, tym większy
+     * kawałek puli. 10 graczy => 2 płatne miejsca, 10 000 => 2 000.
+     * Zwraca [udział % miejsca 1., 2., ...] (suma = 100).
+     */
     public static function payoutSplit(int $players): array
     {
-        if ($players >= 12) return [50, 30, 20];
-        if ($players >= 6)  return [60, 40];
-        return [100];
+        $places = max(1, (int) round($players * 0.2));
+        $w = []; $sum = 0.0;
+        for ($i = 0; $i < $places; $i++) { $w[$i] = 0.7 ** $i; $sum += $w[$i]; }
+        return array_map(fn($x) => $x / $sum * 100, $w);
     }
 
-    /** Aktywne (zapisy lub trwające) wyzwanie — gramy jedną edycją naraz. */
-    public static function active(): ?array
+    /** Wszystkie otwarte edycje (zapisy + trwające) — może ich być kilka naraz o różnych stawkach. */
+    public static function activeAll(): array
     {
-        return Engine::row("SELECT * FROM challenges WHERE status IN ('signup','running') ORDER BY id DESC LIMIT 1");
+        return Engine::all("SELECT * FROM challenges WHERE status IN ('signup','running') ORDER BY buyin ASC, id ASC");
     }
 
-    /** Wpis gracza w nie-zakończonym wyzwaniu (albo null). */
-    public static function entryFor(int $userId): ?array
+    /** Wpisy gracza w nie-zakończonych wyzwaniach (może grać w kilku naraz). */
+    public static function entriesFor(int $userId): array
     {
-        return Engine::row(
+        return Engine::all(
             "SELECT cp.*, c.status AS ch_status, c.name AS ch_name, c.buyin AS ch_buyin,
                     c.start_session, c.end_session
              FROM challenge_players cp JOIN challenges c ON c.id = cp.challenge_id
@@ -78,7 +84,6 @@ final class Challenges
         if ($session >= (int) $ch['start_session']) return [false, 'Zapisy właśnie się skończyły — wyzwanie startuje.'];
         $u = Engine::row("SELECT id, role, cash FROM users WHERE id=?", [$userId]);
         if (!$u || $u['role'] !== 'player') return [false, 'Tylko gracze mogą brać udział w wyzwaniach.'];
-        if (self::entryFor($userId)) return [false, 'Bierzesz już udział w wyzwaniu.'];
 
         $buyin = round((float) $ch['buyin'], 2);
         $fee   = round($buyin * (float) $ch['fee_pct'] / 100, 2);
@@ -134,10 +139,11 @@ final class Challenges
         foreach (Engine::all("SELECT * FROM challenges WHERE status='running' AND end_session < ?", [$session]) as $ch) {
             self::finish($ch, $tick);
         }
-        // automatyczna kolejna edycja (GM może wyłączyć w panelu)
+        // automatyczna kolejna edycja, gdy nie ma ŻADNEJ otwartej (GM może wyłączyć w panelu;
+        // ręcznie utworzone edycje o innych stawkach żyją równolegle i wstrzymują automat)
         $auto = Engine::one("SELECT v FROM game_state WHERE k='challenge_auto'");
         $autoOn = ($auto === false || $auto === null) ? true : ((int) $auto === 1);
-        if ($autoOn && !self::active()) self::create(null, $session);
+        if ($autoOn && !self::activeAll()) self::create(null, $session);
     }
 
     /** Start: subkonto (użytkownik-cień) z buy-inem dla każdego uczestnika. */

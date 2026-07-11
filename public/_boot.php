@@ -61,7 +61,7 @@ function acting_user(array $u): array {
          FROM challenge_players cp
          JOIN challenges c ON c.id = cp.challenge_id AND c.status = 'running'
          JOIN users su ON su.id = cp.shadow_user_id
-         WHERE cp.user_id = ?", [$u['id']]);
+         WHERE cp.user_id = ? AND cp.challenge_id = ?", [$u['id'], (int) $_SESSION['ctx_challenge']]);
     if (!$row) { unset($_SESSION['ctx_challenge']); return $u; }
     $row['ctx'] = 'challenge';
     $row['owner_id'] = (int) $u['id'];

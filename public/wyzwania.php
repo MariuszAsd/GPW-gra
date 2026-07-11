@@ -3,11 +3,17 @@ require __DIR__ . '/_boot.php';
 $user = require_login();
 [$session] = Engine::sessionInfo();
 
-// przełącznik konta: ?ctx=1 -> portfel wyzwania, ?ctx=0 -> konto główne
+// przełącznik konta: ?ctx=<id wyzwania> -> portfel tego wyzwania, ?ctx=0 -> konto główne
 if (isset($_GET['ctx'])) {
-    if ($_GET['ctx'] === '1') { $_SESSION['ctx_challenge'] = 1; flash('Handlujesz teraz portfelem wyzwania. Powodzenia! ⚔️'); redirect('portfolio.php'); }
-    unset($_SESSION['ctx_challenge']);
-    flash('Wróciłeś na konto główne.');
+    $cid = (int) $_GET['ctx'];
+    if ($cid > 0) {
+        $_SESSION['ctx_challenge'] = $cid;
+        if ((acting_user($user)['ctx'] ?? '') === 'challenge') { flash('Handlujesz teraz portfelem wyzwania. Powodzenia! ⚔️'); redirect('portfolio.php'); }
+        flash('Nie grasz w tym wyzwaniu albo jeszcze nie wystartowało.', 'err');
+    } else {
+        unset($_SESSION['ctx_challenge']);
+        flash('Wróciłeś na konto główne.');
+    }
     redirect('wyzwania.php');
 }
 
@@ -18,21 +24,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['join'])) {
     redirect('wyzwania.php');
 }
 
-$active = Challenges::active();
-$myEntry = Challenges::entryFor((int) $user['id']);
+$all = Challenges::activeAll();
+$signup  = array_values(array_filter($all, fn($c) => $c['status'] === 'signup'));
+$running = array_values(array_filter($all, fn($c) => $c['status'] === 'running'));
+$myIds = array_map(fn($e) => (int) $e['challenge_id'], Challenges::entriesFor((int) $user['id']));
 $finished = Engine::all("SELECT * FROM challenges WHERE status='finished' ORDER BY id DESC LIMIT 5");
+$inCtx = (int) ($_SESSION['ctx_challenge'] ?? 0);
+
+/** krótki opis podziału puli dla N graczy: płatne miejsca + pierwsze udziały */
+function split_label(int $n): string {
+    $split = Challenges::payoutSplit($n);
+    $p = count($split);
+    $top = array_slice($split, 0, 3);
+    $s = implode(' / ', array_map(fn($x) => number_format($x, $x >= 10 ? 0 : 1, ',', ' ') . '%', $top));
+    return "płatne miejsca: $p (top ~20% graczy) · udziały: $s" . ($p > 3 ? ' / …' : '');
+}
 
 layout_header('Wyzwania', $user, 'challenges');
 ?>
 <h1 style="display:flex;align-items:center;gap:10px">Wyzwania
-  <?= tip('Konkurs inwestycyjny na kilkanaście sesji. Wpłacasz buy-in + wpisowe; buy-in trafia na ODDZIELNY portfel wyzwania, którym handlujesz jak zwykłym kontem. Wpisowe wszystkich graczy tworzy pulę nagród — po ostatniej sesji dzielą ją najlepsi. Twoje konto główne przez ten czas gra normalnie dalej.', 'wyzwania') ?>
+  <?= tip('Konkurs inwestycyjny na kilkanaście sesji. Wpłacasz buy-in + wpisowe; buy-in trafia na ODDZIELNY portfel wyzwania, którym handlujesz jak zwykłym kontem. Wpisowe wszystkich graczy tworzy pulę nagród — dzieli ją top ~20% uczestników (im wyższe miejsce, tym większy udział). Może być kilka wyzwań naraz o różnych stawkach — zapisujesz się tam, gdzie chcesz. Twoje konto główne przez ten czas gra normalnie dalej.', 'wyzwania') ?>
 </h1>
 
-<?php if ($active && $active['status'] === 'signup'): ?>
+<?php if (!$signup && !$running): ?>
+  <section class="panel" style="margin-bottom:16px">
+    <h2>Brak otwartych wyzwań</h2>
+    <p class="muted">Nowa edycja wystartuje automatycznie — dostaniesz powiadomienie 🔔, gdy ruszą zapisy.</p>
+  </section>
+<?php endif; ?>
+
+<?php foreach ($signup as $active): ?>
   <?php
     $fee = round((float) $active['buyin'] * (float) $active['fee_pct'] / 100, 2);
-    $entrants = Engine::all("SELECT cp.joined_at, u.username, u.id AS uid FROM challenge_players cp JOIN users u ON u.id=cp.user_id WHERE cp.challenge_id=? ORDER BY cp.id", [$active['id']]);
-    $iAmIn = $myEntry && (int) $myEntry['challenge_id'] === (int) $active['id'];
+    $entrants = Engine::all("SELECT u.username, u.id AS uid FROM challenge_players cp JOIN users u ON u.id=cp.user_id WHERE cp.challenge_id=? ORDER BY cp.id", [$active['id']]);
+    $iAmIn = in_array((int) $active['id'], $myIds, true);
   ?>
   <section class="panel" style="margin-bottom:16px">
     <h2>⚔️ <?= h($active['name']) ?> — zapisy trwają!</h2>
@@ -46,8 +71,8 @@ layout_header('Wyzwania', $user, 'challenges');
     <p class="muted" style="margin:10px 0">
       Jak to działa: z Twojego konta schodzi <b><?= money((float) $active['buyin'] + $fee) ?> PLN</b>.
       Buy-in wraca po wyzwaniu w takiej formie, w jakiej go doprowadzisz (gotówka + akcje po kursie).
-      Wpisowe zbiera się w puli — dzielą ją najlepsi (do 5 graczy: zwycięzca bierze wszystko,
-      6–11: podział 60/40, od 12: 50/30/20). Wygrywa najwyższy kapitał końcowy portfela wyzwania.
+      Wpisowe zbiera się w puli — dzieli ją czołówka: <b><?= split_label(max(count($entrants), (int) $active['min_players'])) ?></b>
+      (podział przelicza się z liczbą zapisanych). Wygrywa najwyższy kapitał końcowy portfela wyzwania.
     </p>
     <?php if ($iAmIn): ?>
       <p class="flash ok" style="margin:0">✅ Jesteś zapisany. Start: sesja #<?= (int) $active['start_session'] ?> — dostaniesz powiadomienie.</p>
@@ -62,20 +87,21 @@ layout_header('Wyzwania', $user, 'challenges');
       </p>
     <?php endif; ?>
   </section>
-<?php elseif ($active && $active['status'] === 'running'): ?>
+<?php endforeach; ?>
+
+<?php foreach ($running as $active): ?>
   <?php
     $board = Challenges::leaderboard((int) $active['id']);
-    $iAmIn = $myEntry && (int) $myEntry['challenge_id'] === (int) $active['id'];
-    $inCtx = !empty($_SESSION['ctx_challenge']);
+    $iAmIn = in_array((int) $active['id'], $myIds, true);
   ?>
   <section class="panel" style="margin-bottom:16px">
     <h2>⚔️ <?= h($active['name']) ?> — trwa (do końca sesji #<?= (int) $active['end_session'] ?>, teraz #<?= $session ?>)</h2>
     <p class="muted" style="margin:6px 0 12px">Pula nagród: <b class="up"><?= money($active['pot']) ?> PLN</b> ·
-      podział: <?= implode('/', Challenges::payoutSplit(count($board))) ?><?= count($board) <= 5 ? ' (zwycięzca bierze wszystko)' : '' ?> ·
+      <?= split_label(count($board)) ?> ·
       wynik = kapitał portfela wyzwania (gotówka + akcje po bieżącym kursie).</p>
-    <?php if ($iAmIn && !$inCtx): ?>
-      <p><a class="btn" href="wyzwania.php?ctx=1">⚔️ Przełącz na portfel wyzwania</a></p>
-    <?php elseif ($iAmIn && $inCtx): ?>
+    <?php if ($iAmIn && $inCtx !== (int) $active['id']): ?>
+      <p><a class="btn" href="wyzwania.php?ctx=<?= (int) $active['id'] ?>">⚔️ Przełącz na portfel tego wyzwania</a></p>
+    <?php elseif ($iAmIn && $inCtx === (int) $active['id']): ?>
       <p><a class="btn ghost" href="wyzwania.php?ctx=0">Wróć na konto główne</a></p>
     <?php endif; ?>
     <table>
@@ -92,19 +118,14 @@ layout_header('Wyzwania', $user, 'challenges');
       </tbody>
     </table>
   </section>
-<?php else: ?>
-  <section class="panel" style="margin-bottom:16px">
-    <h2>Brak aktywnego wyzwania</h2>
-    <p class="muted">Nowa edycja wystartuje automatycznie — dostaniesz powiadomienie 🔔, gdy ruszą zapisy.</p>
-  </section>
-<?php endif; ?>
+<?php endforeach; ?>
 
 <?php if ($finished): ?>
   <section class="panel">
     <h2>🏆 Rozstrzygnięte wyzwania</h2>
     <?php foreach ($finished as $f): ?>
       <?php $res = Engine::all("SELECT cp.*, u.username FROM challenge_players cp JOIN users u ON u.id=cp.user_id WHERE cp.challenge_id=? ORDER BY cp.final_rank", [$f['id']]); ?>
-      <h3 style="margin:14px 0 6px"><?= h($f['name']) ?> <small class="muted">(sesje #<?= (int) $f['start_session'] ?>–<?= (int) $f['end_session'] ?>)</small></h3>
+      <h3 style="margin:14px 0 6px"><?= h($f['name']) ?> <small class="muted">(sesje #<?= (int) $f['start_session'] ?>–<?= (int) $f['end_session'] ?>, buy-in <?= money($f['buyin']) ?> PLN)</small></h3>
       <table>
         <thead><tr><th>#</th><th>Gracz</th><th class="num">Kapitał końcowy</th><th class="num">Wynik</th><th class="num">Nagroda</th></tr></thead>
         <tbody>
