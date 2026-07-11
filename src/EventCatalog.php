@@ -195,6 +195,142 @@ final class EventCatalog
                 'body' => 'Ekspansja zwiększy skalę biznesu, choć początkowo podniesie koszty.',
                 'effects' => [['stock', 'profit_trend', 1.5, 150], ['stock', 'volatility', 0.15, 60]],
             ],
+
+            // ===== SPÓŁKA — drobiazg fabularny (mały wpływ, wysoka częstotliwość) =====
+            'insider_kupuje' => [
+                'scope' => 'COMPANY', 'type' => 'POS', 'impact' => 0.5, 'duration' => 6, 'weight' => 10,
+                'head' => '💼 Członek zarządu [T] kupuje akcje za własne pieniądze',
+                'body' => 'Insiderzy najlepiej znają spółkę — taki zakup rynek odbiera jako sygnał zaufania.',
+                'effects' => [],
+            ],
+            'insider_sprzedaje' => [
+                'scope' => 'COMPANY', 'type' => 'NEG', 'impact' => -0.4, 'duration' => 6, 'weight' => 9,
+                'head' => '💼 Insider sprzedaje duży pakiet akcji [T]',
+                'body' => 'Sprzedaż przez osobę z wewnątrz zawsze rodzi pytania.',
+                'effects' => [],
+            ],
+            'wygrany_przetarg' => [
+                'scope' => 'COMPANY', 'type' => 'POS', 'impact' => 0.5, 'duration' => 8, 'weight' => 8,
+                'head' => '🏆 [T] wygrywa ważny przetarg',
+                'body' => 'Zamówienie poprawi wyniki w kolejnych miesiącach.',
+                'effects' => [['stock', 'profit_trend', 1.0, 100]],
+            ],
+            'pozew' => [
+                'scope' => 'COMPANY', 'type' => 'NEG', 'impact' => -0.5, 'duration' => 10, 'weight' => 6,
+                'head' => '⚖️ Pozew zbiorowy przeciwko [T]',
+                'body' => 'Koszty prawne i ryzyko odszkodowań zaciążą na wynikach.',
+                'effects' => [['stock', 'profit_trend', -0.8, 80]],
+            ],
+            'opoznienie_projektu' => [
+                'scope' => 'COMPANY', 'type' => 'NEG', 'impact' => -0.6, 'duration' => 8, 'weight' => 6,
+                'head' => '⏱️ [T] opóźnia premierę flagowego projektu',
+                'body' => 'Przychody przesuwają się w czasie, koszty zostają.',
+                'effects' => [['stock', 'profit_trend', -1.0, 80]],
+            ],
+            'awaria' => [
+                'scope' => 'COMPANY', 'type' => 'NEG', 'impact' => -0.4, 'duration' => 6, 'weight' => 7,
+                'head' => '🔧 Awaria w zakładzie [T] wstrzymuje pracę',
+                'body' => 'Przestój potrwa kilka dni — jednorazowy koszt.',
+                'effects' => [],
+            ],
+            'partnerstwo' => [
+                'scope' => 'COMPANY', 'type' => 'POS', 'impact' => 0.5, 'duration' => 8, 'weight' => 7,
+                'head' => '🤝 [T] ogłasza strategiczne partnerstwo',
+                'body' => 'Współpraca otwiera nowe kanały sprzedaży.',
+                'effects' => [],
+            ],
+            'patent' => [
+                'scope' => 'COMPANY', 'type' => 'POS', 'impact' => 0.4, 'duration' => 8, 'weight' => 6,
+                'head' => '📄 [T] uzyskuje kluczowy patent',
+                'body' => 'Ochrona technologii wzmacnia pozycję konkurencyjną.',
+                'effects' => [['stock', 'profit_trend', 0.8, 100]],
+            ],
+            'restrukturyzacja' => [
+                'scope' => 'COMPANY', 'type' => 'POS', 'impact' => 0.4, 'duration' => 8, 'weight' => 5,
+                'head' => '✂️ [T] tnie koszty — plan restrukturyzacji',
+                'body' => 'Bolesne, ale marże powinny się poprawić.',
+                'effects' => [['stock', 'profit_trend', 1.2, 100], ['stock', 'volatility', 0.1, 40]],
+            ],
+            'strajk' => [
+                'scope' => 'COMPANY', 'type' => 'NEG', 'impact' => -0.5, 'duration' => 8, 'weight' => 4,
+                'head' => '✊ Strajk załogi w [T]',
+                'body' => 'Negocjacje płacowe trwają, produkcja stoi.',
+                'effects' => [['stock', 'profit_trend', -1.0, 60]],
+            ],
+            'viral_kampania' => [
+                'scope' => 'COMPANY', 'type' => 'POS', 'impact' => 0.35, 'duration' => 6, 'weight' => 6,
+                'head' => '📣 Kampania [T] podbija internet',
+                'body' => 'Marka zyskuje rozgłos — sprzedaż powinna drgnąć.',
+                'effects' => [],
+            ],
+            'wyciek_danych' => [
+                'scope' => 'COMPANY', 'type' => 'NEG', 'impact' => -0.5, 'duration' => 8, 'weight' => 5,
+                'head' => '🔓 Wyciek danych klientów [T]',
+                'body' => 'Kary i utrata zaufania mogą kosztować.',
+                'effects' => [],
+            ],
+            'dotacja' => [
+                'scope' => 'COMPANY', 'type' => 'POS', 'impact' => 0.4, 'duration' => 8, 'weight' => 6,
+                'head' => '💶 [T] otrzymuje dotację na rozwój',
+                'body' => 'Zewnętrzne finansowanie przyspieszy inwestycje.',
+                'effects' => [],
+            ],
+            'gra_na_spadki' => [
+                'scope' => 'COMPANY', 'type' => 'NEG', 'impact' => -0.5, 'duration' => 8, 'weight' => 4,
+                'head' => '🐻 Fundusz gra na spadki [T]',
+                'body' => 'Znany fundusz ujawnił krótką pozycję — rynek nerwowo reaguje.',
+                'effects' => [['stock', 'volatility', 0.2, 40]],
+            ],
+            'podwyzka_prognoz' => [
+                'scope' => 'COMPANY', 'type' => 'POS', 'impact' => 0.6, 'duration' => 8, 'weight' => 5,
+                'head' => '📊 [T] podnosi prognozy roczne',
+                'body' => 'Zarząd widzi lepszą koniunkturę, niż zakładał.',
+                'effects' => [['stock', 'profit_trend', 1.5, 100]],
+            ],
+            'obnizka_prognoz' => [
+                'scope' => 'COMPANY', 'type' => 'NEG', 'impact' => -0.6, 'duration' => 8, 'weight' => 5,
+                'head' => '📊 [T] obniża prognozy roczne',
+                'body' => 'Zarząd studzi oczekiwania co do wyników.',
+                'effects' => [['stock', 'profit_trend', -1.5, 100]],
+            ],
+
+            // ===== SEKTOR — drobiazg branżowy (mały wpływ) =====
+            'targi_branzowe' => [
+                'scope' => 'SECTOR', 'type' => 'POS', 'impact' => 0.3, 'duration' => 8, 'weight' => 7,
+                'head' => '🎪 Udane targi branży [T] — pełne portfele zamówień',
+                'body' => 'Firmy z sektora wracają z targów z kontraktami.',
+                'effects' => [],
+            ],
+            'raport_branzowy_pos' => [
+                'scope' => 'SECTOR', 'type' => 'POS', 'impact' => 0.4, 'duration' => 10, 'weight' => 6,
+                'head' => '📈 Raport analityków: przed branżą [T] dobre lata',
+                'body' => 'Prognozy długoterminowe dla sektora w górę.',
+                'effects' => [['sector', 'profit_climate', 0.8, 80]],
+            ],
+            'raport_branzowy_neg' => [
+                'scope' => 'SECTOR', 'type' => 'NEG', 'impact' => -0.4, 'duration' => 10, 'weight' => 6,
+                'head' => '📉 Raport analityków: branża [T] wytraca tempo',
+                'body' => 'Prognozy długoterminowe dla sektora w dół.',
+                'effects' => [['sector', 'profit_climate', -0.8, 80]],
+            ],
+            'niedobor_kadr' => [
+                'scope' => 'SECTOR', 'type' => 'NEG', 'impact' => -0.3, 'duration' => 10, 'weight' => 5,
+                'head' => '👷 W branży [T] brakuje rąk do pracy',
+                'body' => 'Rosnące płace podniosą koszty całego sektora.',
+                'effects' => [['sector', 'profit_climate', -0.6, 80]],
+            ],
+            'tansze_surowce' => [
+                'scope' => 'SECTOR', 'type' => 'POS', 'impact' => 0.35, 'duration' => 10, 'weight' => 5,
+                'head' => '📦 Tanieją surowce kluczowe dla branży [T]',
+                'body' => 'Niższe koszty produkcji poprawią marże sektora.',
+                'effects' => [['sector', 'profit_climate', 0.8, 80]],
+            ],
+            'konsolidacja_branzy' => [
+                'scope' => 'SECTOR', 'type' => 'POS', 'impact' => 0.4, 'duration' => 10, 'weight' => 4,
+                'head' => '🔗 Fala fuzji w branży [T] — rynek wyczekuje przejęć',
+                'body' => 'Konsolidacja zwykle oznacza premie za przejmowane spółki.',
+                'effects' => [['sector', 'volatility', 0.15, 50]],
+            ],
         ];
     }
 

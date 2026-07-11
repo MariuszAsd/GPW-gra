@@ -316,9 +316,9 @@ final class Engine
 
                 if ($strat === 'mm') {
                     // animator: kwotuje wokół 0.7*fundament + 0.3*kurs; spread maleje z płynnością spółki
-                    $base = (0.7 * $st['fundamental'] + 0.3 * $price) * (1 + mt_rand(-40, 40) / 10000);
-                    foreach ([[0.010, 60], [0.022, 40], [0.038, 25]] as [$sp, $qy]) {
-                        $spread = $sp / $liq;
+                    $base = (0.7 * $st['fundamental'] + 0.3 * $price) * (1 + mt_rand(-15, 15) / 10000);
+                    foreach ([[0.008, 60], [0.016, 40], [0.028, 25]] as [$sp, $qy]) {
+                        $spread = $sp / max(0.85, $liq);   // podłoga: niepłynne są chropowate, ale bez przesady
                         $q = max(5, (int) round($qy * $act));
                         self::place($uid, $sid, 'buy',  $q, round($base * (1 - $spread), 2));
                         self::place($uid, $sid, 'sell', $q, round($base * (1 + $spread), 2));
@@ -362,9 +362,9 @@ final class Engine
                         }
                         continue;
                     }
-                    $q = max(1, (int) round(30 * $react * $act * min(3, abs($news) * 4)));
-                    if ($news > 0 && $have < 600)  self::place($uid, $sid, 'buy',  $q, round($price * 1.025, 2));
-                    elseif ($news < 0 && $have > 0) self::place($uid, $sid, 'sell', min($q * 2, $have), round($price * 0.975, 2));
+                    $q = max(1, (int) round(18 * $react * $act * min(2, abs($news) * 2.5)));
+                    if ($news > 0 && $have < 600)  self::place($uid, $sid, 'buy',  $q, round($price * 1.012, 2));
+                    elseif ($news < 0 && $have > 0) self::place($uid, $sid, 'sell', min($q * 2, $have), round($price * 0.988, 2));
                 }
             }
         }
@@ -474,8 +474,8 @@ final class Engine
             $evClimate = self::modVal($mods, 'sector', (int) $s['sector_id'], 'profit_climate');
             $trend_m  = ((float) $s['profit_trend'] + $evTrend + (float) $s['sector_climate'] + $evClimate + (float) $s['growth_potential'] * $per) / 100.0;
             $expected = $prev * (1 + $trend_m);
-            // faktyczny wynik = oczekiwany × niespodzianka (szum × agresywność)
-            $noise    = (mt_rand(-12, 12) / 100.0) * max(0.2, (float) $s['aggressiveness']);
+            // faktyczny wynik = oczekiwany × niespodzianka (szum × agresywność, z sufitem)
+            $noise    = (mt_rand(-10, 10) / 100.0) * max(0.2, min(1.4, (float) $s['aggressiveness']));
             $profit   = round(max(0, $expected * (1 + $noise)), 2);
             $eps      = round($profit * 12.0 / $shares, 4);
             $surprise = $expected != 0.0 ? ($profit - $expected) / abs($expected) * 100.0 : 0.0;
@@ -485,7 +485,9 @@ final class Engine
             $cur   = (float) $s['fundamental'];
             $delta = $fair - $cur;
             if ($delta < 0) $delta = $delta / max(0.5, (float) $s['financial_resilience']);  // odporne spadają mniej
-            $pull  = min(1.0, 0.5 * (float) $s['news_impact']);
+            // reakcja ROZŁOŻONA w czasie: mały skok od razu, resztę dociąga kotwica wyceny
+            // (0.6%/tick w runTick) — koniec z teleportacją kursu o kilkanaście % w jednej świecy
+            $pull  = min(0.35, 0.25 * (float) $s['news_impact']);
             $newFund = max(1, round($cur + $delta * $pull, 2));
 
             $pdo->prepare("UPDATE stocks SET fundamental=?, last_profit=?, last_eps=?, next_report_tick=next_report_tick+? WHERE id=?")
@@ -581,14 +583,14 @@ final class Engine
 
         // ESPI/newsy spółek — częstotliwość zależna od news_frequency spółki
         foreach (self::all("SELECT s.id, s.ticker, s.news_frequency, sec.news_sensitivity FROM stocks s JOIN sectors sec ON sec.id = s.sector_id") as $s) {
-            if (mt_rand(1, 1000) <= (int) round(20 * (float) $s['news_frequency'])) {
+            if (mt_rand(1, 1000) <= (int) round(7 * (float) $s['news_frequency'])) {   // wyciszone: glowna dramaturgia idzie przez EventCatalog
                 $tpl = self::pickTemplate($companyTpl);
                 if ($tpl) self::emitNews($tick, $tpl, 'COMPANY', (int) $s['id'], $s['ticker'], (float) $s['news_sensitivity']);
             }
         }
         // newsy sektorowe — rzadziej
         foreach (self::all("SELECT id, name, news_sensitivity FROM sectors") as $sec) {
-            if (mt_rand(1, 1000) <= 8) {
+            if (mt_rand(1, 1000) <= 4) {
                 $tpl = self::pickTemplate($sectorTpl);
                 if ($tpl) self::emitNews($tick, $tpl, 'SECTOR', (int) $sec['id'], $sec['name'], (float) $sec['news_sensitivity']);
             }
@@ -751,23 +753,30 @@ final class Engine
         $market = (float) (self::one("SELECT v FROM game_state WHERE k='sentiment'") ?: 0)
                 + self::modVal($mods, 'market', null, 'sentiment');
         $stocks = self::all("SELECT s.id, s.sector_id, s.fundamental, s.bias, s.beta, s.volatility, s.growth_potential,
+                                    s.pe_target, s.last_eps,
                                     sec.trend AS sector_trend, sec.market_beta AS sector_beta,
                                     sec.volatility AS sector_vol, sec.growth AS sector_growth
                              FROM stocks s JOIN sectors sec ON sec.id = s.sector_id");
         foreach ($stocks as $st) {
             $sid = (int) $st['id']; $secId = (int) $st['sector_id'];
-            $vol = max(0.1, (float) $st['volatility'] + self::modVal($mods, 'stock', $sid, 'volatility'))
-                 * max(0.1, (float) $st['sector_vol'] + self::modVal($mods, 'sector', $secId, 'volatility')
-                          + self::modVal($mods, 'market', null, 'volatility'));
+            // zmienność: DNA spółki ma już w sobie profil branży (seed), więc sektor wchodzi
+            // tylko pierwiastkiem (bez podwójnego liczenia) + twardy sufit — koniec z mnożnikiem x6
+            $vol = min(2.2, max(0.1, (float) $st['volatility'] + self::modVal($mods, 'stock', $sid, 'volatility'))
+                 * sqrt(max(0.1, (float) $st['sector_vol'] + self::modVal($mods, 'sector', $secId, 'volatility')
+                          + self::modVal($mods, 'market', null, 'volatility'))));
             // uwaga: growth idzie teraz kanałem raportów (zyski -> wycena), nie w ciągłym dryfie
             $drift = ( $market * (float) $st['beta']
                      + ((float) $st['sector_trend'] + self::modVal($mods, 'sector', $secId, 'trend')) * (float) $st['sector_beta']
                      + (float) $st['bias'] ) / 100.0;
-            // kalibracja: szum tła niski (~4-6% na sesję) — duże ruchy mają pochodzić
-            // z WYDARZEŃ (raporty, ESPI, sterowanie GM), nie z losowego tła
-            $noise = (mt_rand(-5, 5) / 1000) * $vol;
+            // kalibracja: szum tła niski — duże ruchy mają pochodzić z WYDARZEŃ;
+            // szoki rzadsze/łagodniejsze z twardym capem +-6%
+            $noise = (mt_rand(-3, 3) / 1000) * $vol;
             $f = (float) $st['fundamental'] * (1 + $drift + $noise);
-            if (mt_rand(1, 100) <= 6) $f *= 1 + (mt_rand(-50, 50) / 1000) * $vol;    // rzadkie, umiarkowane szoki
+            if (mt_rand(1, 100) <= 3) $f *= 1 + max(-0.04, min(0.04, (mt_rand(-25, 25) / 1000) * $vol));
+            // kotwica wyceny: fundament delikatnie ciazy ku wartosci z zyskow (C/Z x EPS) —
+            // tlumi wielogodzinne rozjazdy; wydarzenia (+-1-2%/tick) i tak dominuja krotkoterminowo
+            $fair = (float) $st['pe_target'] * (float) $st['last_eps'];
+            if ($fair > 1) $f += ($fair - $f) * 0.006;
             $pdo->prepare("UPDATE stocks SET fundamental=? WHERE id=?")->execute([max(1, round($f, 2)), $st['id']]);
         }
         self::generateReports($t);   // raporty miesięczne -> skok wartości fundamentalnej + news/ESPI
@@ -954,16 +963,16 @@ final class Engine
         if ($on !== false && $on !== null && (int) $on !== 1) return;   // brak klucza = włączone
 
         // duże wydarzenia rynkowe
-        $chance = max(50, (int) (self::one("SELECT v FROM game_state WHERE k='event_chance'") ?: 500));
-        $cooldown = (int) (self::one("SELECT v FROM game_state WHERE k='event_cooldown'") ?: 300);
+        $chance = max(50, (int) (self::one("SELECT v FROM game_state WHERE k='event_chance'") ?: 900));
+        $cooldown = (int) (self::one("SELECT v FROM game_state WHERE k='event_cooldown'") ?: 600);
         $last = (int) (self::one("SELECT v FROM game_state WHERE k='last_event_tick'") ?: -100000);
         if (mt_rand(1, $chance) === 1 && $tick - $last >= $cooldown) {
             $code = EventCatalog::pickRandom('MARKET');
             if ($code) { self::triggerEvent($code, null, null, 'los'); return; }
         }
         // mniejsze wydarzenia (sektor/spółka) — częstsze, własny krótszy cooldown
-        $mChance = max(20, (int) (self::one("SELECT v FROM game_state WHERE k='minor_event_chance'") ?: 150));
-        $mCooldown = (int) (self::one("SELECT v FROM game_state WHERE k='minor_event_cooldown'") ?: 45);
+        $mChance = max(20, (int) (self::one("SELECT v FROM game_state WHERE k='minor_event_chance'") ?: 70));
+        $mCooldown = (int) (self::one("SELECT v FROM game_state WHERE k='minor_event_cooldown'") ?: 20);
         $mLast = (int) (self::one("SELECT v FROM game_state WHERE k='last_minor_event_tick'") ?: -100000);
         if (mt_rand(1, $mChance) === 1 && $tick - $mLast >= $mCooldown) {
             $code = EventCatalog::pickRandom(mt_rand(1, 100) <= 65 ? 'COMPANY' : 'SECTOR');
