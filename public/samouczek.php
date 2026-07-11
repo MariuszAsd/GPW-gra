@@ -60,7 +60,7 @@ $kroki = [
      'Każde zlecenie, transakcja, dywidenda i odznaka zapisuje się w Twoim Dzienniku. Gdy nie wiesz, „co się stało z moimi akcjami" — tu znajdziesz odpowiedź.',
      'dziennik.php', 'Otwórz Dziennik'],
     ['🪙', 'Żetony Maklera i premium',
-     'Za odznaki, podium wyzwań i progi sezonu zbierasz Żetony Maklera (możesz je też doładować). W Sklepie wymienisz je na Pakiet Analityka (skaner AT, alerty, rekomendacje DZIEŃ przed innymi), Raport Premium (pełna analiza każdej spółki) albo kosmetykę: tytuły, kolory nicka, ramki. Żetony nigdy nie kupują PLN — ranking pozostaje uczciwy.',
+     'Za odznaki, podium wyzwań i progi sezonu zbierasz Żetony Maklera (możesz je też doładować). W Sklepie wymienisz je na Pakiet Analityka (skaner AT, alerty, rekomendacje DZIEŃ przed innymi), Raport Premium (pełna analiza każdej spółki) albo kosmetykę: tytuły, kolory nicka, ramki. Graj regularnie — aktywni gracze dostają w prezencie darmowy okres próbny pełnego premium. Żetony nigdy nie kupują PLN — ranking pozostaje uczciwy.',
      'sklep.php', 'Zajrzyj do Sklepu'],
     ['❓', 'Pomoc zawsze pod ręką',
      'Znaczki ? przy polach pokazują dymki z wyjaśnieniem. Pełne infografiki (SL/TP, zlecenia, dywidendy) znajdziesz w Pomocy. Podpowiedzi nad działami możesz wyłączyć — i włączyć ponownie tutaj.',

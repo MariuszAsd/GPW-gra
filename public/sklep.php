@@ -38,7 +38,7 @@ layout_header('Sklep', $user, '');
 
 <div class="stats" style="grid-template-columns:repeat(2,1fr);max-width:560px">
   <div class="stat"><div class="k">Twoje saldo</div><div class="v" style="color:var(--gold)">🪙 <?= $balance ?></div></div>
-  <div class="stat"><div class="k">Jak zdobywać</div><div class="v" style="font-size:13px;font-weight:500;line-height:1.5;letter-spacing:0">+10 na start · +2 za odznakę<br>+10 wygrana / +5 podium wyzwania<br>+ progi sezonu (karnet w Sezonie)</div></div>
+  <div class="stat"><div class="k">Jak zdobywać</div><div class="v" style="font-size:13px;font-weight:500;line-height:1.5;letter-spacing:0">+10 na start · +2 za odznakę<br>+10 wygrana / +5 podium wyzwania<br>+ progi sezonu · 🎁 aktywni dostają<br>darmowy okres próbny premium</div></div>
 </div>
 
 <section class="panel" style="margin-bottom:16px">

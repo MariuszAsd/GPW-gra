@@ -85,6 +85,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($a === 'tempo') {
         Engine::setState('sub_rounds', (string) max(0, min(3, (int) ($_POST['sub_rounds'] ?? 2))));
         flash('Ustawiono tempo handlu.');
+    } elseif ($a === 'trial_cfg') {
+        Engine::setState('trial_enabled', ($_POST['tr_enabled'] ?? '1') === '1' ? '1' : '0');
+        Engine::setState('trial_active_days', (string) max(1, min(60, (int) ($_POST['tr_days'] ?? 5))));
+        Engine::setState('trial_min_age_days', (string) max(1, min(90, (int) ($_POST['tr_age'] ?? 7))));
+        Engine::setState('trial_sessions', (string) max(1, min(30, (int) ($_POST['tr_sessions'] ?? 2))));
+        flash('Zapisano ustawienia okresu próbnego premium.');
     } elseif ($a === 'tokens_grant') {
         $tu = Engine::row("SELECT id, username FROM users WHERE username=? AND is_bot=0", [trim($_POST['t_user'] ?? '')]);
         $tn = max(1, min(1000, (int) ($_POST['t_amount'] ?? 0)));
@@ -336,6 +342,29 @@ layout_header('Panel GM', $user, 'gm');
     <input name="t_user" placeholder="login gracza" style="width:150px">
     <input type="number" name="t_amount" min="1" max="1000" value="20" style="width:80px">
     <button class="btn sm">Przyznaj żetony</button>
+  </form>
+
+  <?php
+    $trOnV = Engine::one("SELECT v FROM game_state WHERE k='trial_enabled'");
+    $trOn = ($trOnV === false || $trOnV === null) ? true : (int) $trOnV === 1;
+    $trDays = (int) (Engine::one("SELECT v FROM game_state WHERE k='trial_active_days'") ?: 5);
+    $trAge = (int) (Engine::one("SELECT v FROM game_state WHERE k='trial_min_age_days'") ?: 7);
+    $trSess = (int) (Engine::one("SELECT v FROM game_state WHERE k='trial_sessions'") ?: 2);
+    $trGiven = (int) Engine::one("SELECT COUNT(*) FROM user_items WHERE item='trial_premium'");
+  ?>
+  <h2 style="margin-top:18px">🎁 Okres próbny premium (przyznano: <?= $trGiven ?>)</h2>
+  <p class="muted" style="margin:4px 0 8px">Aktywni gracze dostają RAZ darmowe dni pełnego premium (wszystkie pakiety) — "spróbuj zanim kupisz". Warunek: aktywność w co najmniej N różnych dniach i pierwsza aktywność co najmniej M dni temu. Silnik sprawdza raz na sesję; pomija graczy, którzy już mieli jakikolwiek pakiet.</p>
+  <form method="post" class="row" style="align-items:flex-end">
+    <input type="hidden" name="action" value="trial_cfg">
+    <div><label>Włączony</label>
+      <select name="tr_enabled" style="width:100px">
+        <option value="1" <?= $trOn ? 'selected' : '' ?>>tak</option>
+        <option value="0" <?= $trOn ? '' : 'selected' ?>>nie</option>
+      </select></div>
+    <div><label>Aktywnych dni (min)</label><input type="number" min="1" max="60" name="tr_days" value="<?= $trDays ?>" style="width:90px"></div>
+    <div><label>Wiek konta (dni, min)</label><input type="number" min="1" max="90" name="tr_age" value="<?= $trAge ?>" style="width:90px"></div>
+    <div><label>Długość trialu (sesje)</label><input type="number" min="1" max="30" name="tr_sessions" value="<?= $trSess ?>" style="width:90px"></div>
+    <button class="btn sm">Zapisz</button>
   </form>
   <?php if ($recentOrders): ?>
     <p class="muted" style="margin:12px 0 4px"><b>Ostatnie zamówienia doładowań:</b></p>

@@ -913,6 +913,11 @@ final class Engine
             if (!class_exists('Tokens')) require_once __DIR__ . '/Tokens.php';
             Recommendations::onRoll($n, $tick);
         } catch (\Throwable $e) { Log::write('error', 'engine', 'reco.roll', $e->getMessage()); }
+        // okres próbny premium: aktywni gracze dostają raz darmowe dni pełnego premium
+        try {
+            if (!class_exists('Tokens')) require_once __DIR__ . '/Tokens.php';
+            Tokens::grantTrials($n);
+        } catch (\Throwable $e) { Log::write('error', 'engine', 'trial.roll', $e->getMessage()); }
         self::setState('session_start_tick', (string) $tick);
         self::setState('session', (string) $n);
     }

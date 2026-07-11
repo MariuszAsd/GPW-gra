@@ -73,6 +73,53 @@ final class Tokens
         return (int) $until >= $session ? (int) $until : null;
     }
 
+    /**
+     * Okres próbny premium ("spróbuj zanim kupisz" — standard F2P): aktywni
+     * gracze dostają RAZ darmowe dni WSZYSTKICH pakietów. Warunki (strojone
+     * w GM): aktywność w >= trial_active_days różnych dniach kalendarzowych
+     * i pierwsza aktywność >= trial_min_age_days temu. Pomijamy graczy,
+     * którzy już mieli jakikolwiek pakiet (znają premium). Znacznik
+     * jednorazowości: user_items 'trial_premium'. Wołane raz na sesję
+     * z Engine::rollSession.
+     */
+    public static function grantTrials(int $session): void
+    {
+        $on = Engine::one("SELECT v FROM game_state WHERE k='trial_enabled'");
+        if (!(($on === false || $on === null) ? true : (int) $on === 1)) return;
+        $needDays = max(1, (int) (Engine::one("SELECT v FROM game_state WHERE k='trial_active_days'") ?: 5));
+        $minAge   = max(1, (int) (Engine::one("SELECT v FROM game_state WHERE k='trial_min_age_days'") ?: 7));
+        $sessions = max(1, (int) (Engine::one("SELECT v FROM game_state WHERE k='trial_sessions'") ?: 2));
+        $cutoff = date('Y-m-d H:i:s', time() - $minAge * 86400);
+
+        // $needDays wchodzi do SQL jako zwalidowany int (bind PDO daje tekst,
+        // a SQLite porównuje wtedy int z tekstem zawsze jako fałsz)
+        $eligible = Engine::all(
+            "SELECT u.id, u.username FROM users u
+             WHERE u.is_bot = 0 AND u.role = 'player'
+               AND NOT EXISTS (SELECT 1 FROM user_items i WHERE i.user_id = u.id AND i.item = 'trial_premium')
+               AND NOT EXISTS (SELECT 1 FROM premium_passes p WHERE p.user_id = u.id)
+               AND (SELECT COUNT(DISTINCT SUBSTR(j.ts, 1, 10)) FROM player_journal j WHERE j.user_id = u.id) >= $needDays
+               AND (SELECT MIN(j.ts) FROM player_journal j WHERE j.user_id = u.id) <= ?", [$cutoff]);
+
+        $pdo = Db::pdo();
+        $until = $session + $sessions - 1;   // np. 2 dni = bieżąca sesja + następna
+        foreach ($eligible as $u) {
+            $uid = (int) $u['id'];
+            try {
+                $pdo->prepare("INSERT INTO user_items (user_id, item, created_at) VALUES (?, 'trial_premium', ?)")
+                    ->execute([$uid, Db::now()]);
+            } catch (\Throwable $e) { continue; }   // wyścig dwóch ticków — znacznik już jest
+            foreach (array_keys(self::PASSES) as $kind) {
+                $pdo->prepare("INSERT INTO premium_passes (user_id, kind, until_session, created_at) VALUES (?,?,?,?)")
+                    ->execute([$uid, $kind, $until, Db::now()]);
+            }
+            Engine::notify($uid, 'token',
+                "🎁 Prezent za aktywną grę: $sessions dni PEŁNEGO premium gratis! Skaner AT, alerty 🔔, rekomendacje dzień wcześniej i Raport DM — aktywne do końca sesji #$until. Przetestuj wszystko!",
+                'sklep.php');
+            Log::write('info', 'engine', 'trial.grant', "trial premium dla {$u['username']} do sesji #$until");
+        }
+    }
+
     /** Kup/przedłuż pakiet za żetony. Zwraca [ok, komunikat]. */
     public static function buyPass(int $uid, string $kind): array
     {
