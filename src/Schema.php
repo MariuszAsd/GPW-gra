@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 27;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 28;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -77,7 +77,8 @@ final class Schema
                 aggressiveness       $f NOT NULL DEFAULT 1,
                 tech_affinity        DECIMAL(4,2) NOT NULL DEFAULT 0.5,  -- podatność na analizę techniczną (0=fundamentalna, 1=techniczna)
                 ta_signal            DECIMAL(5,3) NOT NULL DEFAULT 0,    -- zbiorczy sygnał AT (cache per tick; skaner na Rynku)
-                halted_until_tick    INT NOT NULL DEFAULT 0,             -- widełki: notowania zawieszone do tego ticku
+                halted_until_tick    INT NOT NULL DEFAULT 0,             -- (legacy) widełki: zawieszone do ticku
+                halted_until         VARCHAR(19) NULL,                   -- widełki: zawieszone do tej chwili (wall-clock, 5 min)
                 halts_session        INT NOT NULL DEFAULT 0,             -- ile zawieszeń w tej sesji (limit, reset przy rollu)
                 -- sterowanie GM:
                 bias $f NOT NULL DEFAULT 0,

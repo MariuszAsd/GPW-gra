@@ -2,6 +2,7 @@
 /** JSON do odświeżania kursów bez przeładowania (polling z rynku i strony spółki). */
 require __DIR__ . '/_boot.php';
 header('Content-Type: application/json');
+header('Cache-Control: no-store, max-age=0');   // bez tego mobilna przeglądarka cache'uje poll i kurs „stoi" do F5
 [$sessionNo, , $tps] = Engine::sessionInfo();
 $sessStart = ($sessionNo - 1) * $tps;
 $out = [];

@@ -423,6 +423,10 @@ final class Migrator
                 "CREATE INDEX ix_deposits ON deposits (user_id, status)",
                 "CREATE INDEX ix_iposubs ON ipo_subs (user_id, offer_id)",
             ],
+            28 => [
+                // zawieszenia notowań na WALL-CLOCK (5 min), nie na ticki — poprawny licznik i auto-wznowienie
+                "ALTER TABLE stocks ADD COLUMN halted_until VARCHAR(19) NULL",
+            ],
         ];
     }
 

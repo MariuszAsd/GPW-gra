@@ -295,7 +295,11 @@ final class Engine
         $tick = (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
         $mods = self::activeMods($tick);   // boty fundamentalne rozumieja skutki wydarzen
 
-        foreach ($bots as $bot) self::cancelAllFor((int) $bot['id']);
+        // BRAMKA CHURNU: ~1/3 botów przekwotowuje w danym ticku, reszta ZOSTAWIA swoje zlecenia
+        // (odświeży je za 1-2 ticki). Dzięki temu arkusz pozostaje głęboki (zlecenia trwają), a
+        // liczba operacji zapisu na tick — i okno blokady, przez które WISI zlecenie gracza — spada ~3×.
+        // Efekt uboczny: w arkuszu leżą zlecenia z różnych „roczników" → naturalnie zróżnicowany.
+        $botActive = fn(int $uid) => (($uid + $tick) % 3) === 0;
 
         // prefetch: portfele wszystkich botów (jedno zapytanie zamiast setek)
         $wal = [];
@@ -331,6 +335,8 @@ final class Engine
 
         foreach ($bots as $bot) {
             $uid  = (int) $bot['id'];
+            if (!$botActive($uid)) continue;     // nieaktywny w tym ticku — jego zlecenia zostają w arkuszu
+            self::cancelAllFor($uid);            // aktywny — odśwież własne kwotowania
             $strat = $bot['strategy'];
             $risk = max(0.3, (float) $bot['risk_appetite']);
             $sens = max(0.3, (float) $bot['technical_sensitivity']);
@@ -367,13 +373,14 @@ final class Engine
                     // zamiast biernie puchnac na trendach — mniej strat mm, naturalniejszy rynek
                     $inv = max(-1.0, min(1.0, ($have - 3000) / 3000));
                     $base = (0.7 * $st['fundamental'] + 0.3 * $price) * (1 + mt_rand(-15, 15) / 10000) * (1 - 0.004 * $inv);
-                    // grubsze kwotowania (3 poziomy, ~2× pakiety vs dawniej) — arkusz jest głęboki,
-                    // więc zlecenie rzędu 20–30k nie przechodzi kilku procent kursu i nie odpala widełek;
-                    // 3 poziomy zamiast 5 = mniej wierszy zleceń na tick (tick mieści się w oknie crona)
-                    foreach ([[0.008, 120], [0.016, 90], [0.028, 60]] as [$sp, $qy]) {
-                        $spread = $sp / max(0.85, $liq);   // podloga: nieplynne sa chropowate, ale bez przesady
-                        $qb = max(5, (int) round($qy * $act * (1 - 0.4 * $inv)));
-                        $qs = max(5, (int) round($qy * $act * (1 + 0.4 * $inv)));
+                    // grube kwotowania (3 poziomy) z LOSOWĄ wielkością i drobnym rozrzutem poziomów —
+                    // arkusz jest głęboki (zlecenie 20–100k nie rusza kilku % kursu) ORAZ zróżnicowany
+                    // (koniec z rzędem identycznych ilości); persystencja przez bramkę churnu dokłada głębi.
+                    foreach ([[0.007, 180], [0.015, 130], [0.027, 90]] as [$sp, $qy]) {
+                        $spread = ($sp / max(0.85, $liq)) * (1 + mt_rand(-20, 25) / 100);   // rozrzut poziomów cenowych
+                        $jb = 0.55 + mt_rand(0, 95) / 100; $js = 0.55 + mt_rand(0, 95) / 100;   // rozrzut wielkości (0,55–1,5×)
+                        $qb = max(5, (int) round($qy * $act * (1 - 0.4 * $inv) * $jb));
+                        $qs = max(5, (int) round($qy * $act * (1 + 0.4 * $inv) * $js));
                         self::place($uid, $sid, 'buy',  $qb, round($base * (1 - $spread), 2));
                         self::place($uid, $sid, 'sell', $qs, round($base * (1 + $spread), 2));
                     }
@@ -665,9 +672,10 @@ final class Engine
                 $pdo->prepare("UPDATE orders SET sl_price=? WHERE id=? AND status='pending'")->execute([$newSl, (int) $tr['id']]);
             }
         }
-        $rows = self::all("SELECT o.*, s.price AS cur, s.ticker, s.halted_until_tick FROM orders o JOIN stocks s ON s.id=o.stock_id WHERE o.status='pending'");
+        $nowTs = Db::now();
+        $rows = self::all("SELECT o.*, s.price AS cur, s.ticker, s.halted_until FROM orders o JOIN stocks s ON s.id=o.stock_id WHERE o.status='pending'");
         foreach ($rows as $o) {
-            if ((int) $o['halted_until_tick'] > $tickNow) continue;   // zawieszone notowania: stopy czekają na wznowienie
+            if ($o['halted_until'] !== null && $o['halted_until'] !== '' && (string) $o['halted_until'] > $nowTs) continue;   // zawieszone notowania: stopy czekają na wznowienie
             $hitSL = $o['sl_price'] !== null && (float) $o['cur'] <= (float) $o['sl_price'];
             $hitTP = $o['tp_price'] !== null && (float) $o['cur'] >= (float) $o['tp_price'];
             if (!$hitSL && !$hitTP) continue;
@@ -708,17 +716,25 @@ final class Engine
     /* ---------- Widełki statyczne (zawieszenia notowań) ---------- */
 
     public const HALT_BAND = 0.20;        // ±20% od otwarcia sesji zawiesza notowania (zapas: zwykłe zlecenia nie odpalają)
-    public const HALT_TICKS = 10;         // długość zawieszenia (ticki ≈ minuty)
+    public const HALT_MINUTES = 5;        // długość zawieszenia w minutach (wall-clock — niezależne od tempa crona)
     public const HALT_MAX_SESSION = 2;    // max zawieszeń spółki w jednej sesji
+
+    /** Sekundy do wznowienia notowań (0 = handel dozwolony) — wall-clock. */
+    public static function haltSecondsLeft(int $stockId): int
+    {
+        $until = self::one("SELECT halted_until FROM stocks WHERE id=?", [$stockId]);
+        if ($until === false || $until === null || $until === '') return 0;
+        $left = strtotime((string) $until) - time();
+        return $left > 0 ? $left : 0;
+    }
 
     /** Komunikat o zawieszeniu (null = handel dozwolony). Wołane przy każdym zleceniu. */
     private static function haltMessage(int $stockId): ?string
     {
-        $h = (int) (self::one("SELECT halted_until_tick FROM stocks WHERE id=?", [$stockId]) ?: 0);
-        if ($h <= 0) return null;
-        $t = (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
-        if ($h <= $t) return null;
-        return '⏸ Notowania zawieszone (przekroczenie widełek) — wznowienie za ~' . ($h - $t) . ' min. Zlecenie nie zostało przyjęte.';
+        $left = self::haltSecondsLeft($stockId);
+        if ($left <= 0) return null;
+        $m = (int) ceil($left / 60);
+        return '⏸ Notowania zawieszone (przekroczenie widełek) — wznowienie za ~' . $m . ' min. Zlecenie nie zostało przyjęte.';
     }
 
     /**
@@ -729,31 +745,34 @@ final class Engine
     private static function checkHalts(int $t): void
     {
         $pdo = Db::pdo();
-        foreach (self::all("SELECT id, ticker, name, price, day_open_price, halted_until_tick, halts_session
-                            FROM stocks WHERE day_open_price > 0 AND halted_until_tick <= ?", [$t]) as $s) {
+        $nowTs = Db::now();
+        $untilTs = date('Y-m-d H:i:s', time() + self::HALT_MINUTES * 60);
+        // kandydaci: spółki NIE zawieszone teraz (halted_until pusty lub już minął)
+        foreach (self::all("SELECT id, ticker, name, price, day_open_price, halted_until, halts_session
+                            FROM stocks WHERE day_open_price > 0 AND (halted_until IS NULL OR halted_until <= ?)", [$nowTs]) as $s) {
             $n = (int) $s['halts_session'];
             if ($n >= self::HALT_MAX_SESSION) continue;
             $chg = (float) $s['price'] / (float) $s['day_open_price'] - 1;
-            $band = self::HALT_BAND * ($n + 1);   // 15%, po wznowieniu 30%
+            $band = self::HALT_BAND * ($n + 1);   // 20%, po wznowieniu 40%
             if (abs($chg) < $band) continue;
-            $until = $t + self::HALT_TICKS;
-            $pdo->prepare("UPDATE stocks SET halted_until_tick=?, halts_session=halts_session+1 WHERE id=?")->execute([$until, (int) $s['id']]);
+            $pdo->prepare("UPDATE stocks SET halted_until=?, halts_session=halts_session+1 WHERE id=?")
+                ->execute([$untilTs, (int) $s['id']]);
             $dir = $chg > 0 ? 'wzroście' : 'spadku';
             $pdo->prepare("INSERT INTO news (headline,body,type,scope,target_id,is_espi,impact_strength,kind,publish_tick,expire_tick,published_at)
                            VALUES (?,?,'NEU','COMPANY',?,1,0,'fundamental',?,?,?)")
                 ->execute([
                     "⏸ Makleria zawiesza notowania {$s['ticker']} po $dir " . number_format(abs($chg) * 100, 1, ',', ' ') . '%',
-                    "Kurs {$s['name']} przekroczył widełki statyczne ±" . round($band * 100) . "% od otwarcia sesji. Handel wstrzymany na ~" . self::HALT_TICKS
+                    "Kurs {$s['name']} przekroczył widełki statyczne ±" . round($band * 100) . "% od otwarcia sesji. Handel wstrzymany na ~" . self::HALT_MINUTES
                     . " minut — zlecenia można składać po wznowieniu. Po wznowieniu obowiązują rozszerzone widełki.",
-                    (int) $s['id'], $t, $until, Db::now(),
+                    (int) $s['id'], $t, $t + 30, Db::now(),
                 ]);
             foreach (self::col("SELECT w.user_id FROM wallets w JOIN users u ON u.id=w.user_id
                                 WHERE w.stock_id=? AND u.is_bot=0 AND (w.qty + w.qty_reserved) > 0", [(int) $s['id']]) as $uid) {
                 self::notify((int) $uid, 'event', "⏸ Notowania {$s['ticker']} zawieszone po ruchu "
-                    . ($chg > 0 ? '+' : '-') . number_format(abs($chg) * 100, 1, ',', ' ') . "% (masz te akcje). Wznowienie za ~" . self::HALT_TICKS . ' min.',
+                    . ($chg > 0 ? '+' : '-') . number_format(abs($chg) * 100, 1, ',', ' ') . "% (masz te akcje). Wznowienie za ~" . self::HALT_MINUTES . ' min.',
                     'stock.php?id=' . (int) $s['id']);
             }
-            Log::write('info', 'engine', 'halt.start', "{$s['ticker']}: zawieszenie #" . ($n + 1) . ' po ' . round($chg * 100, 1) . '%', ['until' => $until]);
+            Log::write('info', 'engine', 'halt.start', "{$s['ticker']}: zawieszenie #" . ($n + 1) . ' po ' . round($chg * 100, 1) . '%', ['until' => $untilTs]);
         }
     }
 

@@ -11,6 +11,7 @@
  */
 require __DIR__ . '/_boot.php';
 header('Content-Type: application/json');
+header('Cache-Control: no-store, max-age=0');   // świece na żywo bez cache przeglądarki
 
 $id = (int) ($_GET['id'] ?? 0);
 $range = strtolower((string) ($_GET['range'] ?? ''));

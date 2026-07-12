@@ -117,14 +117,17 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
 <?php explainer('spolka', 'Jak złożyć zlecenie', [
     'wybierz KUP albo SPRZEDAJ', 'LIMIT = twoja cena, PKC = natychmiast',
     'podaj ilość', 'dodaj SL/TP jako ochronę', 'zatwierdź']); ?>
-<?php $tickG = (int) (Engine::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
-      if ((int) ($s['halted_until_tick'] ?? 0) > $tickG): ?>
-<div class="panel" style="margin-bottom:14px;border-left:3px solid var(--gold);background:var(--gold-bg)">
+<?php $haltLeft = Engine::haltSecondsLeft($id); if ($haltLeft > 0): ?>
+<div class="panel" id="halt-box" data-left="<?= (int) $haltLeft ?>" style="margin-bottom:14px;border-left:3px solid var(--gold);background:var(--gold-bg)">
   <b style="font-size:15px">⏸ Notowania zawieszone (przekroczenie widełek)</b>
   <div class="muted" style="font-size:12px;margin-top:3px">Kurs przekroczył dopuszczalne widełki od otwarcia sesji.
-    Wznowienie za ~<?= (int) $s['halted_until_tick'] - $tickG ?> min — do tego czasu giełda nie przyjmuje zleceń na tę spółkę.
+    Wznowienie za <b class="mono" id="halt-clock" style="color:var(--gold)">—</b> — do tego czasu giełda nie przyjmuje zleceń na tę spółkę.
     Zlecenia obronne (SL/TP) zadziałają po wznowieniu.</div>
 </div>
+<script>(function(){var box=document.getElementById('halt-box');if(!box)return;var left=parseInt(box.dataset.left)||0;var el=document.getElementById('halt-clock');
+  function fmt(s){var m=Math.floor(s/60),x=s%60;return m+':'+(x<10?'0':'')+x;}
+  function tick(){ if(left<=0){ el.textContent='wznawianie…'; location.reload(); return; } el.textContent=fmt(left); left--; }
+  tick(); setInterval(tick,1000);})();</script>
 <?php endif; ?>
 <div class="shead">
   <div class="idn"><div class="tk"><?= h($s['ticker']) ?></div><div class="nm"><?= h($s['name']) ?> · <?= h($s['sector']) ?></div>
@@ -560,7 +563,7 @@ document.querySelectorAll('#cg-type button').forEach(b=>b.onclick=()=>{
 reconcile('iv'); syncChartBtns(); drawChart();
 // live kurs w nagłówku + odświeżenie wykresu
 setInterval(async()=>{ try{
-  const j=await (await fetch('api_market.php')).json(); if(!j.ok) return; const d=j.data[<?= $id ?>]; if(!d) return;
+  const j=await (await fetch('api_market.php?t='+Date.now(),{cache:'no-store'})).json(); if(!j.ok) return; const d=j.data[<?= $id ?>]; if(!d) return;
   const p=document.querySelector('[data-px]'); const c=document.querySelector('[data-chg]'); const up=d.chg>=0;
   if(p) p.innerHTML=Number(d.price).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' <span style="font-size:15px;color:var(--faint)">PLN</span>';
   if(c){ c.className='chg '+(up?'p':'n'); c.innerHTML='<span class="ar">'+(up?'▲':'▼')+'</span>'+Math.abs(d.chg).toFixed(2).replace('.',',')+'%'; }

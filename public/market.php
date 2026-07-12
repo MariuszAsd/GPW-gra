@@ -210,7 +210,7 @@ setInterval(() => chatPoll(false), 5000);
 <script>
 setInterval(async () => {
   try {
-    const j = await (await fetch('api_market.php')).json(); if (!j.ok) return;
+    const j = await (await fetch('api_market.php?t=' + Date.now(), {cache: 'no-store'})).json(); if (!j.ok) return;
     if (j.index) {
       const iv = document.querySelector('[data-idx-val]'), ic = document.querySelector('[data-idx-chg]');
       if (iv) iv.innerHTML = Number(j.index.value).toLocaleString('pl-PL', {minimumFractionDigits:2, maximumFractionDigits:2})
