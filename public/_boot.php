@@ -62,6 +62,7 @@ function icon(string $name, string $cls = 'ico'): string {
         'shop'   => '<path d="M6.3 8h11.4l-1 12.1a1 1 0 0 1-1 .9H8.3a1 1 0 0 1-1-.9Z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/>',
         'book'   => '<path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15.5H6.75A1.75 1.75 0 0 0 5 20.25Z"/><path d="M5 20.25V4.5M9 7.5h6"/>',
         'user'   => '<circle cx="12" cy="8" r="4"/><path d="M4.5 20.5c1.4-3.8 4.6-5.5 7.5-5.5s6.1 1.7 7.5 5.5"/>',
+        'medal'  => '<path d="m8 3 2.5 5M16 3l-2.5 5"/><circle cx="12" cy="14.5" r="5.5"/><path d="m12 12 .8 1.6 1.7.2-1.25 1.2.3 1.7-1.55-.85-1.55.85.3-1.7L9.5 13.8l1.7-.2Z" fill="currentColor" stroke="none"/>',
     ];
     return "<svg class='$cls' viewBox='0 0 24 24' aria-hidden='true'>" . ($paths[$name] ?? '') . '</svg>';
 }
@@ -115,6 +116,16 @@ function market_subnav(string $active): void {
         ['ipo', 'ipo.php', 'IPO'],
         ['new', 'wiadomosci.php', 'Newsy i ESPI'],
     ], $active);
+}
+
+/** Podzakładki modułu Liga (rywalizacja): Wyzwania, Ranking, Sezon (gdy trwa). */
+function liga_subnav(string $active): void {
+    $items = [
+        ['challenges', 'wyzwania.php', 'Wyzwania'],
+        ['ranking', 'ranking.php', 'Ranking'],
+    ];
+    if (Seasons::active()) $items[] = ['season', 'sezon.php', 'Sezon'];
+    subnav($items, $active);
 }
 
 /**
@@ -213,7 +224,7 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
         echo "<a class='thm' href='#' onclick='return themeToggle()' title='Przełącz motyw jasny/ciemny'>" . icon('theme') . "</a>";
         if ($user['role'] === 'player') {
             $tk = (int) Engine::one("SELECT tokens FROM users WHERE id=?", [$actg ? $actg['owner_id'] : $user['id']]);
-            echo "<a href='sklep.php' class='tokens' title='Żetony Maklera — Sklep'>🪙 <b>$tk</b></a>";
+            echo "<a href='sklep.php' class='tokens' title='Tokeny Maklera — Sklep'>🪙 <b>$tk</b></a>";
         }
         // główna liczba = KAPITAŁ (gotówka + zamrożone + akcje po kursie) — jak w rankingu;
         // sama gotówka („za ile mogę kupić") schodzi do drugiej linijki
@@ -228,14 +239,19 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
     }
     echo "</nav></header>";
     if ($user) {
+        // rail desktopowy: wszystkie działy GRYWALNE bezpośrednio, konto/premium na dole.
+        // Rynek grupuje Notowania/Branże/Rekomendacje/IPO/Newsy (podzakładki), Liga = Wyzwania/Ranking/Sezon.
+        $seasonOnNav = Seasons::active();
         echo "<aside class='rail'>";
         echo "<a class='" . trim($act('home')) . "' href='pulpit.php'>" . icon('home') . "<span>Pulpit</span></a>";
         echo "<a class='" . trim($act('market')) . "' href='market.php'>" . icon('chart') . "<span>Rynek</span></a>";
-        echo "<a class='" . trim($act('ranking')) . "' href='ranking.php'>" . icon('trophy') . "<span>Ranking</span></a>";
-        echo "<a class='" . trim($act('challenges')) . "' href='wyzwania.php'>" . icon('flag') . "<span>Wyzwania</span></a>";
         echo "<a class='" . trim($act('portfolio')) . "' href='portfolio.php'>" . icon('case') . "<span>Portfel</span></a>";
-        echo "<a class='" . trim($act('news')) . "' href='wiadomosci.php'>" . icon('news') . "<span>Newsy</span></a>";
+        echo "<a class='" . trim($act('challenges')) . "' href='wyzwania.php'>" . icon('flag') . "<span>Wyzwania</span></a>";
+        echo "<a class='" . trim($act('ranking')) . "' href='ranking.php'>" . icon('trophy') . "<span>Ranking</span></a>";
+        if ($seasonOnNav) echo "<a class='" . trim($act('season')) . "' href='sezon.php'>" . icon('medal') . "<span>Sezon</span></a>";
+        if ($user['role'] === 'player') echo "<a class='" . trim($act('shop')) . "' href='sklep.php'>" . icon('shop') . "<span>Sklep</span></a>";
         echo "<a class='" . trim($act('help')) . "' href='pomoc.php'>" . icon('help') . "<span>Pomoc</span></a>";
+        echo "<a class='" . trim($act('more')) . "' href='menu.php'>" . icon('user') . "<span>Konto</span></a>";
         if ($isAdmin) echo "<a class='gm" . $act('gm') . "' href='gm.php'>" . icon('gear') . "<span>GM</span></a>";
         echo "</aside>";
     }
@@ -244,14 +260,16 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
              "const b=document.querySelector('[data-bell]');if(b&&j.ok){b.textContent=j.unread;b.classList.toggle('off',j.unread===0);}}catch(e){}},15000);</script>";
     }
     if ($user) {
-        // mobilna nawigacja: 5 zakładek (reszta w "Więcej") — wzór aplikacji tradingowych
-        $moreActive = in_array($active, ['ranking', 'news', 'help', 'notif', 'gm', 'more'], true) ? ' active' : '';
+        // mobilna nawigacja: 5 zakładek. CAŁA grywalność w zasięgu kciuka —
+        // Rynek i Liga to moduły z podzakładkami; Konto = profil, premium, ustawienia.
+        $ligaActive  = in_array($active, ['challenges', 'ranking', 'season'], true) ? ' active' : '';
+        $kontoActive = in_array($active, ['more', 'notif', 'help', 'shop', 'gm', 'account'], true) ? ' active' : '';
         echo "<nav class='bottomnav'>";
         echo "<a class='" . trim($act('home')) . "' href='pulpit.php'>" . icon('home') . "<span>Pulpit</span></a>";
         echo "<a class='" . trim($act('market')) . "' href='market.php'>" . icon('chart') . "<span>Rynek</span></a>";
         echo "<a class='" . trim($act('portfolio')) . "' href='portfolio.php'>" . icon('case') . "<span>Portfel</span></a>";
-        echo "<a class='" . trim($act('challenges')) . "' href='wyzwania.php'>" . icon('flag') . "<span>Wyzwania</span></a>";
-        echo "<a class='" . trim($moreActive) . "' href='menu.php'>" . icon('more') . "<span>Więcej</span></a>";
+        echo "<a class='" . trim($ligaActive) . "' href='wyzwania.php'>" . icon('trophy') . "<span>Liga</span></a>";
+        echo "<a class='" . trim($kontoActive) . "' href='menu.php'>" . icon('user') . "<span>Konto</span></a>";
         echo "</nav>";
     }
     // baner kontekstu: gracz handluje teraz portfelem wyzwania (widoczny na każdej stronie)

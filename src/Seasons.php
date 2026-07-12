@@ -4,17 +4,17 @@
  *
  * Seria wyzwań (challenge_series, np. "Liga") = sezon. Każda rozstrzygnięta
  * edycja serii daje uczestnikom PUNKTY SEZONOWE wg miejsca. Punkty odblokowują
- * progi nagród: ścieżka DARMOWA (żetony) dla wszystkich, ścieżka PREMIUM
- * (karnet za żetony) z większymi nagrodami i tytułem "Legenda Sezonu" na końcu.
+ * progi nagród: ścieżka DARMOWA (tokeny) dla wszystkich, ścieżka PREMIUM
+ * (karnet za tokeny) z większymi nagrodami i tytułem "Legenda Sezonu" na końcu.
  * Karnet kupiony później wypłaca wstecz premium z już osiągniętych progów.
- * Zero pay-to-win: nagrody to żetony i kosmetyka, nie PLN w grze.
+ * Zero pay-to-win: nagrody to tokeny i kosmetyka, nie PLN w grze.
  */
 final class Seasons
 {
-    /** Cena karnetu premium (żetony). */
+    /** Cena karnetu premium (tokeny). */
     public const PASS_PRICE = 30;
 
-    /** Progi nagród: [punkty, żetony darmowe, żetony premium]. Ostatni próg premium daje też tytuł. */
+    /** Progi nagród: [punkty, tokeny darmowe, tokeny premium]. Ostatni próg premium daje też tytuł. */
     public const MILESTONES = [
         [10,  2,  4],
         [25,  3,  6],
@@ -66,7 +66,7 @@ final class Seasons
         } catch (Throwable $e) { Log::write('warn', 'engine', 'season.points', $e->getMessage()); }
     }
 
-    /** Kup karnet premium (żetony) — wypłaca wstecz premium z już osiągniętych progów. */
+    /** Kup karnet premium (tokeny) — wypłaca wstecz premium z już osiągniętych progów. */
     public static function buyPass(int $uid, int $seriesId): array
     {
         $s = Engine::row("SELECT * FROM challenge_series WHERE id=?", [$seriesId]);

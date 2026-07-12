@@ -2,7 +2,7 @@
 /**
  * Codzienna pętla: seria logowań (streak) + misje dnia.
  *
- * SERIA: pierwsza aktywność w nowym dniu = +1 żeton; co 7. dzień serii bonus +3.
+ * SERIA: pierwsza aktywność w nowym dniu = +1 token; co 7. dzień serii bonus +3.
  * Przerwa dłuższa niż 1 dzień zeruje serię. Dzień = data serwera (spójna
  * z created_at w całej bazie).
  *
@@ -13,10 +13,10 @@
  */
 final class Daily
 {
-    public const STREAK_DAILY = 1;   // żetony za pierwszy wjazd dnia
+    public const STREAK_DAILY = 1;   // tokeny za pierwszy wjazd dnia
     public const STREAK_BONUS = 3;   // dodatkowo co 7. dzień serii
 
-    /** Katalog misji: kod => [opis, żetony, SQL zwracający >0 gdy zaliczona (:uid, :day)]. */
+    /** Katalog misji: kod => [opis, tokeny, SQL zwracający >0 gdy zaliczona (:uid, :day)]. */
     public const MISSIONS = [
         'kup' => ['Kup akcje dowolnej spółki', 1,
             "SELECT COUNT(*) FROM transactions WHERE buyer_id=:uid AND created_at LIKE :day"],
@@ -78,7 +78,7 @@ final class Daily
 
     /**
      * Stan misji gracza na dziś + automatyczna wypłata świeżo zaliczonych.
-     * Zwraca listę [code, opis, żetony, done].
+     * Zwraca listę [code, opis, tokeny, done].
      */
     public static function missions(int $uid): array
     {

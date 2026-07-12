@@ -43,7 +43,7 @@ $calendar = Engine::all("SELECT id, ticker, name, next_report_tick, dividend_pay
 [$sessionNo] = Engine::sessionInfo();
 $fUrl = fn(string $f, string $k) => 'wiadomosci.php?' . http_build_query(array_filter(['f' => $f, 'k' => $k]));
 
-layout_header('Newsy i ESPI', $user, 'news');
+layout_header('Newsy i ESPI', $user, 'market');
 ?>
 <div class="page-head"><h1>Rynek</h1><span class="tag" style="color:var(--accent);border-color:var(--accent)">Sesja #<?= $sessionNo ?></span></div>
 <?php market_subnav('new'); ?>

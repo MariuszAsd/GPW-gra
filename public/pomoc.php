@@ -192,11 +192,11 @@ layout_header('Pomoc', $user, 'help');
   <ul style="margin:4px 0 8px 20px;line-height:1.6">
     <li><b>Każdy</b> dostaje z powrotem swój portfel wyzwania — gotówka wraca na konto, akcje przechodzą do portfela głównego.</li>
     <li><b>Top ~20% graczy</b> dzieli pulę wpisowych — im wyższe miejsce, tym większy udział (1. miejsce bierze najwięcej).</li>
-    <li>Zwycięzca i podium dostają <b>Żetony Maklera</b> i odznakę; edycje ligowe dają też punkty sezonu (karnet → sezon.php).</li>
+    <li>Zwycięzca i podium dostają <b>Tokeny Maklera</b> i odznakę; edycje ligowe dają też punkty sezonu (karnet → sezon.php).</li>
   </ul>
   <div class="help-ex">💡 Ile mogę stracić? Najwyżej wpisowe + to, co stracisz handlując portfelem wyzwania.
      Ile mogę wygrać? Nagrodę z puli (przy 10 graczach 1. miejsce bierze ok. połowy) + zysk z handlu.
-     Wyzwanie to najszybsza droga do żetonów i punktów sezonu — a przegrana kosztuje mniej niż wygląda.</div>
+     Wyzwanie to najszybsza droga do tokenów i punktów sezonu — a przegrana kosztuje mniej niż wygląda.</div>
 </div>
 
 <div class="panel help-sec" id="lokaty">

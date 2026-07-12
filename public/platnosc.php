@@ -14,11 +14,11 @@ layout_header('Płatność', $user, '');
 
 <section class="panel" style="max-width:560px;text-align:center;padding:28px">
   <?php if (!$o): ?>
-    <p class="muted">Nie znaleziono zamówienia. Jeśli płatność przeszła, żetony i tak wpadną na konto — sprawdź saldo za minutę.</p>
+    <p class="muted">Nie znaleziono zamówienia. Jeśli płatność przeszła, tokeny i tak wpadną na konto — sprawdź saldo za minutę.</p>
   <?php elseif ($o['status'] === 'completed'): ?>
     <div style="font-size:40px">✅</div>
-    <h2 style="margin:8px 0 4px">Żetony przyznane!</h2>
-    <p class="muted" style="margin:0 0 8px"><?= h(Payments::PACKAGES[$o['package']][2] ?? $o['package']) ?> — 🪙 <?= (int) $o['tokens'] ?> Żetonów Maklera dopisane do konta.</p>
+    <h2 style="margin:8px 0 4px">Tokeny przyznane!</h2>
+    <p class="muted" style="margin:0 0 8px"><?= h(Payments::PACKAGES[$o['package']][2] ?? $o['package']) ?> — 🪙 <?= (int) $o['tokens'] ?> Tokenów Maklera dopisane do konta.</p>
   <?php elseif ($o['status'] === 'cancelled'): ?>
     <div style="font-size:40px">✕</div>
     <h2 style="margin:8px 0 4px">Płatność anulowana</h2>
@@ -26,7 +26,7 @@ layout_header('Płatność', $user, '');
   <?php else: ?>
     <div style="font-size:40px">⏳</div>
     <h2 style="margin:8px 0 4px">Przetwarzamy płatność…</h2>
-    <p class="muted" style="margin:0 0 8px">Operator potwierdza wpłatę — żetony wpadną na konto zwykle w ciągu minuty. Ta strona odświeży się sama.</p>
+    <p class="muted" style="margin:0 0 8px">Operator potwierdza wpłatę — tokeny wpadną na konto zwykle w ciągu minuty. Ta strona odświeży się sama.</p>
     <script>setTimeout(() => location.reload(), 7000);</script>
   <?php endif; ?>
   <p style="margin:14px 0 0">Twoje saldo: <b style="color:var(--gold)">🪙 <?= $balance ?></b></p>

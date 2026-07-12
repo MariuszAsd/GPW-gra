@@ -233,7 +233,7 @@ final class Migrator
                 "ALTER TABLE stocks ADD COLUMN tech_affinity DECIMAL(4,2) NOT NULL DEFAULT 0.5",
                 "UPDATE stocks SET tech_affinity = 0.2 + (id * 37 % 61) / 100.0",
             ],
-            // v20: monetyzacja — Żetony Maklera (+10 powitalnych dla graczy), pakiety premium,
+            // v20: monetyzacja — Tokeny Maklera (+10 powitalnych dla graczy), pakiety premium,
             //      rekomendacje DM, cache sygnału AT na spółce (skaner na Rynku)
             20 => [
                 "ALTER TABLE users ADD COLUMN tokens INT NOT NULL DEFAULT 0",

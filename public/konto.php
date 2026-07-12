@@ -42,7 +42,7 @@ layout_header('Ustawienia konta', $user, 'more');
 ?>
 <div class="page-head">
   <h1>Ustawienia konta</h1>
-  <a class="btn sm ghost" style="margin-left:auto" href="menu.php">← Więcej</a>
+  <a class="btn sm ghost" style="margin-left:auto" href="menu.php">← Konto</a>
 </div>
 
 <section class="panel" style="max-width:520px;margin-bottom:14px">

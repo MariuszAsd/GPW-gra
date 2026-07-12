@@ -12,17 +12,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['buy_season_pass']) &&
     redirect('sezon.php');
 }
 
-layout_header('Sezon', $user, 'challenges');
+layout_header('Sezon', $user, 'season');
 ?>
+<div class="page-head">
+  <h1>Liga</h1>
+  <?php if ($season): ?><span class="tag" style="color:var(--accent);border-color:var(--accent)"><?= h($season['name']) ?></span><?php endif; ?>
+  <span class="muted hide-m">punkty za miejsca w edycjach serii wyzwań · nagrody na dwóch ścieżkach</span>
+</div>
+<?php liga_subnav('season'); ?>
 <?php explainer('sezon', 'Jak działa Sezon', [
     'graj w edycjach ligi (Wyzwania)', 'miejsca dają punkty sezonowe',
     'punkty odblokowują progi nagród', 'karnet premium = druga ścieżka nagród']); ?>
-<div class="page-head">
-  <h1>Sezon</h1>
-  <?php if ($season): ?><span class="tag" style="color:var(--accent);border-color:var(--accent)"><?= h($season['name']) ?></span><?php endif; ?>
-  <span class="muted">punkty za miejsca w edycjach serii wyzwań · nagrody na dwóch ścieżkach</span>
-  <a class="btn sm ghost" style="margin-left:auto" href="wyzwania.php">← Wyzwania</a>
-</div>
 
 <?php if (!$season): ?>
   <section class="panel" style="text-align:center;padding:30px">
@@ -67,7 +67,7 @@ layout_header('Sezon', $user, 'challenges');
     </table>
     <?php if (!$premium): ?>
       <form method="post" style="margin-top:12px">
-        <button class="btn sm" name="buy_season_pass" value="1" <?= Tokens::balance($uid) < Seasons::PASS_PRICE ? 'disabled title="Za mało żetonów"' : '' ?>>
+        <button class="btn sm" name="buy_season_pass" value="1" <?= Tokens::balance($uid) < Seasons::PASS_PRICE ? 'disabled title="Za mało tokenów"' : '' ?>>
           Kup karnet premium — 🪙 <?= Seasons::PASS_PRICE ?>
         </button>
         <span class="muted" style="font-size:12px;margin-left:8px">Karnet kupiony później wypłaca nagrody premium wstecz za osiągnięte progi.</span>

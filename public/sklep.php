@@ -1,5 +1,5 @@
 <?php
-/** Sklep: Żetony Maklera, pakiety premium, kosmetyka i doładowania. Zasada: kupujesz INFORMACJĘ i wygląd, nigdy PLN w grze. */
+/** Sklep: Tokeny Maklera, pakiety premium, kosmetyka i doładowania. Zasada: kupujesz INFORMACJĘ i wygląd, nigdy PLN w grze. */
 require __DIR__ . '/_boot.php';
 $user = require_login();
 $uid = (int) $user['id'];
@@ -29,11 +29,11 @@ $owned = Cosmetics::owned($uid);
 $me = Engine::row("SELECT title, chat_color, frame FROM users WHERE id=?", [$uid]);
 $payOn = Payments::enabled();
 
-layout_header('Sklep', $user, '');
+layout_header('Sklep', $user, 'shop');
 ?>
 <div class="page-head">
-  <h1>Żetony Maklera</h1>
-  <span class="muted">premium bez psucia gry — żetonów nie wymienisz na PLN, kupują informację i wygląd</span>
+  <h1>Tokeny Maklera</h1>
+  <span class="muted">premium bez psucia gry — tokenów nie wymienisz na PLN, kupują informację i wygląd</span>
 </div>
 
 <div class="stats" style="grid-template-columns:repeat(2,1fr);max-width:560px">
@@ -51,7 +51,7 @@ layout_header('Sklep', $user, '');
         <p class="muted" style="margin:5px 0 0;font-size:13px"><?= h($desc) ?></p>
       </div>
       <form method="post" style="min-width:180px">
-        <button class="btn sm" name="buy_pass" value="<?= h($kind) ?>" <?= $balance < $price ? 'disabled title="Za mało żetonów"' : '' ?>>
+        <button class="btn sm" name="buy_pass" value="<?= h($kind) ?>" <?= $balance < $price ? 'disabled title="Za mało tokenów"' : '' ?>>
           <?= $until ? 'Przedłuż' : 'Aktywuj' ?>: <?= $days ?> dni — 🪙 <?= $price ?>
         </button>
       </form>
@@ -79,7 +79,7 @@ layout_header('Sklep', $user, '');
         <?php elseif ($have): ?>
           <form method="post" class="inline"><button class="btn sm ghost" name="equip_item" value="<?= h($key) ?>">Załóż</button></form>
         <?php else: ?>
-          <form method="post" class="inline"><button class="btn sm" name="buy_item" value="<?= h($key) ?>" <?= $balance < $price ? 'disabled title="Za mało żetonów"' : '' ?>>Kup — 🪙 <?= $price ?></button></form>
+          <form method="post" class="inline"><button class="btn sm" name="buy_item" value="<?= h($key) ?>" <?= $balance < $price ? 'disabled title="Za mało tokenów"' : '' ?>>Kup — 🪙 <?= $price ?></button></form>
         <?php endif; ?>
       </div>
     <?php endforeach; ?>
@@ -87,7 +87,7 @@ layout_header('Sklep', $user, '');
 </section>
 
 <section class="panel" style="margin-bottom:16px">
-  <h2>Doładowanie żetonów</h2>
+  <h2>Doładowanie tokenów</h2>
   <div class="ch-grid">
     <?php foreach (Payments::PACKAGES as $pkg => [$tk, $grosz, $name, $bonus]): ?>
       <div class="ch-stat">
@@ -100,9 +100,9 @@ layout_header('Sklep', $user, '');
     <?php endforeach; ?>
   </div>
   <?php if ($payOn): ?>
-    <p class="muted" style="margin:10px 0 0">Płatność obsługuje operator (BLIK, karta, przelew). Żetony wpadają na konto automatycznie w ciągu minuty od opłacenia.</p>
+    <p class="muted" style="margin:10px 0 0">Płatność obsługuje operator (BLIK, karta, przelew). Tokeny wpadają na konto automatycznie w ciągu minuty od opłacenia.</p>
   <?php else: ?>
-    <p class="muted" style="margin:10px 0 0">Płatności online <b>wkrótce</b> — na czas testów żetony przyznaje administrator gry (napisz na czacie).</p>
+    <p class="muted" style="margin:10px 0 0">Płatności online <b>wkrótce</b> — na czas testów tokeny przyznaje administrator gry (napisz na czacie).</p>
   <?php endif; ?>
 </section>
 

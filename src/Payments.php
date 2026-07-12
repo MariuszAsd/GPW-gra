@@ -1,10 +1,10 @@
 <?php
 /**
- * Płatności za Żetony Maklera — PayU REST API (BLIK, karty, przelewy).
+ * Płatności za Tokeny Maklera — PayU REST API (BLIK, karty, przelewy).
  *
- * ZASADA: sprzedajemy TYLKO żetony (informacja/wygoda/kosmetyka), nigdy PLN
+ * ZASADA: sprzedajemy TYLKO tokeny (informacja/wygoda/kosmetyka), nigdy PLN
  * w grze. Realizacja jest w pełni audytowalna: payment_orders trzyma każdy
- * krok (new -> pending -> completed/cancelled), a przyznanie żetonów ląduje
+ * krok (new -> pending -> completed/cancelled), a przyznanie tokenów ląduje
  * w token_ledger jak każda inna operacja.
  *
  * Konfiguracja (sekrety NA SERWERZE w config.local.php, budowanym przez CI
@@ -19,7 +19,7 @@
  */
 final class Payments
 {
-    /** Pakiety doładowań: klucz => [żetony łącznie (z bonusem), cena w groszach, nazwa, dopisek] */
+    /** Pakiety doładowań: klucz => [tokeny łącznie (z bonusem), cena w groszach, nazwa, dopisek] */
     public const PACKAGES = [
         'start'    => [20,  999,  'Pakiet Startowy',  ''],
         'inwestor' => [55,  1999, 'Pakiet Inwestora', '+10% gratis'],
@@ -66,7 +66,7 @@ final class Payments
     public static function createOrder(int $uid, string $package, string $customerIp): array
     {
         if (!isset(self::PACKAGES[$package])) return [false, 'Nie ma takiego pakietu.'];
-        if (!self::enabled()) return [false, 'Płatności online jeszcze nie są aktywne — żetony przyznaje administrator.'];
+        if (!self::enabled()) return [false, 'Płatności online jeszcze nie są aktywne — tokeny przyznaje administrator.'];
         [$tokens, $grosz, $name] = self::PACKAGES[$package];
 
         $pdo = Db::pdo();
@@ -90,7 +90,7 @@ final class Payments
                 'continueUrl'   => self::baseUrl() . '/platnosc.php?o=' . $oid,
                 'customerIp'    => $customerIp !== '' ? $customerIp : '127.0.0.1',
                 'merchantPosId' => (string) $c['pos_id'],
-                'description'   => "GPW-gra: $name ($tokens Żetonów Maklera)",
+                'description'   => "GPW-gra: $name ($tokens Tokenów Maklera)",
                 'currencyCode'  => 'PLN',
                 'totalAmount'   => (string) $grosz,
                 'products'      => [['name' => $name, 'unitPrice' => (string) $grosz, 'quantity' => '1']],
@@ -116,7 +116,7 @@ final class Payments
     /**
      * Webhook PayU (notifyUrl): weryfikacja podpisu i realizacja zamówienia.
      * Zwraca [kod HTTP, treść odpowiedzi]. Idempotentne — powtórka notyfikacji
-     * (PayU wysyła je do skutku) nie przyzna żetonów drugi raz.
+     * (PayU wysyła je do skutku) nie przyzna tokenów drugi raz.
      */
     public static function handleNotify(string $rawBody, string $signatureHeader): array
     {
@@ -161,7 +161,7 @@ final class Payments
         [, , $name] = self::PACKAGES[$o['package']] ?? [0, 0, $o['package']];
         if (!class_exists('Tokens')) require_once __DIR__ . '/Tokens.php';
         Tokens::grant((int) $o['user_id'], (int) $o['tokens'], 'purchase', "zakup: $name");
-        Engine::journal((int) $o['user_id'], 'token', "🪙 Opłacono $name — +" . (int) $o['tokens'] . " Żetonów Maklera. Dziękujemy!", 'sklep.php');
+        Engine::journal((int) $o['user_id'], 'token', "🪙 Opłacono $name — +" . (int) $o['tokens'] . " Tokenów Maklera. Dziękujemy!", 'sklep.php');
         Log::write('info', 'engine', 'pay.complete', "zamówienie #$orderId opłacone: $name", ['user_id' => $o['user_id'], 'grosz' => $o['amount_grosz']]);
         return true;
     }

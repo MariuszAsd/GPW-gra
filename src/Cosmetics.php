@@ -8,7 +8,7 @@
  */
 final class Cosmetics
 {
-    /** Katalog: klucz => [typ, cena w żetonach, nazwa w sklepie, wartość zakładana] */
+    /** Katalog: klucz => [typ, cena w tokenach, nazwa w sklepie, wartość zakładana] */
     public const ITEMS = [
         'title_rekin'   => ['title', 25, 'Tytuł: Rekin Parkietu',    'Rekin Parkietu'],
         'title_wilk'    => ['title', 25, 'Tytuł: Wilk z Książęcej',  'Wilk z Książęcej'],
@@ -34,7 +34,7 @@ final class Cosmetics
         return Engine::col("SELECT item FROM user_items WHERE user_id=?", [$uid]);
     }
 
-    /** Kup przedmiot za żetony (i od razu załóż). Zwraca [ok, komunikat]. */
+    /** Kup przedmiot za tokeny (i od razu załóż). Zwraca [ok, komunikat]. */
     public static function buy(int $uid, string $key): array
     {
         $it = self::ITEMS[$key] ?? null;

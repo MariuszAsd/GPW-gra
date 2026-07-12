@@ -1422,7 +1422,7 @@ final class Engine
         try {
             if (!class_exists('Tokens')) require_once __DIR__ . '/Tokens.php';
             Tokens::grant($userId, 2, 'achievement', 'odznaka: ' . $a[1]);
-        } catch (\Throwable $e) { /* żetony nie psują odznak */ }
+        } catch (\Throwable $e) { /* tokeny nie psują odznak */ }
         return true;
     }
 

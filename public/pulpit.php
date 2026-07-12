@@ -151,7 +151,7 @@ function stock_row(array $w, bool $premium, bool $withPl): void {
 <section class="panel" style="margin-bottom:16px">
   <h2>Misje dnia (<?= $missionsDone ?>/<?= count($missions) ?>)
     <span class="tag" style="margin-left:8px;color:var(--gold);border-color:var(--gold-border)">🔥 seria: <?= $streak ?> <?= $streak === 1 ? 'dzień' : 'dni' ?></span>
-    <?= tip('Codziennie trzy wspólne dla wszystkich misje — za każdą żetony. Wejście do gry podbija serię: +1 żeton dziennie i bonus +3 co 7. dzień z rzędu. Przerwa zeruje serię.', '') ?>
+    <?= tip('Codziennie trzy wspólne dla wszystkich misje — za każdą tokeny. Wejście do gry podbija serię: +1 token dziennie i bonus +3 co 7. dzień z rzędu. Przerwa zeruje serię.', '') ?>
   </h2>
   <?php foreach ($missions as $m): ?>
     <div class="check<?= $m['done'] ? ' done' : '' ?>">

@@ -31,7 +31,7 @@ final class Schema
                 joined_session INT NOT NULL DEFAULT 1,   -- sesja dołączenia (liczy się od niej limit celu)
                 goal_session   INT NULL,                 -- sesja, w której gracz osiągnął cel (NULL = jeszcze nie)
                 start_equity   $money NOT NULL DEFAULT 0, -- kapitał startowy (baza do wyniku % w rankingu)
-                tokens INT NOT NULL DEFAULT 0,             -- Żetony Maklera (waluta premium; księga w token_ledger)
+                tokens INT NOT NULL DEFAULT 0,             -- Tokeny Maklera (waluta premium; księga w token_ledger)
                 email VARCHAR(120) NULL,                   -- do odzyskiwania hasła (opcjonalny; unikalny gdy podany)
                 goal_target DECIMAL(15,2) NULL,            -- osobisty cel gry (NULL = domyślny z panelu GM)
                 -- kosmetyka (założone przedmioty; katalog w src/Cosmetics.php):
@@ -320,7 +320,7 @@ final class Schema
                 UNIQUE (stock_id, session)
             )",
 
-            // --- MONETYZACJA: Żetony Maklera (księga), pakiety premium, rekomendacje DM ---
+            // --- MONETYZACJA: Tokeny Maklera (księga), pakiety premium, rekomendacje DM ---
             "token_ledger" => "CREATE TABLE token_ledger (
                 id $pk,
                 user_id INT NOT NULL,
@@ -349,12 +349,12 @@ final class Schema
                 UNIQUE (stock_id, session)
             )",
 
-            // --- PŁATNOŚCI: zamówienia doładowań żetonów za prawdziwe pieniądze (PayU/BLIK) ---
+            // --- PŁATNOŚCI: zamówienia doładowań tokenów za prawdziwe pieniądze (PayU/BLIK) ---
             "payment_orders" => "CREATE TABLE payment_orders (
                 id $pk,
                 user_id INT NOT NULL,
                 package VARCHAR(20) NOT NULL,          -- start | inwestor | rekin (katalog w src/Payments.php)
-                tokens  INT NOT NULL,                  -- żetony do przyznania po opłaceniu (z bonusem)
+                tokens  INT NOT NULL,                  -- tokeny do przyznania po opłaceniu (z bonusem)
                 amount_grosz INT NOT NULL,             -- kwota w groszach (PLN)
                 status VARCHAR(12) NOT NULL DEFAULT 'new',  -- new | pending | completed | cancelled
                 provider VARCHAR(12) NOT NULL DEFAULT 'payu',

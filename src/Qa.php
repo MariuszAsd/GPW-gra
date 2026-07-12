@@ -82,11 +82,24 @@ final class Qa
         $stock = Engine::row("SELECT id, price FROM stocks WHERE halted_until_tick <= " . $tickQa . " ORDER BY price ASC LIMIT 1")
                ?? Engine::row("SELECT id, price FROM stocks ORDER BY price ASC LIMIT 1");   // najtańsza NIEzawieszona spółka
         $sid = (int) $stock['id'];
-        foreach ([['/pulpit.php', 'Pulpit'], ['/samouczek.php', 'Samouczek'], ['/market.php', 'Rynek'], ['/market.php', 'Notowania'], ['/branze.php', 'Trendy branżowe'], ['/rekomendacje.php', 'Rekomendacje DM'], ['/wiadomosci.php', 'Moje spółki'], ['/ranking.php', 'Ranking'], ['/portfolio.php', 'Portfel'], ['/portfolio.php', 'Pozycje w portfelu'], ['/pomoc.php', 'Stop-Loss'], ['/wiadomosci.php', 'Kalendarz'], ['/wiadomosci.php', 'FUNDAMENTY'], ['/wyzwania.php', 'Wyzwania'], ['/wyzwania.php', 'Jak działa wyzwanie'], ['/ipo.php', 'Oferty publiczne'], ['/portfolio.php', 'Lokaty'], ['/pomoc.php', 'SL kroczący'], ['/pomoc.php', 'pełne zasady krok po kroku'], ['/dziennik.php', 'Dziennik'], ['/sklep.php', 'Pakiet Analityka'], ['/sklep.php', 'Kosmetyka'], ['/sezon.php', 'Sezon'], ['/menu.php', 'Więcej'], ['/konto.php', 'Ustawienia konta'], ['/pulpit.php', 'Misje dnia'], ["/stock.php?id=$sid", 'Zlecenie'], ["/stock.php?id=$sid", 'Raport DM'], ["/stock.php?id=$sid", 'Dyskusja']] as [$path, $needle]) {
+        foreach ([['/pulpit.php', 'Pulpit'], ['/samouczek.php', 'Samouczek'], ['/market.php', 'Rynek'], ['/market.php', 'Notowania'], ['/branze.php', 'Trendy branżowe'], ['/rekomendacje.php', 'Rekomendacje DM'], ['/wiadomosci.php', 'Moje spółki'], ['/ranking.php', 'Ranking'], ['/portfolio.php', 'Portfel'], ['/portfolio.php', 'Pozycje w portfelu'], ['/pomoc.php', 'Stop-Loss'], ['/wiadomosci.php', 'Kalendarz'], ['/wiadomosci.php', 'FUNDAMENTY'], ['/wyzwania.php', 'Wyzwania'], ['/wyzwania.php', 'Jak działa wyzwanie'], ['/ipo.php', 'Oferty publiczne'], ['/portfolio.php', 'Lokaty'], ['/pomoc.php', 'SL kroczący'], ['/pomoc.php', 'pełne zasady krok po kroku'], ['/dziennik.php', 'Dziennik'], ['/sklep.php', 'Pakiet Analityka'], ['/sklep.php', 'Kosmetyka'], ['/sezon.php', 'Sezon'], ['/menu.php', 'Konto'], ['/konto.php', 'Ustawienia konta'], ['/pulpit.php', 'Misje dnia'], ["/stock.php?id=$sid", 'Zlecenie'], ["/stock.php?id=$sid", 'Raport DM'], ["/stock.php?id=$sid", 'Dyskusja']] as [$path, $needle]) {
             [$c, $b] = $this->http('GET', $path);
             $this->check($c === 200 && str_contains($b, $needle), "page.$path", "code=$c, brak '$needle'");
             $this->check(!preg_match('/Fatal error|Parse error|Uncaught|Warning:/', $b), "php.$path", 'strona zawiera błąd PHP');
         }
+        // NAWIGACJA: cała grywalność musi być osiągalna z chrome aplikacji (rail + dolny pasek + moduły).
+        // Menu „Konto" NIE może zawierać działów grywalnych (Ranking/Newsy/Branże/IPO w treści menu).
+        [$c, $nav] = $this->http('GET', '/pulpit.php');
+        foreach (['market.php', 'portfolio.php', 'wyzwania.php', 'ranking.php', 'sklep.php', 'pomoc.php', 'menu.php'] as $href) {
+            $this->check(str_contains($nav, "href='$href'") || str_contains($nav, "href=\"$href\""), "nav.$href", "brak linku do $href w nawigacji");
+        }
+        $this->check(str_contains($nav, '>Liga<') && str_contains($nav, '>Konto<'), 'nav.labels', 'dolny pasek nie ma zakładek Liga/Konto');
+        [$c, $konto] = $this->http('GET', '/menu.php');
+        $kontoBody = substr($konto, (int) strpos($konto, 'page-head'));   // tylko treść, nie chrome nawigacji
+        $this->check(!str_contains($kontoBody, 'branze.php') && !str_contains($kontoBody, 'rekomendacje.php') && !str_contains($kontoBody, 'wiadomosci.php'),
+            'nav.konto_clean', 'menu Konto zawiera działy grywalne (powinny być tylko w modułach)');
+        [$c, $liga] = $this->http('GET', '/wyzwania.php');
+        $this->check(str_contains($liga, 'ranking.php') && str_contains($liga, "class='subnav'"), 'nav.liga_subnav', 'brak podzakładek Ligi (Wyzwania/Ranking) na wyzwania.php');
         [$c, $b] = $this->http('GET', "/stock.php?id=$sid");
         $this->check($c === 200 && str_contains($b, 'Analiza techniczna'), 'page.ta', "brak zakładki Analiza techniczna (code=$c)");
         [$c, $b] = $this->http('GET', "/api_chart.php?id=$sid&iv=5");

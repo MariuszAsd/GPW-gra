@@ -275,7 +275,7 @@ final class Challenges
             Engine::notify((int) $cp['user_id'], 'challenge', $msg, 'wyzwania.php');
             if ($rank <= 3) $podium[] = $rank . '. ' . $cp['username'] . ' (' . number_format($ret, 1, ',', ' ') . '%)';
             if ($rank === 1) Engine::award((int) $cp['user_id'], 'zwyciezca_wyzwania');
-            // Żetony Maklera za podium (monetyzacja zdobywalna grą, nie tylko portfelem)
+            // Tokeny Maklera za podium (monetyzacja zdobywalna grą, nie tylko portfelem)
             if (!class_exists('Tokens')) require_once __DIR__ . '/Tokens.php';
             if ($rank === 1) Tokens::grant((int) $cp['user_id'], 10, 'challenge', 'wygrana: ' . $ch['name']);
             elseif ($rank <= 3) Tokens::grant((int) $cp['user_id'], 5, 'challenge', 'podium: ' . $ch['name']);

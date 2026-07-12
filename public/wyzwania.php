@@ -105,9 +105,8 @@ function split_label(int $n): string {
 
 layout_header('Wyzwania', $user, 'challenges');
 ?>
-<div class="page-head"><h1>Wyzwania</h1>
-  <?php if (Seasons::active()): ?><a class="btn sm ghost" style="margin-left:auto" href="sezon.php">🏁 Sezon — punkty i karnet</a><?php endif; ?>
-</div>
+<div class="page-head"><h1>Liga</h1></div>
+<?php liga_subnav('challenges'); ?>
 
 <?php /* ---------- BANNER CTA: dołącz / jesteś zapisany / co się dzieje ---------- */ ?>
 <?php if ($heroJoin && $isPlayer): $fee = round((float) $heroJoin['buyin'] * (float) $heroJoin['fee_pct'] / 100, 2);
@@ -283,7 +282,7 @@ layout_header('Wyzwania', $user, 'challenges');
     <div class="ch-step"><i>4</i><b>🏆 Rozliczenie</b><span>buy-in wraca każdemu; top ~20% graczy dzieli dodatkowo pulę wpisowych</span></div>
   </div>
   <p class="muted" style="margin:8px 0 0;font-size:12.5px">
-    <b class="up">Wygrywasz</b> → nagroda z puli + Żetony Maklera + punkty sezonu i odznaka.
+    <b class="up">Wygrywasz</b> → nagroda z puli + Tokeny Maklera + punkty sezonu i odznaka.
     <b class="down">Przegrywasz</b> → tracisz najwyżej wpisowe (i ewentualną stratę z handlu) — buy-in w formie, do jakiej go doprowadziłeś (gotówka + akcje), wraca na konto.
   </p>
 </section>
