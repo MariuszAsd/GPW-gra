@@ -32,17 +32,25 @@ $payOn = Payments::enabled();
 layout_header('Sklep', $user, 'shop');
 ?>
 <div class="page-head">
-  <h1>Tokeny Maklera</h1>
-  <span class="muted">premium bez psucia gry — tokenów nie wymienisz na PLN, kupują informację i wygląd</span>
+  <h1>Sklep</h1>
+  <span class="muted hide-m">premium bez psucia gry — tokenów nie wymienisz na PLN, kupują informację i wygląd</span>
 </div>
 
 <div class="stats" style="grid-template-columns:repeat(2,1fr);max-width:560px">
-  <div class="stat"><div class="k">Twoje saldo</div><div class="v" style="color:var(--gold)">🪙 <?= $balance ?></div></div>
+  <div class="stat"><div class="k">Twoje saldo</div><div class="v" style="color:var(--gold)">🪙 <?= $balance ?> Tokenów</div></div>
   <div class="stat"><div class="k">Jak zdobywać</div><div class="v" style="font-size:13px;font-weight:500;line-height:1.5;letter-spacing:0">+10 na start · +2 za odznakę<br>+10 wygrana / +5 podium wyzwania<br>+ progi sezonu · 🎁 aktywni dostają<br>darmowy okres próbny premium</div></div>
 </div>
 
-<section class="panel" style="margin-bottom:16px">
-  <h2>Pakiety premium</h2>
+<div class="subtabs">
+  <button class="on" data-tab="premium">Premium</button>
+  <button data-tab="kosmetyka">Kosmetyka</button>
+  <button data-tab="doladuj">Doładuj tokeny</button>
+  <button data-tab="historia">Historia<?= $ledger ? ' (' . count($ledger) . ')' : '' ?></button>
+</div>
+
+<div class="tabpane on" id="tab-premium">
+<section class="panel">
+  <h2>Pakiety premium <span class="muted" style="text-transform:none;letter-spacing:0;font-size:12px">— skaner AT, alerty, rekomendacje dzień wcześniej i pełne raporty spółek</span></h2>
   <?php foreach (Tokens::PASSES as $kind => [$days, $price, $name, $desc]): $until = Tokens::passUntil($uid, $kind); ?>
     <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;padding:14px;border:1px solid var(--line);border-radius:12px;margin-bottom:10px<?= $until ? ';border-color:var(--up-border);background:var(--up-bg)' : '' ?>">
       <div style="flex:1;min-width:260px">
@@ -59,8 +67,10 @@ layout_header('Sklep', $user, 'shop');
   <?php endforeach; ?>
   <p class="muted" style="font-size:12.5px;margin:8px 0 0">Pakiet liczony w sesjach giełdowych (1 sesja = 1 dzień handlu). Przedłużenie dokleja dni do końca obecnego pakietu.</p>
 </section>
+</div><!-- /tab-premium -->
 
-<section class="panel" style="margin-bottom:16px">
+<div class="tabpane" id="tab-kosmetyka">
+<section class="panel">
   <h2>Kosmetyka <span class="muted" style="text-transform:none;letter-spacing:0;font-size:12px">— tytuł w rankingu, kolor nicka na czacie, ramka profilu (bez wpływu na grę)</span></h2>
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;margin-top:10px">
     <?php foreach (Cosmetics::ITEMS as $key => [$type, $price, $name, $value]):
@@ -85,8 +95,10 @@ layout_header('Sklep', $user, 'shop');
     <?php endforeach; ?>
   </div>
 </section>
+</div><!-- /tab-kosmetyka -->
 
-<section class="panel" style="margin-bottom:16px">
+<div class="tabpane" id="tab-doladuj">
+<section class="panel">
   <h2>Doładowanie tokenów</h2>
   <div class="ch-grid">
     <?php foreach (Payments::PACKAGES as $pkg => [$tk, $grosz, $name, $bonus]): ?>
@@ -104,24 +116,42 @@ layout_header('Sklep', $user, 'shop');
   <?php else: ?>
     <p class="muted" style="margin:10px 0 0">Płatności online <b>wkrótce</b> — na czas testów tokeny przyznaje administrator gry (napisz na czacie).</p>
   <?php endif; ?>
+  <p class="muted" style="margin:8px 0 0;font-size:11.5px">Tokeny kupują wyłącznie informację i wygląd — nigdy PLN w grze ani miejsca w rankingu. To zasada, nie chwilowa obietnica.</p>
 </section>
+</div><!-- /tab-doladuj -->
 
-<?php if ($ledger): ?>
+<div class="tabpane" id="tab-historia">
 <section class="panel">
   <h2>Historia operacji</h2>
-  <table>
+  <?php if (!$ledger): ?>
+    <p class="muted">Jeszcze pusto — pierwsze wpisy pojawią się po zdobyciu albo wydaniu tokenów.</p>
+  <?php else: ?>
+  <div class="tbl-scroll"><table>
     <thead><tr><th>Kiedy</th><th>Operacja</th><th class="num">Zmiana</th><th class="num">Saldo</th></tr></thead>
     <tbody>
     <?php foreach ($ledger as $l): ?>
       <tr>
-        <td class="mono muted" style="white-space:nowrap"><?= h($l['created_at']) ?></td>
+        <td class="mono muted" style="white-space:nowrap"><?= h(substr($l['created_at'], 5, 11)) ?></td>
         <td><?= h($l['note'] ?: $l['reason']) ?></td>
         <td class="num"><span class="<?= $l['delta'] >= 0 ? 'up' : 'down' ?>"><?= ($l['delta'] >= 0 ? '+' : '') . (int) $l['delta'] ?></span></td>
         <td class="num muted"><?= (int) $l['balance'] ?></td>
       </tr>
     <?php endforeach; ?>
     </tbody>
-  </table>
+  </table></div>
+  <?php endif; ?>
 </section>
-<?php endif; ?>
+</div><!-- /tab-historia -->
+
+<script>
+document.querySelectorAll('.subtabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.subtabs button').forEach(x => x.classList.remove('on'));
+  document.querySelectorAll('.tabpane').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  document.getElementById('tab-' + b.dataset.tab)?.classList.add('on');
+});
+// głęboki link ?tab=kosmetyka / doladuj / historia (np. z upselli albo powiadomień)
+const stab = new URLSearchParams(location.search).get('tab');
+if (stab) document.querySelector(`.subtabs button[data-tab="${stab}"]`)?.click();
+</script>
 <?php layout_footer();
