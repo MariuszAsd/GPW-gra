@@ -27,7 +27,15 @@ if ($type === 'market') {
     [$ok, $msg, $oid] = Engine::place((int) $user['id'], $sid, $side, $qty, $price, $exp) + [2 => 0];
     if ($ok) {
         Engine::matchBook($sid);                   // spróbuj skojarzyć od razu
-        $filledAny = $oid > 0 && (int) Engine::one("SELECT qty FROM orders WHERE id=?", [$oid]) < $qty;
+        // JASNE potwierdzenie: ile weszło od razu, ile czeka w arkuszu
+        $rem = $oid > 0 ? (int) (Engine::one("SELECT qty FROM orders WHERE id=? AND status='active'", [$oid]) ?? 0) : 0;
+        $done = max(0, $qty - $rem);
+        $filledAny = $done > 0;
+        $act = $side === 'buy' ? 'Kupiono' : 'Sprzedano';
+        $czas = $side === 'buy' ? 'kupca' : 'sprzedającego';
+        if ($rem <= 0)        $msg = "✅ $act $done szt. po ~" . number_format($price, 2, ',', ' ') . ' PLN. Zlecenie zrealizowane w całości.';
+        elseif ($done > 0)    $msg = "✅ $act od razu $done szt. — pozostałe $rem szt. czeka w arkuszu po " . number_format($price, 2, ',', ' ') . ' PLN (zobacz Portfel → Zlecenia).';
+        else                  $msg = "📥 Zlecenie " . ($side === 'buy' ? 'kupna' : 'sprzedaży') . " $qty szt. po " . number_format($price, 2, ',', ' ') . " PLN złożone — czeka w arkuszu na $czas (Portfel → Zlecenia).";
     }
 }
 Log::write($ok ? 'info' : 'warn', 'player', 'order.place', ($ok ? 'przyjęte' : 'odrzucone') . ": $type $side {$qty}szt" . ($type === 'limit' ? " @ $price" : '') . " (spółka #$sid)",

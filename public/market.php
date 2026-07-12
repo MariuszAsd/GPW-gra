@@ -3,7 +3,7 @@ require __DIR__ . '/_boot.php';
 $user = require_login();
 
 [$sessionNo, , $tps] = Engine::sessionInfo();
-$sessStart = ($sessionNo - 1) * $tps;
+$sessStart = Engine::sessionStartTick();   // tick otwarcia bieżącej sesji (obrót dzienny)
 $isPremium = Tokens::hasPass((int) $user['id'], 'analityk');
 $stocks = Engine::all("SELECT s.id, s.ticker, s.name, sec.name AS sector, s.price, s.day_open_price, s.liquidity, s.ta_signal, s.halted_until_tick,
                               (SELECT SUM(c.v * c.c) FROM candles c WHERE c.stock_id = s.id AND c.t >= $sessStart) AS turnover
@@ -19,7 +19,7 @@ if ($watched) usort($stocks, function ($a, $b) use ($watched) {
 // --- indeks giełdowy ---
 $idxSeries = array_reverse(array_map('floatval', Engine::col("SELECT value FROM index_history ORDER BY t DESC LIMIT 120")));
 $idxNow = $idxSeries ? end($idxSeries) : Engine::indexValue();
-$idxOpen = (float) (Engine::one("SELECT value FROM index_history WHERE t >= ? ORDER BY t ASC LIMIT 1", [($sessionNo - 1) * $tps]) ?: $idxNow);
+$idxOpen = (float) (Engine::one("SELECT value FROM index_history WHERE t >= ? ORDER BY t ASC LIMIT 1", [$sessStart]) ?: $idxNow);
 $idxChg = $idxOpen > 0 ? ($idxNow - $idxOpen) / $idxOpen * 100 : 0;
 $idxSvg = '';
 if (count($idxSeries) > 1) {

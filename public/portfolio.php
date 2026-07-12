@@ -195,14 +195,14 @@ layout_header('Portfel', $user, 'portfolio');
   <div style="padding:14px 16px 0"><h2>Aktywne zlecenia <span class="muted" style="text-transform:none;letter-spacing:0">· kliknij wiersz, aby zobaczyć szczegóły</span></h2></div>
   <div class="tbl-scroll">
     <table>
-      <thead><tr><th>Instrument</th><th>Typ</th><th class="num">Ilość</th><th class="num">Cena</th><th class="hide-m">Ważność</th><th></th></tr></thead>
+      <thead><tr><th>Instrument</th><th>Typ</th><th class="num">Ilość<?= tip('Ile jeszcze czeka w arkuszu / ile było w całym zleceniu. „częściowo" = część już się zrealizowała, reszta czeka na kupca/sprzedawcę.', '') ?></th><th class="num">Cena</th><th class="hide-m">Ważność</th><th></th></tr></thead>
       <tbody>
-      <?php foreach ($orders as $o): $isStop = $o['status'] === 'pending'; ?>
+      <?php foreach ($orders as $o): $isStop = $o['status'] === 'pending'; $init = (int) ($o['qty_init'] ?? $o['qty']); $rem = (int) $o['qty']; $done = max(0, $init - $rem); ?>
         <tr class="rowlink" onclick="location='order.php?id=<?= (int) $o['id'] ?>'" title="Kliknij — szczegóły zlecenia">
           <td class="tk"><?= h($o['ticker']) ?></td>
           <td><?php if ($isStop): ?><span class="chg" style="color:var(--gold);background:var(--gold-bg)">OBRONNE</span>
               <?php else: ?><span class="chg <?= $o['side'] === 'buy' ? 'p' : 'n' ?>"><?= $o['side'] === 'buy' ? 'KUPNO' : 'SPRZEDAŻ' ?></span><?php endif; ?></td>
-          <td class="num"><?= (int) $o['qty'] ?></td>
+          <td class="num"><?php if (!$isStop && $done > 0): ?><b><?= $rem ?></b><span class="muted" style="font-size:11px"> z <?= $init ?></span><span class="chg p" style="font-size:9px;display:block;letter-spacing:0">częściowo · <?= $done ?> kupione</span><?php else: ?><?= $rem ?><?php endif; ?></td>
           <td class="num"><?php if ($isStop): ?><span class="mono" style="font-size:12px"><?= $o['sl_price'] !== null ? (($o['trail_pct'] ?? null) !== null ? 'SL krocz. ' . rtrim(rtrim(number_format((float) $o['trail_pct'], 1, ',', ''), '0'), ',') . '%: ' : 'SL ') . money($o['sl_price']) : '' ?><?= $o['sl_price'] !== null && $o['tp_price'] !== null ? ' · ' : '' ?><?= $o['tp_price'] !== null ? 'TP ' . money($o['tp_price']) : '' ?></span><?php else: ?><?= money($o['price']) ?><?php endif; ?></td>
           <td class="muted hide-m"><?= $isStop ? 'do wyzwolenia' : ($o['expires_session'] !== null ? 'sesja #' . (int) $o['expires_session'] : 'bezterm.') ?></td>
           <td style="text-align:right"><form method="post" action="cancel_order.php" onclick="event.stopPropagation()"><input type="hidden" name="order_id" value="<?= (int) $o['id'] ?>"><button class="btn sm ghost">Anuluj</button></form></td>

@@ -291,7 +291,7 @@ final class Engine
 
         $bots = self::all("SELECT u.id, b.strategy, b.news_reactivity, b.technical_sensitivity, b.risk_appetite, b.horizon
                            FROM users u JOIN bots b ON b.user_id = u.id WHERE u.is_bot = 1");
-        $stocks = self::all("SELECT id, sector_id, price, fundamental, pe_target, last_eps, liquidity, dividend_payout, tech_affinity FROM stocks");
+        $stocks = self::all("SELECT id, sector_id, price, fundamental, pe_target, last_eps, liquidity, dividend_payout, tech_affinity, ta_signal FROM stocks");
         $tick = (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
         $mods = self::activeMods($tick);   // boty fundamentalne rozumieja skutki wydarzen
 
@@ -299,7 +299,7 @@ final class Engine
         // (odświeży je za 1-2 ticki). Dzięki temu arkusz pozostaje głęboki (zlecenia trwają), a
         // liczba operacji zapisu na tick — i okno blokady, przez które WISI zlecenie gracza — spada ~3×.
         // Efekt uboczny: w arkuszu leżą zlecenia z różnych „roczników" → naturalnie zróżnicowany.
-        $botActive = fn(int $uid) => (($uid + $tick) % 3) === 0;
+        $botActive = fn(int $uid) => (($uid + $tick) % 4) === 0;
 
         // prefetch: portfele wszystkich botów (jedno zapytanie zamiast setek)
         $wal = [];
@@ -398,7 +398,7 @@ final class Engine
                     // kalibracja: ciasne limity (~0,5% od kursu) zamiast 2% — bot trendowy
                     // przestaje płacić ~4% "prowizji" na każdej rundce (bankrutował ~-26%/15 sesji)
                     // przechył AT: zgodny sygnał techniczny powiększa pozycję (do +60%), przeciwny nie blokuje
-                    $tilt = $taInf > 0 ? Technical::composite($sid) * $taInf * (float) $st['tech_affinity'] * $sens * 0.6 : 0.0;
+                    $tilt = $taInf > 0 ? (float) $st['ta_signal'] * $taInf * (float) $st['tech_affinity'] * $sens * 0.6 : 0.0;
                     if ($short > $long * (1 + $th) && $have < 400 * $risk)  self::place($uid, $sid, 'buy',  max(1, (int) round(50 * $risk * $act * (1 + max(0, $tilt)))), round($price * 1.005, 2));
                     elseif ($short < $long * (1 - $th) && $have > 0)         self::place($uid, $sid, 'sell', min((int) round(100 * $risk * $act * (1 + max(0, -$tilt))) + 1, $have), round($price * 0.995, 2));
                 } elseif ($strat === 'rsi') {
@@ -435,7 +435,7 @@ final class Engine
                     // nic nie jest zero-jedynkowe: mocniejszy sygnał = większa pozycja.
                     if ($taInf <= 0) continue;
                     // komentarz techniczny w mediach = chwilowy dopalacz czułości (samospełniająca się przepowiednia)
-                    $sigT = Technical::composite($sid) * $taInf * (0.4 + 1.2 * $aff) * $sens * $news;
+                    $sigT = (float) $st['ta_signal'] * $taInf * (0.4 + 1.2 * $aff) * $sens * $news;
                     if ($have > 0 && $avg > 0 && $price < $avg * 0.90) {   // twardy stop bota AT: -10%
                         self::place($uid, $sid, 'sell', $have, round($price * 0.995, 2));
                         continue;
@@ -1082,6 +1082,15 @@ final class Engine
         if ($tick === null) $tick = (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
         $n = intdiv(max(0, $tick), $tps) + 1;
         return [$n, $tps - (max(0, $tick) % $tps), $tps];
+    }
+
+    /** Tick, na którym otwarto BIEŻĄCĄ sesję (do obrotu dziennego). W trybie godzin handlu
+     *  sessionInfo zwraca tps=dlugosc_dnia_w_minutach, więc (sesja-1)*tps NIE jest ticiem —
+     *  trzeba czytać zapamiętany session_start_tick (ustawiany przy każdym rollu). */
+    public static function sessionStartTick(): int
+    {
+        $v = self::one("SELECT v FROM game_state WHERE k='session_start_tick'");
+        return ($v === false || $v === null) ? 0 : (int) $v;
     }
 
     /** Na otwarciu nowej sesji: kurs otwarcia dnia + wygaśnięcie zleceń sesyjnych (ze zwrotem escrow). */

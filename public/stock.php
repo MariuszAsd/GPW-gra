@@ -48,7 +48,7 @@ $chg = $ref > 0 ? ((float) $s['price'] - $ref) / $ref * 100 : 0;   // zmiana od 
 
 $candles = array_reverse(Engine::all("SELECT o,h,l,c,v FROM candles WHERE stock_id=? ORDER BY t DESC LIMIT 80", [$id]));
 [$sessionNo] = Engine::sessionInfo();
-$sessTurnover = (float) (Engine::one("SELECT SUM(v * c) FROM candles WHERE stock_id=? AND t >= ?", [$id, ($sessionNo - 1) * $tps]) ?: 0);
+$sessTurnover = (float) (Engine::one("SELECT SUM(v * c) FROM candles WHERE stock_id=? AND t >= ?", [$id, Engine::sessionStartTick()]) ?: 0);
 [$liqCls, $liqTxt] = liq_label($s['liquidity']);
 
 $bids = Engine::all("SELECT price, SUM(qty) q FROM orders WHERE stock_id=? AND side='buy'  AND status='active' GROUP BY price ORDER BY price DESC LIMIT 8", [$id]);
