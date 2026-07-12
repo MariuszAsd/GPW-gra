@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 28;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 29;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -319,6 +319,12 @@ final class Schema
                 o $money NOT NULL, h $money NOT NULL, l $money NOT NULL, c $money NOT NULL,
                 v BIGINT NOT NULL DEFAULT 0,
                 UNIQUE (stock_id, session)
+            )",
+
+            // --- DATY SESJI (numer sesji giełdowej -> data dnia, do wyświetlania „Sesja #N · data") ---
+            "session_dates" => "CREATE TABLE session_dates (
+                session    INT PRIMARY KEY,
+                trade_date VARCHAR(10) NOT NULL
             )",
 
             // --- MONETYZACJA: Tokeny inwestora (księga), pakiety premium, rekomendacje DM ---

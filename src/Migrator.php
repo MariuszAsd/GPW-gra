@@ -427,6 +427,15 @@ final class Migrator
                 // zawieszenia notowań na WALL-CLOCK (5 min), nie na ticki — poprawny licznik i auto-wznowienie
                 "ALTER TABLE stocks ADD COLUMN halted_until VARCHAR(19) NULL",
             ],
+            29 => [
+                // numer sesji -> data dnia (wyświetlanie „Sesja #N · data")
+                "CREATE TABLE session_dates (
+                    session    INT PRIMARY KEY,
+                    trade_date VARCHAR(10) NOT NULL
+                )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
+                // jednorazowe czyszczenie strumienia ESPI (na życzenie: obserwujemy świeży dopływ w kolejnych sesjach)
+                "DELETE FROM news",
+            ],
         ];
     }
 

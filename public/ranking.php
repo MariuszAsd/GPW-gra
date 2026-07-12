@@ -36,7 +36,7 @@ $medals = ['🥇', '🥈', '🥉'];
 <?php explainer('ranking', 'O co gramy', [
     'cel: pierwszy milion', 'wynik = gotówka + akcje + lokaty i zapisy IPO',
     'zbieraj odznaki', 'kliknij nick, aby zobaczyć profil gracza']); ?>
-<div class="page-head"><h1>Liga</h1><span class="tag" style="color:var(--accent);border-color:var(--accent)">Sesja #<?= $sessionNo ?></span>
+<div class="page-head"><h1>Liga</h1><?= session_tag($sessionNo) ?>
   <?php if ($goalTarget > 0): ?><span class="muted hide-m">cel: <?= money($goalTarget) ?> PLN w <?= $goalSessions ?> sesji — zwycięzcy wg tempa, reszta wg kapitału</span><?php endif; ?>
 </div>
 <?php liga_subnav('ranking'); ?>

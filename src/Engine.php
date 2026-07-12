@@ -137,6 +137,44 @@ final class Engine
     }
 
     /**
+     * Edycja AKTYWNEGO zlecenia z limitem: zmiana ceny i/lub ilości (reszty czekającej w arkuszu).
+     * Rezerwacja korygowana różnicowo (bez utraty escrow), po czym próba natychmiastowego skojarzenia.
+     * Zmiana = utrata priorytetu czasu (świeży czas), jak przy realnej modyfikacji na giełdzie.
+     */
+    public static function editOrder(int $orderId, int $userId, int $newQty, float $newPrice): array
+    {
+        $pdo = Db::pdo();
+        $o = self::row("SELECT * FROM orders WHERE id=? AND user_id=? AND status='active'", [$orderId, $userId]);
+        if (!$o)                                       return [false, 'Nie znaleziono aktywnego zlecenia do edycji.'];
+        if (!in_array($o['side'], ['buy', 'sell'], true)) return [false, 'Tego zlecenia nie można edytować.'];
+        $newQty = (int) $newQty; $newPrice = round((float) $newPrice, 2);
+        if ($newQty <= 0 || $newPrice <= 0)            return [false, 'Podaj poprawną ilość i cenę.'];
+        if (($m = self::haltMessage((int) $o['stock_id'])) !== null) return [false, $m];
+
+        if ($o['side'] === 'buy') {
+            $oldCost = round((float) $o['qty'] * (float) $o['price'], 2);   // bieżąca rezerwacja tego zlecenia
+            $newCost = round($newQty * $newPrice, 2);
+            $cash = (float) self::one("SELECT cash FROM users WHERE id=?", [$userId]);
+            if ($cash + $oldCost + 1e-6 < $newCost)
+                return [false, 'Za mało gotówki na tę zmianę. Dostępne z tym zleceniem: ' . number_format($cash + $oldCost, 2, ',', ' ') . ' PLN, potrzeba ' . number_format($newCost, 2, ',', ' ') . ' PLN.'];
+            $delta = round($newCost - $oldCost, 2);   // >0 dokładamy rezerwację, <0 zwrot
+            $pdo->prepare("UPDATE users SET cash=cash-?, cash_reserved=cash_reserved+? WHERE id=?")->execute([$delta, $delta, $userId]);
+        } else {
+            $oldQ  = (int) $o['qty'];
+            $avail = (int) self::one("SELECT qty FROM wallets WHERE user_id=? AND stock_id=?", [$userId, $o['stock_id']]);
+            if ($avail + $oldQ < $newQty)
+                return [false, 'Nie masz tylu akcji (dostępne z tym zleceniem: ' . ($avail + $oldQ) . ').'];
+            $dq = $newQty - $oldQ;   // >0 rezerwujemy więcej, <0 zwrot do portfela
+            $pdo->prepare("UPDATE wallets SET qty=qty-?, qty_reserved=qty_reserved+? WHERE user_id=? AND stock_id=?")->execute([$dq, $dq, $userId, $o['stock_id']]);
+        }
+        // świeży czas = utrata priorytetu w arkuszu; qty_init=newQty (edytowana reszta staje się nowym pakietem)
+        $pdo->prepare("UPDATE orders SET qty=?, qty_init=?, price=?, created_at=? WHERE id=?")
+            ->execute([$newQty, $newQty, $newPrice, Db::now(), $orderId]);
+        self::matchBook((int) $o['stock_id']);   // spróbuj skojarzyć od razu po zmianie
+        return [true, "Zlecenie #$orderId zmienione: $newQty szt. po " . number_format($newPrice, 2, ',', ' ') . ' PLN.', $orderId];
+    }
+
+    /**
      * Zlecenie obronne SL/TP na KONKRETNY pakiet akcji (status 'pending', czeka na kurs).
      * Rezerwuje akcje jak zlecenie sprzedaży; wyzwolone sprzedaje po realnych cenach z arkusza.
      * $trail (SL kroczący): % pod kursem — silnik PODNOSI sl_price za rosnącym kursem,
@@ -1151,6 +1189,28 @@ final class Engine
         return ($v === false || $v === null) ? 0 : (int) $v;
     }
 
+    /** Data (Y-m-d) danej sesji giełdowej lub null, gdy nieznana. Bieżąca sesja = dzisiejszy dzień. */
+    public static function sessionDate(int $n): ?string
+    {
+        $d = self::one("SELECT trade_date FROM session_dates WHERE session=?", [$n]);
+        if ($d !== false && $d !== null && $d !== '') return (string) $d;
+        [$cur] = self::sessionInfo();
+        if ($n === (int) $cur) {   // bieżąca sesja jeszcze niezapisana -> dzisiejsza data
+            $sd = self::one("SELECT v FROM game_state WHERE k='session_date'");
+            return ($sd !== false && $sd !== null && $sd !== '') ? (string) $sd : self::nowWarsaw()->format('Y-m-d');
+        }
+        return null;
+    }
+
+    /** Wyczyść cały strumień ESPI/wiadomości (numer sesji ani kursy nietknięte). Zwraca liczbę usuniętych. */
+    public static function clearNews(): int
+    {
+        $n = (int) (self::one("SELECT COUNT(*) FROM news") ?: 0);
+        Db::pdo()->exec("DELETE FROM news");
+        Log::write('info', 'gm', 'news.clear', "wyczyszczono strumień ESPI: $n wpisów");
+        return $n;
+    }
+
     /** Na otwarciu nowej sesji: kurs otwarcia dnia + wygaśnięcie zleceń sesyjnych (ze zwrotem escrow). */
     private static function rollSession(int $tick): void
     {
@@ -1176,6 +1236,11 @@ final class Engine
             $prev = (int) (self::one("SELECT v FROM game_state WHERE k='session'") ?: 0);
             if ($n === $prev) return;
         }
+        // zapamiętaj datę tej sesji (numer -> dzień) do wyświetlania „Sesja #N · data"
+        try {
+            $rollDate = self::one("SELECT v FROM game_state WHERE k='session_date'") ?: self::nowWarsaw()->format('Y-m-d');
+            Db::pdo()->prepare("INSERT INTO session_dates (session, trade_date) VALUES (?, ?)")->execute([$n, $rollDate]);
+        } catch (\Throwable $e) { /* data tej sesji już zapisana — pomiń */ }
         // świece dzienne D1 (wykresy tydzień/miesiąc/rok): zrzut ZAMYKANEJ sesji,
         // koniecznie PRZED nadpisaniem day_open_price nowym kursem otwarcia
         try {

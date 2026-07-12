@@ -103,6 +103,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $on = ($_POST['enabled'] ?? '1') === '1';
         Engine::setState('events_enabled', $on ? '1' : '0');
         flash($on ? 'Losowe wydarzenia WŁĄCZONE.' : 'Losowe wydarzenia wyłączone (ręczne nadal działają).');
+    } elseif ($a === 'clear_news') {
+        $n = Engine::clearNews();
+        flash("🧹 Wyczyszczono strumień ESPI/wiadomości — usunięto $n wpisów. Świeże newsy zaczną spływać od kolejnych ticków.");
     } elseif ($a === 'challenge_create') {
         [$sess] = Engine::sessionInfo();
         Challenges::create([
@@ -539,6 +542,10 @@ $modTop = Engine::all("SELECT m.user_id, u.username, COUNT(*) n, MAX(m.created_a
       <input type="hidden" name="action" value="events_toggle">
       <input type="hidden" name="enabled" value="<?= $evOn ? '0' : '1' ?>">
       <button class="btn sm ghost"><?= $evOn ? '⏸ Wyłącz losowe' : '▶ Włącz losowe' ?></button>
+    </form>
+    <form method="post" class="inline" onsubmit="return confirm('Wyczyścić CAŁY strumień ESPI/wiadomości? Świeże newsy zaczną spływać od kolejnych ticków.')">
+      <input type="hidden" name="action" value="clear_news">
+      <button class="btn sm ghost" title="Usuwa wszystkie dotychczasowe komunikaty ESPI i wiadomości — do obserwacji świeżego dopływu w kolejnych sesjach">🧹 Wyczyść ESPI</button>
     </form>
   </div>
   <form method="post" class="row" style="align-items:flex-end;margin-bottom:10px">

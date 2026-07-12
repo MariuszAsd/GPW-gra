@@ -20,7 +20,7 @@ if ($recoPremium) {
 
 layout_header('Rekomendacje', $user, 'market');
 ?>
-<div class="page-head"><h1>Rynek</h1><span class="tag" style="color:var(--accent);border-color:var(--accent)">Sesja #<?= $sessionNo ?></span></div>
+<div class="page-head"><h1>Rynek</h1><?= session_tag($sessionNo) ?></div>
 <?php market_subnav('rek'); ?>
 <?php explainer('reko', 'Jak czytać rekomendacje', [
     'analitycy wyceniają spółkę', 'kupuj = kurs poniżej wyceny',

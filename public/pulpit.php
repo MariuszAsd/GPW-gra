@@ -86,7 +86,7 @@ function stock_row(array $w, bool $premium, bool $withPl): void {
 ?>
 <div class="page-head">
   <h1>Dzień dobry, <?= h($user['username']) ?></h1>
-  <span class="tag" style="color:var(--accent);border-color:var(--accent)">Sesja #<?= $sessionNo ?></span>
+  <?= session_tag($sessionNo) ?>
   <?php if ($mhOn): ?>
     <span class="tag" style="<?= $mhIsOpen ? 'color:var(--up);border-color:var(--up)' : 'color:var(--faint)' ?>"><?= $mhIsOpen ? "rynek otwarty do $mhClose" : "rynek zamknięty · otwarcie $mhOpen" ?></span>
   <?php endif; ?>

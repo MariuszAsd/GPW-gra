@@ -35,6 +35,35 @@ function money_short($v): string {
     if ($v >= 1e3) return number_format($v / 1e3, 1, ',', ' ') . ' tys.';
     return number_format($v, 0, ',', ' ');
 }
+/** Data danej sesji jako „12.07.2026" (pusto, gdy nieznana). */
+function session_date_label(int $n): string {
+    $d = Engine::sessionDate($n);
+    if (!$d) return '';
+    $p = explode('-', $d);
+    return count($p) === 3 ? $p[2] . '.' . $p[1] . '.' . $p[0] : $d;
+}
+/** Znacznik do nagłówka strony: „Sesja #N · data" (data dopisywana, gdy znana). */
+function session_tag(int $n): string {
+    $dl = session_date_label($n);
+    return '<span class="tag" style="color:var(--accent);border-color:var(--accent)">Sesja #' . (int) $n
+        . ($dl !== '' ? ' · <span style="font-weight:600">' . $dl . '</span>' : '') . '</span>';
+}
+/** Rozwijana forma zmiany AKTYWNEGO zlecenia z limitem (cena + ilość reszty). $back = powrót po zapisie. Pusto dla zleceń, których nie da się edytować. */
+function order_edit_form(array $o, string $back): string {
+    if (($o['status'] ?? '') !== 'active' || !in_array($o['side'] ?? '', ['buy', 'sell'], true)) return '';
+    $oid = (int) $o['id']; $qty = (int) $o['qty']; $price = number_format((float) $o['price'], 2, '.', '');
+    ob_start(); ?>
+<details class="oedit"><summary class="btn sm ghost">Edytuj</summary>
+  <form method="post" action="edit_order.php" class="oedit-form" onclick="event.stopPropagation()">
+    <input type="hidden" name="order_id" value="<?= $oid ?>">
+    <input type="hidden" name="back" value="<?= h($back) ?>">
+    <label>Ilość<input type="number" name="qty" value="<?= $qty ?>" min="1" step="1" required></label>
+    <label>Cena (PLN)<input type="text" name="price" value="<?= $price ?>" inputmode="decimal" required></label>
+    <button class="btn sm">Zapisz zmianę</button>
+  </form>
+</details>
+<?php return (string) ob_get_clean();
+}
 /** Etykieta płynności spółki z DNA (liquidity ~0.7-1.5): [klasa css, tekst]. */
 function liq_label($liquidity): array {
     $l = (float) $liquidity;

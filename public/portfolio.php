@@ -99,7 +99,7 @@ $progress = $goalTarget > 0 ? min(100, $equity / $goalTarget * 100) : 0;
 
 layout_header('Portfel', $user, 'portfolio');
 ?>
-<div class="page-head"><h1>Portfel</h1><span class="tag" style="color:var(--accent);border-color:var(--accent)">Sesja #<?= $sessionNo ?></span>
+<div class="page-head"><h1>Portfel</h1><?= session_tag($sessionNo) ?>
   <a class="btn sm ghost" style="margin-left:auto" href="dziennik.php">Dziennik</a></div>
 <?php explainer('portfel', 'Jak czytać Portfel', [
     'pozycje: kurs, cena kupna i wynik', 'kliknij pozycję, by ustawić SL/TP',
@@ -205,7 +205,7 @@ layout_header('Portfel', $user, 'portfolio');
           <td class="num"><?php if (!$isStop && $done > 0): ?><b><?= $rem ?></b><span class="muted" style="font-size:11px"> z <?= $init ?></span><span class="chg p" style="font-size:9px;display:block;letter-spacing:0">częściowo · <?= $done ?> kupione</span><?php else: ?><?= $rem ?><?php endif; ?></td>
           <td class="num"><?php if ($isStop): ?><span class="mono" style="font-size:12px"><?= $o['sl_price'] !== null ? (($o['trail_pct'] ?? null) !== null ? 'SL krocz. ' . rtrim(rtrim(number_format((float) $o['trail_pct'], 1, ',', ''), '0'), ',') . '%: ' : 'SL ') . money($o['sl_price']) : '' ?><?= $o['sl_price'] !== null && $o['tp_price'] !== null ? ' · ' : '' ?><?= $o['tp_price'] !== null ? 'TP ' . money($o['tp_price']) : '' ?></span><?php else: ?><?= money($o['price']) ?><?php endif; ?></td>
           <td class="muted hide-m"><?= $isStop ? 'do wyzwolenia' : ($o['expires_session'] !== null ? 'sesja #' . (int) $o['expires_session'] : 'bezterm.') ?></td>
-          <td style="text-align:right"><form method="post" action="cancel_order.php" onclick="event.stopPropagation()"><input type="hidden" name="order_id" value="<?= (int) $o['id'] ?>"><button class="btn sm ghost">Anuluj</button></form></td>
+          <td style="text-align:right"><div style="display:flex;gap:6px;justify-content:flex-end;align-items:flex-start;flex-wrap:wrap"><?= order_edit_form($o, 'portfolio.php') ?><form method="post" action="cancel_order.php" onclick="event.stopPropagation()"><input type="hidden" name="order_id" value="<?= (int) $o['id'] ?>"><button class="btn sm ghost">Anuluj</button></form></div></td>
         </tr>
       <?php endforeach; if (!$orders) echo "<tr><td class='muted' colspan=6 style='padding:20px'>Brak aktywnych zleceń.</td></tr>"; ?>
       </tbody>

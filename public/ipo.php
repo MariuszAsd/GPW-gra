@@ -25,7 +25,7 @@ $cash = (float) Engine::one("SELECT cash FROM users WHERE id=?", [$uid]);
 
 layout_header('IPO', $user, 'market');
 ?>
-<div class="page-head"><h1>Rynek</h1><span class="tag" style="color:var(--accent);border-color:var(--accent)">Sesja #<?= $sessionNo ?></span></div>
+<div class="page-head"><h1>Rynek</h1><?= session_tag($sessionNo) ?></div>
 <?php market_subnav('ipo'); ?>
 <?php explainer('ipo', 'Jak działa oferta publiczna', [
     'zapisujesz się po cenie emisyjnej', 'przy nadsubskrypcji REDUKCJA (nadpłata wraca)',

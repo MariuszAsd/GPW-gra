@@ -64,7 +64,7 @@ $sparkSvg = function (array $vals): string {
 layout_header('Rynek', $user, 'market');
 ?>
 <?php [$mhOn, $mhOpen, $mhClose] = Engine::marketHours(); $mhIsOpen = Engine::marketIsOpen(); ?>
-<div class="page-head"><h1>Rynek</h1><span class="tag" style="color:var(--accent);border-color:var(--accent)">Sesja #<?= $sessionNo ?></span>
+<div class="page-head"><h1>Rynek</h1><?= session_tag($sessionNo) ?>
   <?php if ($mhOn): ?>
     <span class="tag" style="<?= $mhIsOpen ? 'color:var(--up);border-color:var(--up)' : 'color:var(--faint)' ?>"><?= $mhIsOpen ? "● otwarty do $mhClose" : "○ zamknięty · otwarcie $mhOpen" ?></span>
   <?php endif; ?>

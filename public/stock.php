@@ -63,6 +63,7 @@ $holders = Engine::all("SELECT u.id AS uid, u.username, u.is_bot, u.role, (w.qty
 $heldTotal = max(1, (int) (Engine::one("SELECT SUM(w.qty + w.qty_reserved) FROM wallets w JOIN users u ON u.id = w.user_id
                                         WHERE w.stock_id=? AND u.role <> 'qa'", [$id]) ?: 1));
 $trades = Engine::all("SELECT qty, price, created_at FROM transactions WHERE stock_id=? ORDER BY id DESC LIMIT 14", [$id]);
+$myStockOrders = Engine::all("SELECT * FROM orders WHERE user_id=? AND stock_id=? AND status IN ('active','pending') ORDER BY id DESC", [$user['id'], $id]);
 $mcap = (float) $s['price'] * (float) $s['total_shares'];
 
 // analiza techniczna: sygnały, wagi tej spółki, sygnał zbiorczy i charakter
@@ -183,7 +184,7 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
       </div>
 
       <div class="tabpane on" id="tab-book">
-        <div class="book">
+        <div class="book" id="book">
           <div class="col b"><h3>Kupno (bid) <span class="muted" style="text-transform:none;letter-spacing:0">· razem <?= array_sum(array_map(fn($r) => (int) $r['q'], $bids)) ?> szt.</span></h3>
             <?php foreach ($bids as $r): ?>
               <div class="lvl"><span class="depth" style="width:<?= (int) round($r['q'] / $maxDepth * 100) ?>%"></span><span class="p"><?= money($r['price']) ?></span><span class="q"><?= (int) $r['q'] ?></span></div>
@@ -198,7 +199,7 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
       </div>
 
       <div class="tabpane" id="tab-trades">
-        <table><thead><tr><th>Czas</th><th class="num">Ilość</th><th class="num">Kurs</th></tr></thead><tbody>
+        <table><thead><tr><th>Czas</th><th class="num">Ilość</th><th class="num">Kurs</th></tr></thead><tbody id="trades-body">
           <?php foreach ($trades as $t): ?>
             <tr><td class="muted mono"><?= h(substr($t['created_at'], 11, 8)) ?></td><td class="num"><?= (int) $t['qty'] ?></td><td class="num"><?= money($t['price']) ?></td></tr>
           <?php endforeach; if (!$trades) echo "<tr><td class='muted' colspan=3>brak transakcji</td></tr>"; ?>
@@ -358,6 +359,22 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
         </tbody></table>
       </div>
     </div>
+
+    <?php if ($myStockOrders): ?>
+    <div class="panel" style="margin-top:16px">
+      <h2 style="margin:0 0 8px">Twoje zlecenia na <?= h($s['ticker']) ?> <span class="muted" style="text-transform:none;letter-spacing:0;font-size:12px">· zmień cenę/ilość albo anuluj</span></h2>
+      <table><thead><tr><th>Typ</th><th class="num">Ilość</th><th class="num">Cena</th><th></th></tr></thead><tbody>
+        <?php foreach ($myStockOrders as $o): $isStopO = $o['status'] === 'pending'; ?>
+        <tr>
+          <td><?php if ($isStopO): ?><span class="chg" style="color:var(--gold);background:var(--gold-bg)">OBRONNE</span><?php else: ?><span class="chg <?= $o['side'] === 'buy' ? 'p' : 'n' ?>"><?= $o['side'] === 'buy' ? 'KUPNO' : 'SPRZEDAŻ' ?></span><?php endif; ?></td>
+          <td class="num"><?= (int) $o['qty'] ?></td>
+          <td class="num"><?php if ($isStopO): ?><span class="mono" style="font-size:12px"><?= $o['sl_price'] !== null ? 'SL ' . money($o['sl_price']) : '' ?><?= $o['sl_price'] !== null && $o['tp_price'] !== null ? ' · ' : '' ?><?= $o['tp_price'] !== null ? 'TP ' . money($o['tp_price']) : '' ?></span><?php else: ?><?= money($o['price']) ?><?php endif; ?></td>
+          <td style="text-align:right"><div style="display:flex;gap:6px;justify-content:flex-end;align-items:flex-start;flex-wrap:wrap"><?= order_edit_form($o, 'stock.php?id=' . $id) ?><a class="btn sm ghost" href="order.php?id=<?= (int) $o['id'] ?>">Szczegóły</a><form method="post" action="cancel_order.php"><input type="hidden" name="order_id" value="<?= (int) $o['id'] ?>"><button class="btn sm ghost">Anuluj</button></form></div></td>
+        </tr>
+        <?php endforeach; ?>
+      </tbody></table>
+    </div>
+    <?php endif; ?>
   </div>
 
   <aside class="panel orderpanel">
@@ -558,14 +575,34 @@ document.querySelectorAll('#cg-type button').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('#cg-type button').forEach(x=>x.classList.remove('on'));
   b.classList.add('on'); cType=b.dataset.type; drawChart(); });
 reconcile('iv'); syncChartBtns(); drawChart();
-// live kurs w nagłówku + odświeżenie wykresu
-setInterval(async()=>{ try{
-  const j=await (await fetch('api_market.php?t='+Date.now(),{cache:'no-store'})).json(); if(!j.ok) return; const d=j.data[<?= $id ?>]; if(!d) return;
-  const p=document.querySelector('[data-px]'); const c=document.querySelector('[data-chg]'); const up=d.chg>=0;
-  if(p) p.innerHTML=Number(d.price).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' <span style="font-size:15px;color:var(--faint)">PLN</span>';
-  if(c){ c.className='chg '+(up?'p':'n'); c.innerHTML='<span class="ar">'+(up?'▲':'▼')+'</span>'+Math.abs(d.chg).toFixed(2).replace('.',',')+'%'; }
-  drawChart();
-}catch(e){} },5000);
+// odświeżanie karty spółki na żywo (bez F5): kurs i wykres + transakcje, arkusz i obrót sesji
+function money2(n){ return Number(n).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function renderTrades(ts){ return ts.length ? ts.map(t=>'<tr><td class="muted mono">'+t.t+'</td><td class="num">'+t.qty+'</td><td class="num">'+money2(t.price)+'</td></tr>').join('') : '<tr><td class="muted" colspan=3>brak transakcji</td></tr>'; }
+function renderBook(bids,asks){
+  const md=Math.max(1,...bids.map(x=>x.q),...asks.map(x=>x.q));
+  const col=(arr,cls,lbl)=>{ const tot=arr.reduce((a,x)=>a+x.q,0);
+    let h='<div class="col '+cls+'"><h3>'+lbl+' <span class="muted" style="text-transform:none;letter-spacing:0">· razem '+tot+' szt.</span></h3>';
+    h+= arr.length ? arr.map(r=>'<div class="lvl"><span class="depth" style="width:'+Math.round(r.q/md*100)+'%"></span><span class="p">'+money2(r.p)+'</span><span class="q">'+r.q+'</span></div>').join('') : '<div class="muted" style="padding:6px">brak</div>';
+    return h+'</div>'; };
+  return col(bids,'b','Kupno (bid)')+col(asks,'s','Sprzedaż (ask)');
+}
+async function refreshTape(){
+  try{ const s=await (await fetch('api_trades.php?id=<?= $id ?>&t='+Date.now(),{cache:'no-store'})).json(); if(!s.ok) return;
+    const tv=document.querySelector('[data-turnover]'); if(tv) tv.textContent=s.turnover;
+    const tb=document.getElementById('trades-body'); if(tb) tb.innerHTML=renderTrades(s.trades);
+    const bk=document.getElementById('book'); if(bk) bk.innerHTML=renderBook(s.bids,s.asks);
+  }catch(e){}
+}
+setInterval(async()=>{
+  try{ const j=await (await fetch('api_market.php?t='+Date.now(),{cache:'no-store'})).json();
+    if(j.ok){ const d=j.data[<?= $id ?>]; if(d){
+      const p=document.querySelector('[data-px]'); const c=document.querySelector('[data-chg]'); const up=d.chg>=0;
+      if(p) p.innerHTML=money2(d.price)+' <span style="font-size:15px;color:var(--faint)">PLN</span>';
+      if(c){ c.className='chg '+(up?'p':'n'); c.innerHTML='<span class="ar">'+(up?'▲':'▼')+'</span>'+Math.abs(d.chg).toFixed(2).replace('.',',')+'%'; }
+    }}
+  }catch(e){}
+  drawChart(); refreshTape();
+},5000);
 </script>
 <!-- mobilny pasek handlu (nad dolną nawigacją): ceny na żywo, klik ustawia stronę i zwija do formularza -->
 <div class="tradebar">

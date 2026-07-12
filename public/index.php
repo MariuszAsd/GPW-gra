@@ -99,7 +99,7 @@ $steps = [
   </div>
   <div class="lp-stats">
     <span><b><?= $stocks ?></b> spółek na parkiecie</span>
-    <span>sesja <b>#<?= $sessionNo ?></b></span>
+    <span>sesja <b>#<?= $sessionNo ?></b><?php $dl = session_date_label($sessionNo); echo $dl !== '' ? ' · ' . $dl : ''; ?></span>
     <span><b><?= $players ?></b> <?= $players === 1 ? 'inwestor' : 'inwestorów' ?></span>
     <span>start: <b><?= money_short($startCash) ?> PLN</b></span>
   </div>

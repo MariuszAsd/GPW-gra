@@ -98,7 +98,12 @@ foreach ($slFills as $f) { $sum += $f['qty'] * $f['price']; $qsum += $f['qty']; 
     <?php endforeach; ?>
     <?php if (in_array($o['status'], ['active', 'pending'], true)): ?>
       <div class="tl-item"><div class="m muted">… zlecenie wciąż <?= $o['status'] === 'pending' ? 'pilnuje kursu' : 'czeka w arkuszu' ?></div>
-        <form method="post" action="cancel_order.php" style="margin-top:6px"><input type="hidden" name="order_id" value="<?= $oid ?>"><button class="btn sm ghost">Anuluj zlecenie</button></form></div>
+        <div style="display:flex;gap:8px;align-items:flex-start;margin-top:6px;flex-wrap:wrap">
+          <?= order_edit_form($o, 'order.php?id=' . $oid) ?>
+          <form method="post" action="cancel_order.php"><input type="hidden" name="order_id" value="<?= $oid ?>"><button class="btn sm ghost">Anuluj zlecenie</button></form>
+        </div>
+        <?php if ($o['status'] === 'active' && !$isStop): ?><p class="muted" style="margin:6px 0 0;font-size:11.5px">Zmiana ceny lub ilości ustawia zlecenie od nowa w arkuszu (traci priorytet czasu). Rezerwacja koryguje się automatycznie.</p><?php endif; ?>
+      </div>
     <?php endif; ?>
   </div>
 </div>
