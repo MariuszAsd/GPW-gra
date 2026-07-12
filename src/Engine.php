@@ -937,8 +937,20 @@ final class Engine
             $react = max(-0.10, min(0.10, $react));                                     // cap skoku z raportu (żeby nie zawieszać co chwila)
             $newFund = max(1, round($cur * (1 + $react), 2));
 
-            $pdo->prepare("UPDATE stocks SET fundamental=?, last_profit=?, last_eps=?, next_report_tick=next_report_tick+? WHERE id=?")
-                ->execute([$newFund, $profit, $eps, $per, $sid]);
+            // ZMIANA NASTAWIENIA (re-rating C/Z): pojedynczy słaby raport to jeszcze chwilowy ruch,
+            // ale SERIA (2–3 raporty w tę samą stronę) to zmiana sentymentu — trwale przesuwa wycenę.
+            // Niższe C/Z = niższa wartość godziwa, ku której ciąży kurs (kotwica) i którą widzą boty
+            // fundamentalne; boty techniczne łapią powstały trend przez sam kurs. Beaty re-rate w górę.
+            $prevSurp  = array_map('floatval', self::col("SELECT surprise_pct FROM financial_reports WHERE stock_id=? ORDER BY id DESC LIMIT 2", [$sid]));
+            $streakSum = $surprise; $streakN = 1;
+            foreach ($prevSurp as $ps) { $streakSum += $ps; $streakN++; }
+            $streakAvg = $streakSum / $streakN;                                          // średnia niespodzianka z ostatnich (do 3) raportów
+            $sameDir   = isset($prevSurp[0]) && (($surprise < 0 && $prevSurp[0] < 0) || ($surprise > 0 && $prevSurp[0] > 0));
+            $rerate    = max(-0.07, min(0.07, ($streakAvg / 100.0) * ($sameDir ? 0.9 : 0.45)));   // seria = mocniejszy re-rating
+            $newPe     = max(4.0, min(60.0, (float) $s['pe_target'] * (1 + $rerate)));
+
+            $pdo->prepare("UPDATE stocks SET fundamental=?, last_profit=?, last_eps=?, pe_target=?, next_report_tick=next_report_tick+? WHERE id=?")
+                ->execute([$newFund, $profit, $eps, round($newPe, 2), $per, $sid]);
 
             // dywidenda: spółka dzieli się zyskiem wg swojej polityki wypłat (payout% zysku / liczbę akcji);
             // wydarzenie (np. afera księgowa) może ją czasowo zawiesić
