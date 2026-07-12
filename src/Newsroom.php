@@ -251,10 +251,12 @@ final class Newsroom
 
     /* ================= REALIZM STRUMIENIA ================= */
 
-    /** Minimalny odstęp między HISTORIAMI na jednym celu (ticki) — raporty/dywidendy/konsensusy nie liczą się. */
-    public const STORY_COOLDOWN = ['COMPANY' => 30, 'SECTOR' => 40, 'MARKET' => 0];
+    /** Minimalny odstęp między HISTORIAMI na jednym celu (ticki) — raporty/dywidendy/konsensusy nie liczą się.
+     *  Sesja = dzień giełdowy (~ticks_per_session ticków przy godzinach handlu), więc 90 ticków ≈ pół dnia:
+     *  jedna spółka dostaje najwyżej ~2 narracyjne newsy dziennie — koniec z „co chwila jakieś ESPI". */
+    public const STORY_COOLDOWN = ['COMPANY' => 90, 'SECTOR' => 120, 'MARKET' => 0];
     /** Ten sam TEMAT nie wraca na celu przez tyle ticków (anty-sprzeczność i anty-monotonia). */
-    public const TOPIC_COOLDOWN = ['COMPANY' => 150, 'SECTOR' => 150, 'MARKET' => 120];
+    public const TOPIC_COOLDOWN = ['COMPANY' => 180, 'SECTOR' => 180, 'MARKET' => 120];
 
     public static function topicHash(string $topic): int { return crc32('temat:' . $topic) & 0x7FFFFFFF; }
 
@@ -285,16 +287,19 @@ final class Newsroom
     /** Główny hak — wołany co tick z Engine::runTick (zastępuje stare generateNews). */
     public static function onTick(int $tick): void
     {
-        // spółki: częstotliwość wg DNA news_frequency (jak dotąd ~0,7% × nf na tick)
+        // bazowa częstotliwość newsów spółkowych (‰ na tick, skalowana DNA news_frequency).
+        // GM może dostroić: game_state 'news_rate'. Domyślnie 3 (było 7) — przy ~stu tickach na
+        // dzień daje średnio ~1–2 newsy/spółkę/dzień, a STORY_COOLDOWN twardo blokuje serie.
+        $rate = (float) (Engine::one("SELECT v FROM game_state WHERE k='news_rate'") ?: 2);
         foreach (Engine::all("SELECT s.*, sec.name AS sector_name, sec.news_sensitivity
                               FROM stocks s JOIN sectors sec ON sec.id = s.sector_id") as $s) {
-            if (mt_rand(1, 1000) <= (int) round(7 * (float) $s['news_frequency'])) {
+            if (mt_rand(1, 1000) <= (int) round($rate * (float) $s['news_frequency'])) {
                 self::emitCompany($tick, $s);
             }
         }
-        // sektory
+        // sektory (rzadziej niż spółki)
         foreach (Engine::all("SELECT * FROM sectors") as $sec) {
-            if (mt_rand(1, 1000) <= 4) self::emitSector($tick, $sec);
+            if (mt_rand(1, 1000) <= 3) self::emitSector($tick, $sec);
         }
         // lekkie makro (rzadkie, z własnym cooldownem)
         $lastMkt = (int) (Engine::one("SELECT v FROM game_state WHERE k='newsroom_last_macro'") ?: -1000);
@@ -364,12 +369,12 @@ final class Newsroom
      * KOMENTARZ TECHNICZNY pisany z danych (kind=technical): wybicia sygnału AT,
      * anomalie wolumenu, serie sesji, nowe szczyty. Zero wpływu na fundament —
      * ale boty AT czytają te same dane, więc komentarz często się "sprawdza".
-     * Anty-spam: max 1 komentarz techniczny na spółkę na 40 ticków.
+     * Anty-spam: max 1 komentarz techniczny na spółkę na 180 ticków (to typowy „co chwila" filler).
      */
     public static function technicalPulse(int $tick): void
     {
         $recent = array_fill_keys(array_map('intval',
-            Engine::col("SELECT DISTINCT target_id FROM news WHERE kind='technical' AND publish_tick > ?", [$tick - 40])), true);
+            Engine::col("SELECT DISTINCT target_id FROM news WHERE kind='technical' AND publish_tick > ?", [$tick - 180])), true);
         foreach (Engine::all("SELECT id, ticker, price, ta_signal FROM stocks") as $s) {
             $sid = (int) $s['id'];
             if (isset($recent[$sid])) continue;

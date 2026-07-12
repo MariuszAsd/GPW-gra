@@ -174,25 +174,31 @@ $uStmt = $pdo->prepare("INSERT INTO users (username, password_hash, is_bot, role
 $dStmt = $pdo->prepare("INSERT INTO bots (user_id, strategy, news_reactivity, technical_sensitivity, risk_appetite, horizon) VALUES (?,?,?,?,?,?)");
 $wStmt = $pdo->prepare("INSERT INTO wallets (user_id, stock_id, qty, avg_price) VALUES (?,?,?,?)");
 $sumPrices = array_sum(array_map(fn($st) => (float) $st['price'], $stockRows));
-$n = 0;
-$mk = function (string $role, int $count, float $cash, int $shares) use ($uStmt, $dStmt, $wStmt, $pdo, $stockRows, $sumPrices, &$n) {
+// losowe „ludzkie" nazwy botów (w akcjonariacie wyglądają jak gracze/fundusze, nie bot_mm_1)
+$botNames = Engine::botNames(150, ['gracz', 'admin']);
+$bn = 0;
+$mk = function (string $role, int $count, float $cash, int $shares) use ($uStmt, $dStmt, $wStmt, $pdo, $stockRows, $sumPrices, $botNames, &$bn) {
     for ($i = 0; $i < $count; $i++) {
         $startEq = $cash + $shares * $sumPrices;   // gotówka + wartość akcji na starcie
-        $uStmt->execute(["bot_{$role}_" . (++$n), password_hash(bin2hex(random_bytes(6)), PASSWORD_DEFAULT), $role, $cash, $startEq]);
+        $uStmt->execute([$botNames[$bn++], password_hash(bin2hex(random_bytes(6)), PASSWORD_DEFAULT), $role, $cash, $startEq]);
         $uid = (int) $pdo->lastInsertId();
-        $dStmt->execute([$uid, $role, rf(0.5, 2.0), rf(0.5, 2.0), rf(0.5, 2.0), mt_rand(5, 30)]);
+        $tsens = $role === 'tech' ? rf(1.2, 2.2) : rf(0.5, 2.0);
+        $dStmt->execute([$uid, $role, rf(0.5, 2.0), $tsens, rf(0.5, 2.0), mt_rand(5, 30)]);
         foreach ($stockRows as $st) $wStmt->execute([$uid, $st['id'], $shares, $st['price']]);
     }
 };
-$mk('mm', 10, 8000000, 3000);
-$mk('trend', 8, 1500000, 300);
-$mk('rsi', 8, 1500000, 300);
-$mk('fundamental', 8, 2000000, 300);
-$mk('news', 6, 1500000, 200);
-$mk('tech', 6, 1500000, 300);
+$mk('mm', 14, 8000000, 3000);
+$mk('trend', 18, 1500000, 300);
+$mk('rsi', 18, 1500000, 300);
+$mk('fundamental', 18, 2000000, 300);
+$mk('news', 16, 1500000, 200);
+$mk('tech', 16, 1500000, 300);
 Engine::setState('bot_activity', '1');
 Engine::setState('tech_bots_added', '1');   // świeży świat ma boty AT od razu (istniejące dostają je lazy w silniku)
-$log("✔ 46 botów (10 mm, 8 trend, 8 RSI, 8 fundamentalnych, 6 newsowych, 6 technicznych) + DNA");
+Engine::setState('bots_named', '1');        // nazwy już losowe — nie przezywaj ponownie
+Engine::setState('bots_expanded', '1');     // populacja już docelowa — nie dokładaj ponownie
+Engine::setState('news_rate', '2');         // bazowa częstotliwość newsów spółkowych (‰/tick × news_frequency)
+$log("✔ 100 botów (14 mm, 18 trend, 18 RSI, 18 fundamentalnych, 16 newsowych, 16 technicznych) + DNA");
 
 // --- gracz dostaje akcje na start (doliczone do kapitału startowego) ---
 Engine::ensureWallet(1, (int) $stockRows[0]['id']);

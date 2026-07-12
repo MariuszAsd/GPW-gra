@@ -282,7 +282,9 @@ final class Engine
         $act = (float) (self::one("SELECT v FROM game_state WHERE k='bot_activity'") ?? 1);
         if ($act <= 0) return;
 
-        self::ensureTechBots();   // istniejące światy dostają botów AT bez resetu (jednorazowo)
+        self::ensureTechBots();       // istniejące światy dostają botów AT bez resetu (jednorazowo)
+        self::ensureBotNames();       // bot_* -> losowe „ludzkie" nazwy (jednorazowo)
+        self::ensureBotPopulation();  // dołóż botów do docelowej populacji: głębszy arkusz (jednorazowo)
         if (!class_exists('Technical')) require_once __DIR__ . '/Technical.php';
         $taInfV = self::one("SELECT v FROM game_state WHERE k='ta_influence'");                  // GM: 0 = AT bez wpływu
         $taInf = ($taInfV === false || $taInfV === null) ? 1.0 : (float) $taInfV;
@@ -365,7 +367,10 @@ final class Engine
                     // zamiast biernie puchnac na trendach — mniej strat mm, naturalniejszy rynek
                     $inv = max(-1.0, min(1.0, ($have - 3000) / 3000));
                     $base = (0.7 * $st['fundamental'] + 0.3 * $price) * (1 + mt_rand(-15, 15) / 10000) * (1 - 0.004 * $inv);
-                    foreach ([[0.008, 60], [0.016, 40], [0.028, 25]] as [$sp, $qy]) {
+                    // grubsze kwotowania (3 poziomy, ~2× pakiety vs dawniej) — arkusz jest głęboki,
+                    // więc zlecenie rzędu 20–30k nie przechodzi kilku procent kursu i nie odpala widełek;
+                    // 3 poziomy zamiast 5 = mniej wierszy zleceń na tick (tick mieści się w oknie crona)
+                    foreach ([[0.008, 120], [0.016, 90], [0.028, 60]] as [$sp, $qy]) {
                         $spread = $sp / max(0.85, $liq);   // podloga: nieplynne sa chropowate, ale bez przesady
                         $qb = max(5, (int) round($qy * $act * (1 - 0.4 * $inv)));
                         $qs = max(5, (int) round($qy * $act * (1 + 0.4 * $inv)));
@@ -507,6 +512,104 @@ final class Engine
         } catch (\Throwable $e) { Log::write('error', 'engine', 'bots.tech', $e->getMessage()); }
     }
 
+    /* ---------- Nazwy botów (żeby w akcjonariacie wyglądały jak realni gracze/fundusze) ---------- */
+
+    private const BOT_NAME_CORES = ['Bursztyn', 'Vistula', 'Kwarc', 'Meridian', 'Atlas', 'Fortis', 'Helvet', 'Piast',
+        'Skala', 'Northgate', 'Bałtyk', 'Karpaty', 'Wawel', 'Odra', 'Sokół', 'Grunwald', 'Zenit', 'Aurora', 'Orion',
+        'Delta', 'Sigma', 'Prometeusz', 'Feniks', 'Tytan', 'Kaskada', 'Bastion', 'Cyprys', 'Granit', 'Lazur', 'Onyks',
+        'Nawigator', 'Kompas', 'Horyzont', 'Amber', 'Merkury', 'Saturn', 'Jowisz', 'Portus', 'Cedr', 'Klif'];
+    private const BOT_NAME_INST = ['Fundusz %s', 'TFI %s', 'OFE %s', 'DM %s', '%s Capital', '%s Asset', '%s Invest', '%s Securities'];
+    private const BOT_NAME_NICKS = ['byk', 'niedzwiedz', 'wilk_gieldowy', 'rekin', 'spekulant', 'kontrarianin', 'dywidenda_love',
+        'inwestor', 'trader', 'makler', 'day_trader', 'swingowiec', 'cierpliwy_kap', 'chytry_grosz', 'zloty_strzal',
+        'srebrny_byk', 'cyfrowy_wilk', 'papier_wartosc', 'grajek', 'parkiet', 'lowca_okazji', 'momentum', 'wartosciowy'];
+    private const BOT_NAME_SURN = ['Kowalski', 'Nowak', 'Wisniewski', 'Lewandowski', 'Zielinski', 'Szymanski', 'Wozniak', 'Kaczmarek'];
+
+    /** $n unikalnych, „ludzkich" nazw botów, nie kolidujących z $existing (małe litery = klucz unikalności). */
+    public static function botNames(int $n, array $existing = []): array
+    {
+        $used = [];
+        foreach ($existing as $e) $used[mb_strtolower((string) $e)] = 1;
+        $out = [];
+        $guard = 0;
+        while (count($out) < $n && $guard++ < $n * 50 + 500) {
+            if (mt_rand(0, 1) === 0) {
+                $name = sprintf(self::BOT_NAME_INST[array_rand(self::BOT_NAME_INST)], self::BOT_NAME_CORES[array_rand(self::BOT_NAME_CORES)]);
+            } else {
+                $nick = self::BOT_NAME_NICKS[array_rand(self::BOT_NAME_NICKS)];
+                $r = mt_rand(1, 3);
+                $name = $r === 1 ? $nick . '_' . self::BOT_NAME_SURN[array_rand(self::BOT_NAME_SURN)]
+                    : ($r === 2 ? $nick . mt_rand(72, 99) : $nick . '_' . mt_rand(100, 9999));
+            }
+            $k = mb_strtolower($name);
+            if (isset($used[$k])) continue;
+            $used[$k] = 1; $out[] = $name;
+        }
+        // awaryjne dopełnienie, gdyby pula się wyczerpała
+        for ($i = 1; count($out) < $n; $i++) { $nm = 'inwestor_' . mt_rand(10000, 99999) . $i; if (!isset($used[mb_strtolower($nm)])) { $used[mb_strtolower($nm)] = 1; $out[] = $nm; } }
+        return $out;
+    }
+
+    /** Jednorazowo (flaga bots_named): przezwij istniejące boty bot_* na losowe „ludzkie" nazwy. */
+    private static function ensureBotNames(): void
+    {
+        if ((int) (self::one("SELECT v FROM game_state WHERE k='bots_named'") ?: 0) === 1) return;
+        self::setState('bots_named', '1');
+        try {
+            $pdo = Db::pdo();
+            $bots = self::all("SELECT id FROM users WHERE is_bot=1 AND username LIKE 'bot\\_%' ESCAPE '\\'");
+            if (!$bots) return;
+            $existing = self::col("SELECT username FROM users");
+            $names = self::botNames(count($bots), $existing);
+            $upd = $pdo->prepare("UPDATE users SET username=? WHERE id=?");
+            foreach ($bots as $i => $b) $upd->execute([$names[$i], (int) $b['id']]);
+            Log::write('info', 'engine', 'bots.rename', 'przezwano ' . count($bots) . ' botów na losowe nazwy');
+        } catch (\Throwable $e) { Log::write('error', 'engine', 'bots.rename', $e->getMessage()); }
+    }
+
+    /** Docelowa populacja botów per strategia — animatorzy (mm) dają głębię arkusza,
+     *  reszta („tania" w zleceniach) buduje różnorodny akcjonariat. */
+    private const BOT_TARGET = ['mm' => 14, 'trend' => 18, 'rsi' => 18, 'fundamental' => 18, 'news' => 16, 'tech' => 16];
+    /** Startowa gotówka i pakiet akcji na spółkę dla dokładanych botów (spójne z seed.php). */
+    private const BOT_SEED = ['mm' => [8000000, 3000], 'trend' => [1500000, 300], 'rsi' => [1500000, 300],
+        'fundamental' => [2000000, 300], 'news' => [1500000, 200], 'tech' => [1500000, 300]];
+
+    /** Jednorazowo (flaga bots_expanded): dołóż botów do docelowej populacji — więcej płynności i większy akcjonariat. */
+    private static function ensureBotPopulation(): void
+    {
+        if ((int) (self::one("SELECT v FROM game_state WHERE k='bots_expanded'") ?: 0) === 1) return;
+        self::setState('bots_expanded', '1');
+        try {
+            $pdo = Db::pdo();
+            $stocks = self::all("SELECT id, price FROM stocks");
+            if (!$stocks) return;
+            $sumPrices = array_sum(array_map(fn($st) => (float) $st['price'], $stocks));
+            $rf = fn(float $a, float $b) => round($a + mt_rand() / mt_getrandmax() * ($b - $a), 2);
+            $need = 0;
+            $have = [];
+            foreach (self::all("SELECT strategy, COUNT(*) c FROM bots GROUP BY strategy") as $r) $have[$r['strategy']] = (int) $r['c'];
+            foreach (self::BOT_TARGET as $strat => $target) $need += max(0, $target - ($have[$strat] ?? 0));
+            if ($need <= 0) return;
+            $names = self::botNames($need, self::col("SELECT username FROM users"));
+            $ni = 0;
+            $uStmt = $pdo->prepare("INSERT INTO users (username, password_hash, is_bot, role, cash, start_equity) VALUES (?,?,1,?,?,?)");
+            $bStmt = $pdo->prepare("INSERT INTO bots (user_id, strategy, news_reactivity, technical_sensitivity, risk_appetite, horizon) VALUES (?,?,?,?,?,?)");
+            $wStmt = $pdo->prepare("INSERT INTO wallets (user_id, stock_id, qty, avg_price) VALUES (?,?,?,?)");
+            $added = 0;
+            foreach (self::BOT_TARGET as $strat => $target) {
+                [$cash, $shares] = self::BOT_SEED[$strat];
+                for ($i = ($have[$strat] ?? 0); $i < $target; $i++) {
+                    $uStmt->execute([$names[$ni++], password_hash(bin2hex(random_bytes(6)), PASSWORD_DEFAULT), $strat, $cash, $cash + $shares * $sumPrices]);
+                    $uid = (int) $pdo->lastInsertId();
+                    $tsens = $strat === 'tech' ? $rf(1.2, 2.2) : $rf(0.5, 2.0);
+                    $bStmt->execute([$uid, $strat, $rf(0.5, 2.0), $tsens, $rf(0.5, 2.0), mt_rand(5, 30)]);
+                    foreach ($stocks as $st) $wStmt->execute([$uid, (int) $st['id'], $shares, (float) $st['price']]);
+                    $added++;
+                }
+            }
+            Log::write('info', 'engine', 'bots.expand', "dołożono $added botów (płynność + akcjonariat)");
+        } catch (\Throwable $e) { Log::write('error', 'engine', 'bots.expand', $e->getMessage()); }
+    }
+
     private static function cancelAllFor(int $uid): void
     {
         $pdo = Db::pdo();
@@ -604,7 +707,7 @@ final class Engine
 
     /* ---------- Widełki statyczne (zawieszenia notowań) ---------- */
 
-    public const HALT_BAND = 0.15;        // ±15% od otwarcia sesji zawiesza notowania
+    public const HALT_BAND = 0.20;        // ±20% od otwarcia sesji zawiesza notowania (zapas: zwykłe zlecenia nie odpalają)
     public const HALT_TICKS = 10;         // długość zawieszenia (ticki ≈ minuty)
     public const HALT_MAX_SESSION = 2;    // max zawieszeń spółki w jednej sesji
 
