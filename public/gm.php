@@ -106,6 +106,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($a === 'clear_news') {
         $n = Engine::clearNews();
         flash("🧹 Wyczyszczono strumień ESPI/wiadomości — usunięto $n wpisów. Świeże newsy zaczną spływać od kolejnych ticków.");
+    } elseif ($a === 'news_rate') {
+        $nr = max(0.0, min(8.0, (float) str_replace(',', '.', $_POST['news_rate'] ?? '1')));
+        Engine::setState('news_rate', (string) $nr);
+        flash('Ustawiono częstotliwość ESPI/newsów: ' . rtrim(rtrim(number_format($nr, 1, ',', ''), '0'), ',') . ' (mniej = rzadziej).');
     } elseif ($a === 'challenge_create') {
         [$sess] = Engine::sessionInfo();
         Challenges::create([
@@ -546,6 +550,12 @@ $modTop = Engine::all("SELECT m.user_id, u.username, COUNT(*) n, MAX(m.created_a
     <form method="post" class="inline" onsubmit="return confirm('Wyczyścić CAŁY strumień ESPI/wiadomości? Świeże newsy zaczną spływać od kolejnych ticków.')">
       <input type="hidden" name="action" value="clear_news">
       <button class="btn sm ghost" title="Usuwa wszystkie dotychczasowe komunikaty ESPI i wiadomości — do obserwacji świeżego dopływu w kolejnych sesjach">🧹 Wyczyść ESPI</button>
+    </form>
+    <form method="post" class="inline" style="align-items:flex-end;gap:6px">
+      <input type="hidden" name="action" value="news_rate">
+      <label style="font-size:11px;color:var(--soft)">Częstotliwość ESPI
+        <input type="number" name="news_rate" step="0.5" min="0" max="8" value="<?= rtrim(rtrim(number_format((float) (Engine::one("SELECT v FROM game_state WHERE k='news_rate'") ?: 1), 1, '.', ''), '0'), '.') ?>" style="width:70px" title="Ile newsów spływa (‰ na tick na spółkę). Domyślnie 1. Mniej = rzadsze ESPI."></label>
+      <button class="btn sm ghost">Ustaw</button>
     </form>
   </div>
   <form method="post" class="row" style="align-items:flex-end;margin-bottom:10px">

@@ -1040,10 +1040,8 @@ final class Engine
         self::setState('dividends_paid', (string) round((float) (self::one("SELECT v FROM game_state WHERE k='dividends_paid'") ?: 0) + $total, 2));
         Log::write('info', 'engine', 'dividend.paid',
             "$ticker: dywidenda " . number_format($dps, 2, ',', ' ') . " PLN/akcję — wypłacono " . number_format($total, 2, ',', ' ') . " PLN (" . count($holders) . " akcjonariuszy)");
-        $pdo->prepare("INSERT INTO news (headline,body,type,scope,target_id,is_espi,impact_strength,publish_tick,expire_tick,published_at)
-                       VALUES (?,?,'POS','COMPANY',?,1,0,?,?,?)")
-            ->execute(["💰 $ticker wypłaca dywidendę: " . number_format($dps, 2, ',', ' ') . " PLN na akcję",
-                       'Kurs został pomniejszony o wartość dywidendy (odcięcie).', $sid, $tick, $tick + 8, Db::now()]);
+        // brak osobnego newsa ESPI o dywidendzie — jest już w komunikacie wynikowym spółki,
+        // a akcjonariusze dostają powiadomienie „💰 Dywidenda …". Mniej duplikatów w strumieniu.
     }
 
     /* ---------- Newsy / ESPI (generowanie + ciągły wpływ) ---------- */

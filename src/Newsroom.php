@@ -252,9 +252,9 @@ final class Newsroom
     /* ================= REALIZM STRUMIENIA ================= */
 
     /** Minimalny odstęp między HISTORIAMI na jednym celu (ticki) — raporty/dywidendy/konsensusy nie liczą się.
-     *  Sesja = dzień giełdowy (~ticks_per_session ticków przy godzinach handlu), więc 90 ticków ≈ pół dnia:
-     *  jedna spółka dostaje najwyżej ~2 narracyjne newsy dziennie — koniec z „co chwila jakieś ESPI". */
-    public const STORY_COOLDOWN = ['COMPANY' => 90, 'SECTOR' => 120, 'MARKET' => 0];
+     *  Sesja = dzień giełdowy (~ticks_per_session ticków przy godzinach handlu), więc 180 ticków ≈ cały dzień:
+     *  jedna spółka dostaje najwyżej ~1 narracyjny news dziennie — mniej ESPI w strumieniu. */
+    public const STORY_COOLDOWN = ['COMPANY' => 180, 'SECTOR' => 220, 'MARKET' => 0];
     /** Ten sam TEMAT nie wraca na celu przez tyle ticków (anty-sprzeczność i anty-monotonia). */
     public const TOPIC_COOLDOWN = ['COMPANY' => 180, 'SECTOR' => 180, 'MARKET' => 120];
 
@@ -288,9 +288,9 @@ final class Newsroom
     public static function onTick(int $tick): void
     {
         // bazowa częstotliwość newsów spółkowych (‰ na tick, skalowana DNA news_frequency).
-        // GM może dostroić: game_state 'news_rate'. Domyślnie 3 (było 7) — przy ~stu tickach na
-        // dzień daje średnio ~1–2 newsy/spółkę/dzień, a STORY_COOLDOWN twardo blokuje serie.
-        $rate = (float) (Engine::one("SELECT v FROM game_state WHERE k='news_rate'") ?: 2);
+        // GM stroi na żywo: game_state 'news_rate' (suwak w panelu). Domyślnie 1 (było 2/7) —
+        // mniej ESPI w strumieniu, a STORY_COOLDOWN twardo blokuje serie na jednej spółce.
+        $rate = (float) (Engine::one("SELECT v FROM game_state WHERE k='news_rate'") ?: 1);
         foreach (Engine::all("SELECT s.*, sec.name AS sector_name, sec.news_sensitivity
                               FROM stocks s JOIN sectors sec ON sec.id = s.sector_id") as $s) {
             if (mt_rand(1, 1000) <= (int) round($rate * (float) $s['news_frequency'])) {
@@ -441,6 +441,7 @@ final class Newsroom
     {
         foreach (Engine::all("SELECT s.*, sec.profit_climate AS sector_climate FROM stocks s
                               JOIN sectors sec ON sec.id = s.sector_id WHERE s.next_report_tick = ?", [$tick + 5]) as $s) {
+            if (mt_rand(1, 100) > 40) continue;   // analitycy nie zapowiadają każdego raportu — mniej szumu ESPI
             $prev = ((float) $s['last_profit']) ?: (float) $s['base_profit'];
             $per = max(1, (int) $s['report_period']);
             $trend = ((float) $s['profit_trend'] + (float) $s['sector_climate'] + (float) $s['growth_potential'] * $per) / 100.0;

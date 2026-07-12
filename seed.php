@@ -25,7 +25,7 @@ Engine::setState('tick', '0');
 Engine::setState('sentiment', '0');
 Engine::setState('session', '1');
 Engine::setState('ticks_per_session', '20');   // 1 sesja giełdowa = 20 ticków (~20 min przy cronie co 1 min)
-Engine::setState('ticks_per_month', '100');    // 1 miesiąc raportowy = 5 sesji
+Engine::setState('ticks_per_month', '300');    // 1 miesiąc raportowy ~ kilka sesji (rzadsze, „grubsze" raporty = mniej ESPI)
 Engine::setState('goal_target', '1000000');    // CEL GRY: kapitał 1 000 000 PLN...
 Engine::setState('goal_sessions', '60');       // ...w 60 sesji od dołączenia
 Engine::setState('fee_rate', '0.5');           // prowizja od obrotu (% wartości, płaci sprzedający)
@@ -139,7 +139,7 @@ foreach ($sectors as $sym => $sec) {
             $ticker, $name, $secId[$sym], $desc, $price, $price, $price, $shares, rf(30, 95, 0),
             rf($mbeta - 0.3, $mbeta + 0.3), rf($mvol * 0.7, $mvol * 1.3), rf(0.7, 1.5), rf(0.8, 1.8),
             rf(0.5, 2.0), rf(0.6, 1.4), $growth, rf(0.7, 2.0),
-            $pe, $base, $base, $eps, 100, 5 + ($i * 2) % 100,   // raporty co miesiąc, rozłożone w czasie
+            $pe, $base, $base, $eps, 300, 5 + ($i * 6) % 300,   // raporty co „miesiąc" (300 ticków), rozłożone w czasie
             $payout, rf(0.15, 0.85),
         ]);
         $i++;

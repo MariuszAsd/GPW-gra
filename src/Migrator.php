@@ -436,6 +436,14 @@ final class Migrator
                 // jednorazowe czyszczenie strumienia ESPI (na życzenie: obserwujemy świeży dopływ w kolejnych sesjach)
                 "DELETE FROM news",
             ],
+            30 => [
+                // ESPI za często: kadencja raportów była skalibrowana na krótkie sesje testowe (100 ticków),
+                // a w trybie godzin handlu sesja ma setki ticków -> raporty (+ konsensusy, dywidendy) co chwila.
+                // Wydłużamy „miesiąc raportowy" 3x. Wzrost roczny bez zmian (per skraca się w formule zysku) —
+                // raporty rzadsze i „grubsze", bliżej realnych kwartałów.
+                "UPDATE stocks SET report_period = report_period * 3",
+                "UPDATE game_state SET v = '300' WHERE k = 'ticks_per_month'",
+            ],
         ];
     }
 
