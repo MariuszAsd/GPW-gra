@@ -17,8 +17,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 layout_header('Logowanie', null);
 ?>
 <div class="auth">
-  <h1 style="text-align:center">GPW-gra</h1>
-  <p class="muted" style="text-align:center;margin:0 0 18px">Symulator giełdy</p>
+  <div style="display:flex;justify-content:center;margin-bottom:6px"><?= brand_logo(38, 'index.php') ?></div>
+  <p class="muted" style="text-align:center;margin:0 0 18px">Giełdowa gra treningowa — zacznij ze 100 000 wirtualnych PLN</p>
   <div class="panel">
     <form method="post">
       <label for="username">Login</label>

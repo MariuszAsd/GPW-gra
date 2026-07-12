@@ -13,10 +13,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $base = rtrim((string) ($cfg['app_url'] ?? ''), '/');
             $link = "$base/reset.php?t=$tok";
             $name = (string) Engine::one("SELECT username FROM users WHERE id=?", [$uid]);
-            Mailer::send((string) $_POST['email'], 'GPW-gra — reset hasła',
-                "Cześć $name!\n\nKtoś (mamy nadzieję, że Ty) poprosił o reset hasła w GPW-gra.\n"
+            Mailer::send((string) $_POST['email'], 'Makleria — reset hasła',
+                "Cześć $name!\n\nKtoś (mamy nadzieję, że Ty) poprosił o reset hasła w Maklerii.\n"
                 . "Ustaw nowe hasło klikając w link (ważny " . PasswordReset::TTL_MIN . " minut):\n\n$link\n\n"
-                . "Jeśli to nie Ty — zignoruj tę wiadomość, hasło pozostaje bez zmian.\n\n— GPW-gra");
+                . "Jeśli to nie Ty — zignoruj tę wiadomość, hasło pozostaje bez zmian.\n\n— Makleria");
         }
         // zawsze ta sama odpowiedź — nie zdradzamy, czy konto istnieje
         flash('Jeśli konto z tym adresem istnieje, wysłaliśmy link do resetu (sprawdź też spam).', 'ok');

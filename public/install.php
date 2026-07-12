@@ -11,9 +11,9 @@ require_once __DIR__ . '/../src/Schema.php';
 require_once __DIR__ . '/../src/Engine.php';
 
 header('Content-Type: text/html; charset=utf-8');
-echo "<!doctype html><meta charset=utf-8><title>Instalator GPW-gra</title>";
+echo "<!doctype html><meta charset=utf-8><title>Instalator Makleria</title>";
 echo "<body style='font-family:system-ui,Arial,sans-serif;max-width:640px;margin:48px auto;padding:0 18px;color:#1a1d24;line-height:1.6'>";
-echo "<h1 style='letter-spacing:-.02em'>Instalator GPW-gra</h1>";
+echo "<h1 style='letter-spacing:-.02em'>Instalator Makleria</h1>";
 
 // 1) połączenie z bazą
 try {

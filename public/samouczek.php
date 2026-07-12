@@ -33,7 +33,7 @@ $kroki = [
      'Co miesiąc spółki raportują zyski — pozytywna niespodzianka to często rajd kursu. Część spółek dzieli się zyskiem: trzymasz akcje w dniu dywidendy — dostajesz gotówkę.',
      'wiadomosci.php', 'Kalendarz raportów'],
     ['📉', 'Krachy, hossy, widełki',
-     'Rynkiem rządzą wydarzenia: od plotek o przejęciach po krachy. Duże są rzadkie, małe częste. Gdy kurs spółki przekroczy ±15% od otwarcia sesji, giełda ZAWIESZA notowania na ~10 minut (widełki, jak na prawdziwej GPW) — panika dostaje przymusową pauzę, a po wznowieniu widełki się rozszerzają. Odważni kupują, gdy leje się krew — jest za to odznaka.',
+     'Rynkiem rządzą wydarzenia: od plotek o przejęciach po krachy. Duże są rzadkie, małe częste. Gdy kurs spółki przekroczy ±15% od otwarcia sesji, giełda ZAWIESZA notowania na ~10 minut (widełki, jak na prawdziwej giełdzie) — panika dostaje przymusową pauzę, a po wznowieniu widełki się rozszerzają. Odważni kupują, gdy leje się krew — jest za to odznaka.',
      'wiadomosci.php', 'Śledź wydarzenia'],
     ['📐', 'Analiza techniczna',
      'Karta spółki ma zakładkę Analiza: 10 wskaźników (RSI, MACD, średnie, wybicia...) składa się w jeden sygnał kupuj/sprzedaj. Każda spółka ma swój charakter — techniczne słuchają wskaźników, fundamentalne raportów. Boty AT widzą ten sam sygnał co Ty.',

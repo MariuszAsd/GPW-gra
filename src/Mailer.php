@@ -21,7 +21,7 @@ final class Mailer
     public static function send(string $to, string $subject, string $body): bool
     {
         $from = self::from();
-        $headers = "From: GPW-gra <$from>\r\n"
+        $headers = "From: Makleria <$from>\r\n"
                  . "MIME-Version: 1.0\r\n"
                  . "Content-Type: text/plain; charset=UTF-8\r\n"
                  . "Content-Transfer-Encoding: 8bit";

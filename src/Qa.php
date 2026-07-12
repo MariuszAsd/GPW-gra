@@ -69,6 +69,10 @@ final class Qa
         // 1) logowanie: złe hasło NIE wpuszcza; dobre wpuszcza
         [$code, $body] = $this->http('GET', '/login.php');
         $this->check($code === 200 && str_contains($body, 'Zaloguj'), 'page.login', "login.php code=$code");
+        // strona główna (landing makleria.pl) — dla gościa renderuje rejestrację, marka „Makleria", zero „GPW"
+        [$code, $body] = $this->http('GET', '/index.php');
+        $this->check($code === 200 && str_contains($body, 'Makleria') && str_contains($body, 'Załóż darmowe konto') && !str_contains($body, 'GPW'),
+            'page.landing', 'landing gościa: brak marki Makleria/CTA rejestracji albo została stara marka GPW');
         [$code, $body] = $this->http('GET', '/reset.php');
         $this->check($code === 200 && str_contains($body, 'Reset hasła'), 'page.reset', "reset.php code=$code");
         $this->http('POST', '/login.php', ['username' => 'qa_tester', 'password' => 'zle-haslo-123']);
@@ -314,7 +318,7 @@ final class Qa
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true, CURLOPT_FOLLOWLOCATION => true, CURLOPT_MAXREDIRS => 4,
             CURLOPT_COOKIEJAR => $this->jar, CURLOPT_COOKIEFILE => $this->jar,
-            CURLOPT_TIMEOUT => 20, CURLOPT_USERAGENT => 'GPW-QA-bot',
+            CURLOPT_TIMEOUT => 20, CURLOPT_USERAGENT => 'Makleria-QA-bot',
         ]);
         if ($method === 'POST') { curl_setopt($ch, CURLOPT_POST, true); curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($post)); }
         $body = (string) curl_exec($ch);

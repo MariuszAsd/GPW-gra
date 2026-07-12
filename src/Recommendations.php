@@ -1,6 +1,6 @@
 <?php
 /**
- * Rekomendacje domu maklerskiego "DM GPW-gra".
+ * Rekomendacje domu maklerskiego "DM Makleria".
  *
  * Na otwarciu każdej sesji analitycy wydają rekomendacje dla ~5 spółek
  * (rotacja deterministyczna — każda spółka wraca regularnie): werdykt

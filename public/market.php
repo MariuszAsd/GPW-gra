@@ -89,7 +89,7 @@ layout_header('Rynek', $user, 'market');
 <?php endif; ?>
 <div class="panel" style="margin-bottom:16px;padding:14px 16px 10px">
   <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap">
-    <h2 style="margin:0">Indeks GPW-gra</h2>
+    <h2 style="margin:0">Indeks Makleria</h2>
     <span class="mono" style="font-size:26px;font-weight:800;letter-spacing:-.02em" data-idx-val><?= number_format($idxNow, 2, ',', ' ') ?> <span style="font-size:13px;color:var(--faint)">pkt</span></span>
     <span class="chg <?= $idxChg >= 0 ? 'p' : 'n' ?>" data-idx-chg><span class="ar"><?= $idxChg >= 0 ? '▲' : '▼' ?></span><?= number_format(abs($idxChg), 2, ',', ' ') ?>%</span>
     <span class="muted" style="font-size:12px">ważony kapitalizacją · baza 1000 pkt</span>

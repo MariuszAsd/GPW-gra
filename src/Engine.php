@@ -619,7 +619,7 @@ final class Engine
     }
 
     /**
-     * Widełki jak na GPW: |zmiana od otwarcia| >= 15% -> zawieszenie na 10 ticków.
+     * Widełki jak na prawdziwej giełdzie: |zmiana od otwarcia| >= 15% -> zawieszenie na 10 ticków.
      * Po wznowieniu widełki się ROZSZERZAJĄ (30% dla drugiego zawieszenia) — kurs może
      * dalej szukać równowagi, ale panika dostaje przymusową pauzę. Max 2 zawieszenia/sesję.
      */
@@ -639,7 +639,7 @@ final class Engine
             $pdo->prepare("INSERT INTO news (headline,body,type,scope,target_id,is_espi,impact_strength,kind,publish_tick,expire_tick,published_at)
                            VALUES (?,?,'NEU','COMPANY',?,1,0,'fundamental',?,?,?)")
                 ->execute([
-                    "⏸ GPW-gra zawiesza notowania {$s['ticker']} po $dir " . number_format(abs($chg) * 100, 1, ',', ' ') . '%',
+                    "⏸ Makleria zawiesza notowania {$s['ticker']} po $dir " . number_format(abs($chg) * 100, 1, ',', ' ') . '%',
                     "Kurs {$s['name']} przekroczył widełki statyczne ±" . round($band * 100) . "% od otwarcia sesji. Handel wstrzymany na ~" . self::HALT_TICKS
                     . " minut — zlecenia można składać po wznowieniu. Po wznowieniu obowiązują rozszerzone widełki.",
                     (int) $s['id'], $t, $until, Db::now(),

@@ -69,6 +69,21 @@ function icon(string $name, string $cls = 'ico'): string {
 function redirect(string $u): void { header("Location: $u"); exit; }
 
 /**
+ * Znak marki Makleria: badge z monogramem „M" narysowanym jako podwójny szczyt
+ * wykresu (kropka = szczyt notowań). Inline SVG — bez zewnętrznych assetów.
+ */
+function brand_mark(int $px = 26): string {
+    return "<span class='mk' style='width:{$px}px;height:{$px}px'>"
+        . "<svg viewBox='0 0 24 24' fill='none' stroke='#fff' stroke-width='2.3' stroke-linecap='round' stroke-linejoin='round' aria-hidden='true'>"
+        . "<path d='M4 18V7l8 6 8-6v11'/><circle cx='20' cy='7' r='1.6' fill='#fff' stroke='none'/></svg></span>";
+}
+/** Pełny logotyp marki (badge + słowo). $link=null → sam znak bez odnośnika. */
+function brand_logo(int $px = 26, ?string $link = 'pulpit.php'): string {
+    $inner = brand_mark($px) . "Makleria<span>.pl</span>";
+    return $link !== null ? "<a class='brand' href='" . h($link) . "'>$inner</a>" : "<span class='brand'>$inner</span>";
+}
+
+/**
  * Podpowiedź nad działem: prosta infografika "o co tu chodzi" z opcją ukrycia.
  * ✕ pyta: "tylko teraz" (sessionStorage) czy "na zawsze" (localStorage).
  * Przywracanie wszystkich: przycisk w Samouczku. Kroki to zaufany HTML z kodu.
@@ -215,8 +230,8 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
        . "if(t!=='dark'&&t!=='light')t='light';document.documentElement.setAttribute('data-theme',t);})();"
        . "function themeToggle(){var r=document.documentElement,t=r.getAttribute('data-theme')==='dark'?'light':'dark';"
        . "r.setAttribute('data-theme',t);try{localStorage.setItem('theme',t)}catch(e){}return false}</script>";
-    echo "<title>" . h($title) . " · GPW-gra</title><link rel='stylesheet' href='assets/app.css'></head><body>";
-    echo "<header class='topbar'><a class='brand' href='pulpit.php'><span class='mk'>G</span>GPW<span>-gra</span></a><nav>";
+    echo "<title>" . h($title) . " · Makleria</title><link rel='stylesheet' href='assets/app.css'></head><body>";
+    echo "<header class='topbar'>" . brand_logo() . "<nav>";
     if ($user) {
         $bellId = $actg ? (int) $actg['owner_id'] : (int) $user['id'];
         $unread = (int) Engine::one("SELECT COUNT(*) FROM notifications WHERE user_id=? AND read_at IS NULL", [$bellId]);
@@ -289,7 +304,7 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
     }
 }
 function layout_footer(): void {
-    echo "<div class='foot'>GPW-gra · symulacja giełdy · kursy fikcyjne</div>";
+    echo "<div class='foot'>Makleria · symulacja giełdy · kursy fikcyjne · gra edukacyjna, bez prawdziwych pieniędzy</div>";
     // podpowiedzi nad działami: pokaż tylko nieukryte; ✕ pyta "raz czy na zawsze"
     echo "<script>document.querySelectorAll('.expl').forEach(function(e){var k='exp_'+e.dataset.exp;"
        . "try{if(!localStorage.getItem(k)&&!sessionStorage.getItem(k))e.hidden=false}catch(_){e.hidden=false}});"

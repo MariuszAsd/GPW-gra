@@ -1,6 +1,6 @@
 <?php
 /**
- * Rekomendacje: reko DM GPW-gra (premium widzi dzisiejsze od razu, reszta
+ * Rekomendacje: reko DM Makleria (premium widzi dzisiejsze od razu, reszta
  * z opóźnieniem 1 sesji) + skaner sygnałów technicznych podany jak rekomendacje.
  * Podzakładka modułu Rynek (market_subnav).
  */
@@ -27,7 +27,7 @@ layout_header('Rekomendacje', $user, 'market');
     'premium widzi je DZIEŃ wcześniej', 'wskazówka, nie wyrocznia']); ?>
 
 <section class="panel" style="margin-bottom:16px">
-  <h2>Rekomendacje DM GPW-gra
+  <h2>Rekomendacje DM Makleria
     <?= tip('Analitycy domu maklerskiego wydają rekomendacje z ceną docelową na otwarciu każdej sesji. Klienci z Pakietem Analityka widzą je NATYCHMIAST — pozostali dzień później. Rekomendacja to wskazówka, nie gwarancja.', '') ?>
     <?php if ($recoPremium): ?><span class="tag" style="color:var(--gold);border-color:var(--gold-border)">PREMIUM — widzisz dzisiejsze</span><?php endif; ?>
   </h2>

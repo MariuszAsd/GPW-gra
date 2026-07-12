@@ -250,7 +250,7 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
         <?php if (!$hasRaport): ?>
           <div style="text-align:center;padding:26px 14px">
             <div style="font-size:34px">🔒</div>
-            <h3 style="margin:8px 0 6px;font-size:15px">Raport Premium — pełna analiza spółki od DM GPW-gra</h3>
+            <h3 style="margin:8px 0 6px;font-size:15px">Raport Premium — pełna analiza spółki od DM Makleria</h3>
             <p class="muted" style="max-width:460px;margin:0 auto 14px">Wycena z premią/dyskontem do kursu, historia wyników i niespodzianek,
                polityka dywidendowa z realną stopą, profil ryzyka i charakter spółki. Wiedza, którą inni muszą zgadywać z wykresu.</p>
             <a class="btn sm" style="display:inline-block" href="sklep.php">Aktywuj Raport Premium — 🪙 <?= Tokens::PASSES['raport'][1] ?> / <?= Tokens::PASSES['raport'][0] ?> dni</a>
@@ -266,7 +266,7 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
             $dpsYield = (float) $s['price'] > 0 && $reports ? $dpsSum / count($reports) * 12 / (float) $s['price'] * 100 : 0;
             $risk = fn(float $v, array $lbl) => $v >= 1.25 ? $lbl[2] : ($v >= 0.85 ? $lbl[1] : $lbl[0]);
           ?>
-          <h3 style="margin:4px 0 10px;font-size:14px;font-weight:700">Raport analityczny DM GPW-gra <span class="tag" style="color:var(--gold);border-color:var(--gold-border)">PREMIUM</span></h3>
+          <h3 style="margin:4px 0 10px;font-size:14px;font-weight:700">Raport analityczny DM Makleria <span class="tag" style="color:var(--gold);border-color:var(--gold-border)">PREMIUM</span></h3>
           <div class="ch-grid" style="margin-bottom:12px">
             <div class="ch-stat"><small>WYCENA GODZIWA (C/Z × EPS)</small><b><?= money($fair) ?> PLN</b></div>
             <div class="ch-stat"><small>KURS VS WYCENA</small><b class="<?= $prem <= 0 ? 'up' : 'down' ?>"><?= $prem >= 0 ? '+' : '' ?><?= number_format($prem, 1, ',', ' ') ?>%</b>

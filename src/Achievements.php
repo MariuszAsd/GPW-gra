@@ -11,7 +11,7 @@ final class Achievements
     {
         return [
             'pierwsza_transakcja' => ['🤝', 'Pierwsza krew',            'Zawarłeś pierwszą transakcję na giełdzie.'],
-            'trader_100'          => ['⚡', 'Wilk z GPW-gry',           'Zawarłeś 100 transakcji.'],
+            'trader_100'          => ['⚡', 'Wilk z Maklerii',           'Zawarłeś 100 transakcji.'],
             'day_trader'          => ['🌪️', 'Day trader',               '20 transakcji w jednej sesji.'],
             'dywersyfikacja'      => ['🧺', 'Nie wszystkie jajka',      'Trzymasz akcje 10 różnych spółek jednocześnie.'],
             'pierwsza_dywidenda'  => ['💰', 'Pierwsza dywidenda',       'Otrzymałeś pierwszą wypłatę dywidendy.'],

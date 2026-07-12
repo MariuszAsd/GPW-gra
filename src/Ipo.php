@@ -9,7 +9,7 @@
  *  - koryguje bazę indeksu (jak dzielnik WIG) — debiut NIE zawyża indeksu,
  *  - dokłada płaską historię świec, raport startowy, news 📈 i powiadomienia.
  *
- * OFERTA PUBLICZNA Z ZAPISAMI (jak na prawdziwej GPW): automat najpierw OGŁASZA
+ * OFERTA PUBLICZNA Z ZAPISAMI (jak na prawdziwej giełdzie): automat najpierw OGŁASZA
  * ofertę (cena emisyjna, pula akcji, okno zapisów ~2 sesje), gracze zapisują się
  * po cenie emisyjnej (gotówka schodzi od razu, liczy się do kapitału), a na
  * zamknięciu okna dochodzi popyt instytucji (boty), przy nadsubskrypcji działa
@@ -342,7 +342,7 @@ final class Ipo
         $secName = (string) Engine::one("SELECT name FROM sectors WHERE id=?", [$secId]);
         $pdo->prepare("INSERT INTO news (headline,body,type,scope,target_id,is_espi,impact_strength,kind,publish_tick,expire_tick,published_at)
                        VALUES (?,?,?,'COMPANY',?,1,?,'sentiment',?,?,?)")->execute([
-            ($impact >= 0.35 ? '🔥 Gorący debiut' : ($impact < 0 ? '🥶 Chłodny debiut' : '📈 Debiut')) . " na GPW-gra: $name ($ticker)",
+            ($impact >= 0.35 ? '🔥 Gorący debiut' : ($impact < 0 ? '🥶 Chłodny debiut' : '📈 Debiut')) . " na Maklerii: $name ($ticker)",
             "Nowa spółka z sektora $secName weszła na giełdę. Cena debiutu: " . number_format($price, 2, ',', ' ')
             . " PLN, kapitalizacja " . number_format($price * $shares / 1e6, 0, ',', ' ') . " mln PLN."
             . ($extraBody !== '' ? ' ' . $extraBody : ''),

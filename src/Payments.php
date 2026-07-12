@@ -74,7 +74,7 @@ final class Payments
                        VALUES (?,?,?,?, 'new', 'payu', ?)")
             ->execute([$uid, $package, $tokens, $grosz, Db::now()]);
         $oid = (int) $pdo->lastInsertId();
-        $extId = 'GPW-' . $oid . '-' . substr(bin2hex(random_bytes(4)), 0, 8);
+        $extId = 'MAK-' . $oid . '-' . substr(bin2hex(random_bytes(4)), 0, 8);
 
         $c = self::config();
         try {
@@ -90,7 +90,7 @@ final class Payments
                 'continueUrl'   => self::baseUrl() . '/platnosc.php?o=' . $oid,
                 'customerIp'    => $customerIp !== '' ? $customerIp : '127.0.0.1',
                 'merchantPosId' => (string) $c['pos_id'],
-                'description'   => "GPW-gra: $name ($tokens Tokenów Maklera)",
+                'description'   => "Makleria: $name ($tokens Tokenów Maklera)",
                 'currencyCode'  => 'PLN',
                 'totalAmount'   => (string) $grosz,
                 'products'      => [['name' => $name, 'unitPrice' => (string) $grosz, 'quantity' => '1']],
@@ -130,8 +130,8 @@ final class Payments
         if (!is_array($order)) return [400, 'no order'];
         $extId = (string) ($order['extOrderId'] ?? '');
         $status = (string) ($order['status'] ?? '');
-        // nasz extOrderId = GPW-{id}-{losowe}
-        if (!preg_match('/^GPW-(\d+)-/', $extId, $m)) return [400, 'unknown extOrderId'];
+        // nasz extOrderId = MAK-{id}-{losowe}
+        if (!preg_match('/^MAK-(\d+)-/', $extId, $m)) return [400, 'unknown extOrderId'];
         $oid = (int) $m[1];
 
         if ($status === 'COMPLETED') self::complete($oid);

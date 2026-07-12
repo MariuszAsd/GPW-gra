@@ -210,7 +210,7 @@ layout_header('Pomoc', $user, 'help');
 
 <div class="panel help-sec" id="widelki">
   <h3>⏸ Widełki i zawieszenia notowań</h3>
-  <p>Jak na prawdziwej GPW: gdy kurs spółki oddali się o <b>±15% od otwarcia sesji</b>, giełda zawiesza
+  <p>Jak na prawdziwej giełdzie: gdy kurs spółki oddali się o <b>±15% od otwarcia sesji</b>, giełda zawiesza
      notowania na ~10 minut — nikt nie złoży zlecenia, a SL/TP czekają na wznowienie. Po wznowieniu widełki
      się <b>rozszerzają</b> (±30%), a limit to 2 zawieszenia na sesję. Zawieszenie dostaje komunikat ESPI.</p>
   <div class="help-ex">💡 Zawieszenie po spadku to moment na decyzję na chłodno: panika ma przymusową pauzę.

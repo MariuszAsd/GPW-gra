@@ -47,8 +47,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 layout_header('Rejestracja', null);
 ?>
 <div class="auth">
-  <h1 style="text-align:center">Załóż konto</h1>
-  <p class="muted" style="text-align:center;margin:0 0 18px">Start: <?= money($cfg['starting_cash']) ?> PLN wirtualnego kapitału</p>
+  <div style="display:flex;justify-content:center;margin-bottom:6px"><?= brand_logo(38, 'index.php') ?></div>
+  <h1 style="text-align:center;font-size:20px;margin:2px 0 2px">Załóż darmowe konto</h1>
+  <p class="muted" style="text-align:center;margin:0 0 18px">Start: <?= money($cfg['starting_cash']) ?> PLN wirtualnego kapitału + 10 Tokenów</p>
   <div class="panel">
     <form method="post">
       <label for="username">Login</label>
