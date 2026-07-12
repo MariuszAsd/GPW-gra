@@ -249,6 +249,75 @@ final class Newsroom
             'Umorzenia zmuszają fundusze do sprzedawania akcji bez patrzenia na wyceny. Taka podaż potrafi przyginać kursy nawet dobrych spółek.', 'tfi'],
     ];
 
+    /**
+     * LEKKIE SYGNAŁY MAKRO -> KONKRETNA BRANŻA (mikro-wpływ, pośrednio na spółki sektora).
+     * Format: [symbol_sektora, kind, type, impact, dur(ticki), headline, body, topic].
+     * Impact celowo MAŁY (±0.06–0.18) i krótki — to tło koniunktury, nie wydarzenie. Pojawiają się
+     * częściej niż ESPI (patrz macroPulse), z anty-powtórką tematu na branży.
+     */
+    public const MACRO_SECTOR = [
+        // Dobra luksusowe (LUX)
+        ['LUX', 'fundamental', 'POS', 0.16, 9, 'Coraz więcej zamożnych Polaków — dane o rosnących majątkach', 'Raport o strukturze majątku pokazuje rosnącą grupę zamożnych gospodarstw. To sprzyjający wiatr dla marek premium: więcej chętnych na dobra luksusowe, choć efekt buduje się powoli.', 'zamoznosc'],
+        ['LUX', 'fundamental', 'POS', 0.10, 8, 'Rekordowy kwartał sprzedaży dóbr premium', 'Domy handlowe raportują wzrost sprzedaży towarów z górnej półki. Luksus trzyma się mocno niezależnie od cyklu — klienta premium rzadziej rusza portfel.', 'premium'],
+        ['LUX', 'fundamental', 'NEG', -0.12, 8, 'Moda na oszczędzanie schładza rynek premium', 'Rośnie popularność świadomej, minimalistycznej konsumpcji. Część zamożnych ogranicza demonstracyjne zakupy — lekka presja na marki luksusowe.', 'oszczedzanie'],
+        // Handel (HAN)
+        ['HAN', 'fundamental', 'POS', 0.14, 8, 'Realne płace rosną — konsumenci wydają odważniej', 'Wynagrodzenia rosną szybciej niż ceny. Więcej pieniędzy w kieszeniach zwykle najpierw widać w kasach sklepów i sieci handlowych.', 'place'],
+        ['HAN', 'fundamental', 'POS', 0.09, 7, 'Nastroje konsumentów najlepsze od miesięcy', 'Wskaźnik optymizmu gospodarstw domowych w górę. Chętniej sięgają po większe zakupy — dobre tło dla handlu detalicznego.', 'nastroje_kons'],
+        ['HAN', 'fundamental', 'NEG', -0.14, 8, 'Inflacja znów przyspiesza — koszyk zakupowy się kurczy', 'Droższe podstawowe produkty zjadają budżety. Klienci schodzą do tańszych marek i ograniczają impulsywne zakupy — presja na marże handlu.', 'inflacja'],
+        // Energetyka (ENE)
+        ['ENE', 'fundamental', 'POS', 0.13, 8, 'Prognozy mroźnej aury podbijają zapotrzebowanie na energię', 'Chłodniejsza pogoda to wyższe zużycie prądu i ciepła. Wytwórcy energii zwykle korzystają na szczytach popytu.', 'pogoda_energia'],
+        ['ENE', 'fundamental', 'NEG', -0.13, 8, 'Łagodna zima tnie popyt na ciepło i prąd', 'Cieplejsza aura oznacza niższe rachunki i mniejsze wolumeny sprzedaży energii. Sektor energetyczny pod delikatną presją.', 'pogoda_energia'],
+        // Technologie (TECH)
+        ['TECH', 'fundamental', 'POS', 0.15, 9, 'Firmy zwiększają budżety na cyfryzację', 'Badanie wśród zarządów pokazuje wzrost nakładów na IT i automatyzację. Dłuższa fala zamówień sprzyja całej branży technologicznej.', 'budzety_it'],
+        ['TECH', 'fundamental', 'NEG', -0.14, 8, 'Cięcia wydatków na IT w cieniu spowolnienia', 'Firmy odkładają projekty informatyczne na później. Wolniejszy strumień zamówień studzi oczekiwania wobec spółek technologicznych.', 'budzety_it'],
+        // Finanse (FIN)
+        ['FIN', 'fundamental', 'POS', 0.12, 8, 'Rynek obstawia wyższe stopy procentowe', 'Wyższe stopy to zwykle szersze marże odsetkowe banków. Sektor finansowy bywa jednym z pierwszych beneficjentów zacieśniania polityki pieniężnej.', 'stopy'],
+        ['FIN', 'fundamental', 'NEG', -0.12, 8, 'Oczekiwane obniżki stóp mogą ścisnąć marże banków', 'Perspektywa tańszego pieniądza ciąży marżom odsetkowym. Rynek chłodzi wyceny sektora finansowego.', 'stopy'],
+        // Przemysł (IND)
+        ['IND', 'fundamental', 'POS', 0.13, 8, 'PMI dla przemysłu wraca powyżej 50 pkt', 'Wskaźnik menedżerów logistyki sygnalizuje powrót do ekspansji: więcej nowych zamówień i produkcji. Sprzyjające tło dla spółek przemysłowych.', 'pmi'],
+        ['IND', 'fundamental', 'NEG', -0.13, 8, 'Słabnące zamówienia eksportowe ciążą przemysłowi', 'Popyt zagraniczny hamuje, portfele zamówień topnieją. Przemysł wchodzi w chłodniejszy okres.', 'eksport_ind'],
+        // Biotechnologia (BIO)
+        ['BIO', 'fundamental', 'POS', 0.12, 8, 'Rosną publiczne nakłady na zdrowie i badania', 'Większe budżety na ochronę zdrowia i refundację napędzają popyt na nowe terapie. Dobre tło dla biotechnologii.', 'naklady_zdrowie'],
+        ['BIO', 'fundamental', 'NEG', -0.11, 8, 'Presja regulatora na ceny leków studzi biotech', 'Zapowiedź twardszych negocjacji cenowych z płatnikiem. Niższe potencjalne marże ciążą wycenom spółek biotech.', 'ceny_lekow'],
+        // Gry i media (GAM)
+        ['GAM', 'fundamental', 'POS', 0.12, 8, 'Rekordowy czas przed ekranami napędza rynek gier i mediów', 'Statystyki pokazują wydłużający się czas rozrywki cyfrowej. Więcej graczy i widzów to szersza baza przychodów branży.', 'ekrany'],
+        ['GAM', 'fundamental', 'NEG', -0.12, 8, 'Konsumenci tną wydatki na rozrywkę cyfrową', 'W napiętych budżetach rozrywka bywa cięta pierwsza. Wolniejsza sprzedaż gier i subskrypcji ciąży branży.', 'rozrywka'],
+    ];
+
+    /** Cache symbol sektora -> id (jeden odczyt na tick). */
+    private static ?array $secIdMap = null;
+    private static function sectorIdMap(): array
+    {
+        if (self::$secIdMap === null) {
+            self::$secIdMap = [];
+            foreach (Engine::all("SELECT id, symbol FROM sectors") as $s) self::$secIdMap[(string) $s['symbol']] = (int) $s['id'];
+        }
+        return self::$secIdMap;
+    }
+
+    /**
+     * Lekki puls makro: co pewien czas jeden sygnał koniunktury dla KONKRETNEJ branży
+     * (mikro-wpływ na fundament wszystkich spółek sektora). Rzadko dla danej branży
+     * (anty-powtórka), ale w skali rynku pojawia się regularnie — buduje tło koniunktury.
+     */
+    public static function macroPulse(int $tick): void
+    {
+        $rv = Engine::one("SELECT v FROM game_state WHERE k='macro_rate'");
+        $rate = ($rv === false || $rv === null || $rv === '') ? 45 : (int) round((float) $rv);  // ‰ na tick (GM: macro_rate)
+        if ($rate <= 0 || mt_rand(1, 1000) > $rate) return;
+        $map = self::sectorIdMap();
+        $pick = self::MACRO_SECTOR[array_rand(self::MACRO_SECTOR)];
+        [$sym, $kind, $type, $impact, $dur, $head, $body, $topic] = $pick;
+        $secId = $map[$sym] ?? null;
+        if ($secId === null) return;
+        // anty-powtórka: ta sama branża nie dostaje makro częściej niż co 40 ticków
+        $lv = Engine::one("SELECT v FROM game_state WHERE k=?", ['macro_last_' . $secId]);
+        $last = ($lv === false || $lv === null || $lv === '') ? -1000 : (int) $lv;
+        if ($tick - $last < 40) return;
+        self::insert($tick, $kind, $type, 'SECTOR', $secId, 0, (float) $impact, (int) $dur, $head, $body, self::topicHash('makro:' . $topic));
+        Engine::setState('macro_last_' . $secId, (string) $tick);
+    }
+
     /* ================= REALIZM STRUMIENIA ================= */
 
     /** Minimalny odstęp między HISTORIAMI na jednym celu (ticki) — raporty/dywidendy/konsensusy nie liczą się.
@@ -309,6 +378,7 @@ final class Newsroom
         }
         self::technicalPulse($tick);
         self::preReportConsensus($tick);
+        self::macroPulse($tick);   // lekkie sygnały makro -> branża (mikro-wpływ, tło koniunktury)
     }
 
     private static function emitCompany(int $tick, array $s): void

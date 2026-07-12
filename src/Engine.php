@@ -926,15 +926,16 @@ final class Engine
             $eps      = round($profit * 12.0 / $shares, 4);
             $surprise = $expected != 0.0 ? ($profit - $expected) / abs($expected) * 100.0 : 0.0;
 
-            // reakcja fundamentu: przyciągnij go do wyceny z zysków (C/Z × roczny EPS)
-            $fair  = (float) $s['pe_target'] * $eps;
+            // REAKCJA na wyniki = NIESPODZIANKA (oczekiwany wzrost rynek wycenił już wcześniej).
+            // Wynik POWYŻEJ prognoz podbija fundament, PONIŻEJ — zbija; sam wzrost zysku r/r NIE
+            // wystarcza, jeśli jest gorszy od oczekiwań (koniec z „słaby raport, a kurs w górę").
+            // Docelową wycenę z zysków (C/Z × EPS) i tak dociąga kotwica 0.6%/tick w runTick
+            // (last_eps zaktualizowane niżej) — po miss kurs najpierw spada, potem grinduje ku wartości.
             $cur   = (float) $s['fundamental'];
-            $delta = $fair - $cur;
-            if ($delta < 0) $delta = $delta / max(0.5, (float) $s['financial_resilience']);  // odporne spadają mniej
-            // reakcja ROZŁOŻONA w czasie: mały skok od razu, resztę dociąga kotwica wyceny
-            // (0.6%/tick w runTick) — koniec z teleportacją kursu o kilkanaście % w jednej świecy
-            $pull  = min(0.35, 0.25 * (float) $s['news_impact']);
-            $newFund = max(1, round($cur + $delta * $pull, 2));
+            $react = ($surprise / 100.0) * (0.5 + 0.5 * (float) $s['news_impact']);    // ~ wielkość niespodzianki
+            if ($react < 0) $react /= max(0.5, (float) $s['financial_resilience']);    // odporne spadają mniej
+            $react = max(-0.10, min(0.10, $react));                                     // cap skoku z raportu (żeby nie zawieszać co chwila)
+            $newFund = max(1, round($cur * (1 + $react), 2));
 
             $pdo->prepare("UPDATE stocks SET fundamental=?, last_profit=?, last_eps=?, next_report_tick=next_report_tick+? WHERE id=?")
                 ->execute([$newFund, $profit, $eps, $per, $sid]);
@@ -985,7 +986,7 @@ final class Engine
                 . number_format(abs($rr), 1, ',', ' ') . '% wobec poprzedniego raportu.'
                 . ($dps > 0 ? ' Spółka wypłaca dywidendę ' . number_format($dps, 2, ',', ' ') . ' PLN na akcję.' : '')
                 . ' ' . $mgmt;
-            $impact = max(-0.15, min(0.15, $surprise / 100.0 * (float) $s['news_impact'] * 0.3));  // łagodny dryf po wynikach
+            $impact = max(-0.08, min(0.08, $surprise / 100.0 * (float) $s['news_impact'] * 0.12));  // lekki dryf-echo (główna reakcja to skok fundamentu wyżej)
             $pdo->prepare("INSERT INTO news (headline,body,type,kind,scope,target_id,is_espi,impact_strength,publish_tick,expire_tick,published_at)
                            VALUES (?,?,?,'fundamental',?,?,1,?,?,?,?)")
                 ->execute([$head, $body, $type, 'COMPANY', $sid, $impact, $tick, $tick + 8, Db::now()]);

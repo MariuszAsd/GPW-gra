@@ -110,6 +110,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $nr = max(0.0, min(8.0, (float) str_replace(',', '.', $_POST['news_rate'] ?? '1')));
         Engine::setState('news_rate', (string) $nr);
         flash('Ustawiono częstotliwość ESPI/newsów: ' . rtrim(rtrim(number_format($nr, 1, ',', ''), '0'), ',') . ' (mniej = rzadziej).');
+    } elseif ($a === 'macro_rate') {
+        $mr = max(0, min(200, (int) round((float) str_replace(',', '.', $_POST['macro_rate'] ?? '45'))));
+        Engine::setState('macro_rate', (string) $mr);
+        flash('Ustawiono częstotliwość lekkich sygnałów makro (branżowych): ' . $mr . '‰ na tick (0 = wyłączone).');
     } elseif ($a === 'challenge_create') {
         [$sess] = Engine::sessionInfo();
         Challenges::create([
@@ -555,6 +559,12 @@ $modTop = Engine::all("SELECT m.user_id, u.username, COUNT(*) n, MAX(m.created_a
       <input type="hidden" name="action" value="news_rate">
       <label style="font-size:11px;color:var(--soft)">Częstotliwość ESPI
         <input type="number" name="news_rate" step="0.5" min="0" max="8" value="<?= rtrim(rtrim(number_format((float) (Engine::one("SELECT v FROM game_state WHERE k='news_rate'") ?: 1), 1, '.', ''), '0'), '.') ?>" style="width:70px" title="Ile newsów spływa (‰ na tick na spółkę). Domyślnie 1. Mniej = rzadsze ESPI."></label>
+      <button class="btn sm ghost">Ustaw</button>
+    </form>
+    <form method="post" class="inline" style="align-items:flex-end;gap:6px">
+      <input type="hidden" name="action" value="macro_rate">
+      <label style="font-size:11px;color:var(--soft)">Sygnały makro (branże)
+        <input type="number" name="macro_rate" step="5" min="0" max="200" value="<?= (int) round((float) (($mrv = Engine::one("SELECT v FROM game_state WHERE k='macro_rate'")) === false || $mrv === null ? 45 : $mrv)) ?>" style="width:70px" title="Lekkie sygnały koniunktury dla branż (‰ na tick, mikro-wpływ na spółki sektora). Domyślnie 45. 0 = wyłączone."></label>
       <button class="btn sm ghost">Ustaw</button>
     </form>
   </div>
