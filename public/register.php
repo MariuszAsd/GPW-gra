@@ -29,7 +29,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ->execute([$username, password_hash($pass1, PASSWORD_DEFAULT), $email !== '' ? $email : null, $cfg['starting_cash'], $sessionNo, $cfg['starting_cash']]);
             $uid = (int) Db::pdo()->lastInsertId();
             Log::write('info', 'auth', 'register', "nowe konto: $username", ['uid' => $uid]);
-            Tokens::grant($uid, 10, 'welcome', 'Tokeny powitalne — zajrzyj do Sklepu');
+            Tokens::grant($uid, 10, 'welcome', 'Tokeny powitalne — zajrzyj do sekcji Tokeny inwestora');
             session_regenerate_id(true);
             $_SESSION['uid'] = $uid;
             $goal = (float) (Engine::one("SELECT v FROM game_state WHERE k='goal_target'") ?: 0);

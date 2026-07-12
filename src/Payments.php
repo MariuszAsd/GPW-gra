@@ -1,6 +1,6 @@
 <?php
 /**
- * Płatności za Tokeny Maklera — PayU REST API (BLIK, karty, przelewy).
+ * Płatności za Tokeny inwestora — PayU REST API (BLIK, karty, przelewy).
  *
  * ZASADA: sprzedajemy TYLKO tokeny (informacja/wygoda/kosmetyka), nigdy PLN
  * w grze. Realizacja jest w pełni audytowalna: payment_orders trzyma każdy
@@ -22,7 +22,7 @@ final class Payments
     /** Pakiety doładowań: klucz => [tokeny łącznie (z bonusem), cena w groszach, nazwa, dopisek] */
     public const PACKAGES = [
         'start'    => [20,  999,  'Pakiet Startowy',  ''],
-        'inwestor' => [55,  1999, 'Pakiet Inwestora', '+10% gratis'],
+        'inwestor' => [55,  1999, 'Pakiet Maklera', '+10% gratis'],
         'rekin'    => [150, 4999, 'Pakiet Rekina',    '+25% gratis'],
     ];
 
@@ -90,7 +90,7 @@ final class Payments
                 'continueUrl'   => self::baseUrl() . '/platnosc.php?o=' . $oid,
                 'customerIp'    => $customerIp !== '' ? $customerIp : '127.0.0.1',
                 'merchantPosId' => (string) $c['pos_id'],
-                'description'   => "Makleria: $name ($tokens Tokenów Maklera)",
+                'description'   => "Makleria: $name ($tokens Tokenów inwestora)",
                 'currencyCode'  => 'PLN',
                 'totalAmount'   => (string) $grosz,
                 'products'      => [['name' => $name, 'unitPrice' => (string) $grosz, 'quantity' => '1']],
@@ -161,7 +161,7 @@ final class Payments
         [, , $name] = self::PACKAGES[$o['package']] ?? [0, 0, $o['package']];
         if (!class_exists('Tokens')) require_once __DIR__ . '/Tokens.php';
         Tokens::grant((int) $o['user_id'], (int) $o['tokens'], 'purchase', "zakup: $name");
-        Engine::journal((int) $o['user_id'], 'token', "🪙 Opłacono $name — +" . (int) $o['tokens'] . " Tokenów Maklera. Dziękujemy!", 'sklep.php');
+        Engine::journal((int) $o['user_id'], 'token', "🪙 Opłacono $name — +" . (int) $o['tokens'] . " Tokenów inwestora. Dziękujemy!", 'sklep.php');
         Log::write('info', 'engine', 'pay.complete', "zamówienie #$orderId opłacone: $name", ['user_id' => $o['user_id'], 'grosz' => $o['amount_grosz']]);
         return true;
     }

@@ -142,8 +142,19 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
   <div>
     <div class="panel" style="padding:8px">
       <div class="chartbar">
-        <div class="cgrp" id="cg-range">
-          <button data-range="d" class="on">1D</button>
+        <span class="cgl">Świeca</span>
+        <div class="cgrp" id="cg-iv" title="Interwał świecy — ile czasu obejmuje jedna świeca (M = minuty, H1 = godzina, D1 = sesja, T1 = tydzień)">
+          <button data-iv="auto" class="on">Auto</button>
+          <button data-iv="1">M1</button>
+          <button data-iv="5">M5</button>
+          <button data-iv="15">M15</button>
+          <button data-iv="60">H1</button>
+          <button data-iv="d">D1</button>
+          <button data-iv="w">T1</button>
+        </div>
+        <span class="cgl">Zakres</span>
+        <div class="cgrp" id="cg-range" title="Horyzont czasowy — jak daleko wstecz sięga wykres">
+          <button data-range="d" class="on">Sesja</button>
           <button data-range="t">1T</button>
           <button data-range="m">1M</button>
           <button data-range="r">1R</button>
@@ -154,7 +165,7 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
           <button data-type="line">Linia</button>
         </div>
         <div class="cgrp"><button id="cg-at" title="Nakładka analizy technicznej: średnie kroczące SMA 20 (niebieska) i SMA 50 (złota)">AT</button></div>
-        <span class="muted" style="font-size:11px;margin-left:auto" id="cg-note">1D = bieżąca sesja · dłuższe zakresy = świece dzienne</span>
+        <span class="muted" style="font-size:11px;margin-left:auto" id="cg-note">świeca = interwał · zakres = horyzont</span>
       </div>
       <div id="chartbox"><?= $chartSvg ?></div>
     </div>
@@ -442,23 +453,45 @@ qty.oninput=upd; price.oninput=upd; upd();
 // wykres: rysowanie w przeglądarce (świece/linia, interwał) + auto-odświeżanie
 const chartBox=document.getElementById('chartbox');
 const chartNote=document.getElementById('cg-note');
-let cRange='d', cType='candles', cAT=false;
-try{ cAT=localStorage.getItem('chart_at')==='1'; }catch(e){}
+let cRange='d', cIv='auto', cType='candles', cAT=false;
+try{ cAT=localStorage.getItem('chart_at')==='1';
+  const sr=localStorage.getItem('chart_range'), si=localStorage.getItem('chart_iv');
+  if(['d','t','m','r','max'].includes(sr)) cRange=sr;
+  if(['auto','1','5','15','60','d','w'].includes(si)) cIv=si;
+}catch(e){}
+// pary bez sensu (świeca D1/T1 przy zakresie "Sesja", T1 przy 1T) — dobierz drugi wymiar
+function reconcile(changed){
+  if((cIv==='d'||cIv==='w')&&cRange==='d'){
+    if(changed==='range') cIv='auto'; else cRange=(cIv==='w'?'r':'m');
+  }
+  if(cIv==='w'&&cRange==='t'){
+    if(changed==='range') cIv='d'; else cRange='r';
+  }
+}
+function syncChartBtns(){
+  document.querySelectorAll('#cg-range button').forEach(x=>x.classList.toggle('on',x.dataset.range===cRange));
+  document.querySelectorAll('#cg-iv button').forEach(x=>x.classList.toggle('on',x.dataset.iv===cIv));
+  try{ localStorage.setItem('chart_range',cRange); localStorage.setItem('chart_iv',cIv); }catch(e){}
+}
 function sma(cs,p){ const out=[]; let sum=0;
   for(let i=0;i<cs.length;i++){ sum+=cs[i].c; if(i>=p) sum-=cs[i-p].c; out.push(i>=p-1?sum/p:null); }
   return out; }
-const RANGE_LBL={d:'1D — bieżąca sesja',t:'1T — tydzień',m:'1M — miesiąc',r:'1R — rok',max:'MAX — cała historia'};
+const RANGE_LBL={d:'sesja',t:'tydzień',m:'miesiąc',r:'rok',max:'cała historia'};
+const IV_LBL={auto:'Auto',1:'M1',5:'M5',15:'M15',60:'H1',d:'D1',w:'T1'};
 async function drawChart(){ try{
-  const j=await (await fetch('api_chart.php?id=<?= $id ?>&range='+cRange)).json();
+  const j=await (await fetch('api_chart.php?id=<?= $id ?>&range='+cRange+'&iv='+cIv)).json();
   if(!j.ok) return;
   if(chartNote){
-    let n=RANGE_LBL[cRange]||'';
-    if(cRange!=='d'){ n+=' · świec dziennych: '+(j.days??j.candles.length);
-      if(j.fallback||(j.days_total!==undefined&&j.days_total<8)) n+=' (świat gry jest młody — historia dopiero się buduje)'; }
+    let n='świeca '+(IV_LBL[cIv]||cIv)+' · zakres: '+(RANGE_LBL[cRange]||'');
+    n+=' · słupków: '+j.candles.length;
+    if(j.trimmed) n+=' (najnowszy wycinek zakresu)';
+    if(j.fallback||(j.days_total!==undefined&&j.days_total<8&&cRange!=='d')) n+=' · świat gry jest młody — historia dopiero się buduje';
     chartNote.textContent=n;
   }
   if(j.candles.length<2){
-    chartBox.innerHTML='<div style="padding:40px;text-align:center;color:var(--faint)">Za mało danych dla tego zakresu — wróć za kilka sesji.</div>';
+    chartBox.innerHTML='<div style="padding:40px;text-align:center;color:var(--faint)">'+(cIv!=='auto'
+      ?'Ta para świeca × zakres daje mniej niż 2 słupki — wybierz drobniejszą świecę albo szerszy zakres.'
+      :'Za mało danych dla tego zakresu — wróć za kilka sesji.')+'</div>';
     return;
   }
   const W=680,H=240,pl=16,pr=16,pt=12,pb=54,volTop=192,volH=44,cs=j.candles,n=cs.length;
@@ -504,12 +537,13 @@ if(atBtn){ atBtn.classList.toggle('on',cAT);
   atBtn.onclick=()=>{ cAT=!cAT; atBtn.classList.toggle('on',cAT);
     try{ localStorage.setItem('chart_at',cAT?'1':'0'); }catch(e){} drawChart(); }; }
 document.querySelectorAll('#cg-range button').forEach(b=>b.onclick=()=>{
-  document.querySelectorAll('#cg-range button').forEach(x=>x.classList.remove('on'));
-  b.classList.add('on'); cRange=b.dataset.range||'d'; drawChart(); });
+  cRange=b.dataset.range||'d'; reconcile('range'); syncChartBtns(); drawChart(); });
+document.querySelectorAll('#cg-iv button').forEach(b=>b.onclick=()=>{
+  cIv=b.dataset.iv||'auto'; reconcile('iv'); syncChartBtns(); drawChart(); });
 document.querySelectorAll('#cg-type button').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('#cg-type button').forEach(x=>x.classList.remove('on'));
   b.classList.add('on'); cType=b.dataset.type; drawChart(); });
-drawChart();
+reconcile('iv'); syncChartBtns(); drawChart();
 // live kurs w nagłówku + odświeżenie wykresu
 setInterval(async()=>{ try{
   const j=await (await fetch('api_market.php')).json(); if(!j.ok) return; const d=j.data[<?= $id ?>]; if(!d) return;

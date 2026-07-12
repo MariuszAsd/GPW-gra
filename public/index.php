@@ -19,7 +19,7 @@ $features = [
 ];
 $steps = [
     ['Zakładasz konto', 'Wybierasz login, opcjonalnie e-mail — i już jesteś na parkiecie. Za darmo.'],
-    ['Dostajesz ' . money_short($startCash) . ' PLN', 'Wirtualny kapitał startowy plus 10 Tokenów Maklera na start.'],
+    ['Dostajesz ' . money_short($startCash) . ' PLN', 'Wirtualny kapitał startowy plus 10 Tokenów inwestora na start.'],
     ['Budujesz pierwszy milion', 'Kupuj tanio, sprzedawaj drogo, chroń zyski i wspinaj się w rankingu.'],
 ];
 ?><!doctype html>
@@ -148,7 +148,7 @@ $steps = [
   <?= brand_logo(22, 'index.php') ?>
   <div style="margin-top:10px"><a href="login.php">Zaloguj</a> · <a href="register.php">Załóż konto</a></div>
   <p class="disc">Kursy i spółki są fikcyjne. Makleria to gra edukacyjno-rozrywkowa, nie platforma inwestycyjna —
-     nie obracasz w niej prawdziwymi pieniędzmi, a Tokeny Maklera nigdy nie zamieniają się na złotówki.</p>
+     nie obracasz w niej prawdziwymi pieniędzmi, a Tokeny inwestora nigdy nie zamieniają się na złotówki.</p>
 </div></footer>
 
 </body></html>

@@ -1,5 +1,5 @@
 <?php
-/** Sklep: Tokeny Maklera, pakiety premium, kosmetyka i doładowania. Zasada: kupujesz INFORMACJĘ i wygląd, nigdy PLN w grze. */
+/** Tokeny inwestora: pakiety premium, kosmetyka i doładowania. Zasada: kupujesz INFORMACJĘ i wygląd, nigdy PLN w grze. */
 require __DIR__ . '/_boot.php';
 $user = require_login();
 $uid = (int) $user['id'];
@@ -29,10 +29,10 @@ $owned = Cosmetics::owned($uid);
 $me = Engine::row("SELECT title, chat_color, frame FROM users WHERE id=?", [$uid]);
 $payOn = Payments::enabled();
 
-layout_header('Sklep', $user, 'shop');
+layout_header('Tokeny inwestora', $user, 'shop');
 ?>
 <div class="page-head">
-  <h1>Sklep</h1>
+  <h1>Tokeny inwestora</h1>
   <span class="muted hide-m">premium bez psucia gry — tokenów nie wymienisz na PLN, kupują informację i wygląd</span>
 </div>
 

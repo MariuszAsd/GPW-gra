@@ -1,6 +1,6 @@
 <?php
 /**
- * Tokeny Maklera — waluta premium (monetyzacja).
+ * Tokeny inwestora — waluta premium (monetyzacja).
  *
  * ZASADA PROJEKTOWA: tokenów NIE wymienia się na PLN w grze (zero pay-to-win
  * w rankingu). Kupują INFORMACJĘ i WYGODĘ: skaner sygnałów AT, rekomendacje
@@ -38,7 +38,7 @@ final class Tokens
             $bal = self::balance($uid);
             $pdo->prepare("INSERT INTO token_ledger (user_id, delta, balance, reason, note, created_at) VALUES (?,?,?,?,?,?)")
                 ->execute([$uid, $n, $bal, mb_substr($reason, 0, 40), $note !== '' ? mb_substr($note, 0, 160) : null, Db::now()]);
-            Engine::notify($uid, 'token', "🪙 +$n Tokenów Maklera" . ($note !== '' ? " — $note" : '') . " (saldo: $bal).", 'sklep.php');
+            Engine::notify($uid, 'token', "🪙 +$n Tokenów inwestora" . ($note !== '' ? " — $note" : '') . " (saldo: $bal).", 'sklep.php');
         } catch (\Throwable $e) { Log::write('warn', 'engine', 'tokens.grant', $e->getMessage()); }
     }
 
@@ -49,7 +49,7 @@ final class Tokens
         $pdo = Db::pdo();
         $st = $pdo->prepare("UPDATE users SET tokens = tokens - ? WHERE id=? AND tokens >= ?");
         $st->execute([$n, $uid, $n]);
-        if ($st->rowCount() === 0) return [false, 'Za mało Tokenów Maklera (potrzeba: ' . $n . ', masz: ' . self::balance($uid) . ').'];
+        if ($st->rowCount() === 0) return [false, 'Za mało Tokenów inwestora (potrzeba: ' . $n . ', masz: ' . self::balance($uid) . ').'];
         $bal = self::balance($uid);
         $pdo->prepare("INSERT INTO token_ledger (user_id, delta, balance, reason, note, created_at) VALUES (?,?,?,?,?,?)")
             ->execute([$uid, -$n, $bal, mb_substr($reason, 0, 40), $note !== '' ? mb_substr($note, 0, 160) : null, Db::now()]);

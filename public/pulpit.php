@@ -173,7 +173,7 @@ function stock_row(array $w, bool $premium, bool $withPl): void {
     <a href="wiadomosci.php?f=moje"><?= icon('news') ?><span>Newsy moich spółek</span></a>
     <a href="wyzwania.php"><?= icon('flag') ?><span>Wyzwania</span></a>
     <a href="ranking.php"><?= icon('trophy') ?><span>Ranking</span></a>
-    <a href="sklep.php"><?= icon('shop') ?><span>Sklep</span></a>
+    <a href="sklep.php"><?= icon('shop') ?><span>Tokeny</span></a>
     <a href="dziennik.php"><?= icon('book') ?><span>Dziennik</span></a>
     <a href="samouczek.php"><?= icon('help') ?><span>Samouczek</span></a>
   </div>

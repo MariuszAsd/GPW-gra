@@ -118,8 +118,6 @@ function subnav(array $items, string $active): void {
         echo "<a class='" . ($key === $active ? 'on' : '') . "' href='" . h($href) . "'>$label</a>";
     }
     echo "</nav>";
-    // na wąskim ekranie pasek się przewija — aktywna podzakładka ma być widoczna od razu
-    echo "<script>document.querySelector('.subnav a.on')?.scrollIntoView({block:'nearest',inline:'center'});</script>";
 }
 
 /** Podzakładki modułu Rynek — jeden pasek na wszystkich stronach rynkowych. */
@@ -239,7 +237,7 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
         echo "<a class='thm' href='#' onclick='return themeToggle()' title='Przełącz motyw jasny/ciemny'>" . icon('theme') . "</a>";
         if ($user['role'] === 'player') {
             $tk = (int) Engine::one("SELECT tokens FROM users WHERE id=?", [$actg ? $actg['owner_id'] : $user['id']]);
-            echo "<a href='sklep.php' class='tokens' title='Tokeny Maklera — Sklep'>🪙 <b>$tk</b></a>";
+            echo "<a href='sklep.php' class='tokens' title='Tokeny inwestora — premium i doładowania'>🪙 <b>$tk</b></a>";
         }
         // główna liczba = KAPITAŁ (gotówka + zamrożone + akcje po kursie) — jak w rankingu;
         // sama gotówka („za ile mogę kupić") schodzi do drugiej linijki
@@ -264,7 +262,7 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
         echo "<a class='" . trim($act('challenges')) . "' href='wyzwania.php'>" . icon('flag') . "<span>Wyzwania</span></a>";
         echo "<a class='" . trim($act('ranking')) . "' href='ranking.php'>" . icon('trophy') . "<span>Ranking</span></a>";
         if ($seasonOnNav) echo "<a class='" . trim($act('season')) . "' href='sezon.php'>" . icon('medal') . "<span>Sezon</span></a>";
-        if ($user['role'] === 'player') echo "<a class='" . trim($act('shop')) . "' href='sklep.php'>" . icon('shop') . "<span>Sklep</span></a>";
+        if ($user['role'] === 'player') echo "<a class='" . trim($act('shop')) . "' href='sklep.php'>" . icon('shop') . "<span>Tokeny</span></a>";
         echo "<a class='" . trim($act('help')) . "' href='pomoc.php'>" . icon('help') . "<span>Pomoc</span></a>";
         echo "<a class='" . trim($act('more')) . "' href='menu.php'>" . icon('user') . "<span>Konto</span></a>";
         if ($isAdmin) echo "<a class='gm" . $act('gm') . "' href='gm.php'>" . icon('gear') . "<span>GM</span></a>";
@@ -311,5 +309,26 @@ function layout_footer(): void {
        . "function explAsk(b){b.hidden=true;b.closest('.expl').querySelector('.expl-menu').hidden=false}"
        . "function explOnce(b){var e=b.closest('.expl');try{sessionStorage.setItem('exp_'+e.dataset.exp,'1')}catch(_){}e.remove()}"
        . "function explForever(b){var e=b.closest('.expl');try{localStorage.setItem('exp_'+e.dataset.exp,'1')}catch(_){}e.remove()}</script>";
+    // nakładka "przetwarzam": pokazuje się przy submit formularza i kliku w link/wiersz
+    // (celowo NIE beforeunload — Firefox traci wtedy bfcache, iOS Safari go nie emituje).
+    // AJAX-owe formularze (preventDefault) jej nie odpalają. 300 ms zwłoki = szybkie
+    // przejścia nie migają; pageshow czyści po powrocie wstecz; tap na nakładkę lub
+    // timeout ratują po anulowanej nawigacji.
+    echo "<div id='busy' role='status'><div class='box'><span class='spin'></span><span>Przetwarzam…</span></div></div>"
+       . "<script>(function(){var el=document.getElementById('busy'),t=null,off=null;"
+       . "function show(){if(t||el.classList.contains('on'))return;"
+       . "t=setTimeout(function(){t=null;el.classList.add('on');off=setTimeout(hide,20000)},300)}"
+       . "function hide(){if(t){clearTimeout(t);t=null}if(off){clearTimeout(off);off=null}el.classList.remove('on')}"
+       . "document.addEventListener('submit',function(e){if(!e.defaultPrevented)show()});"
+       . "document.addEventListener('click',function(e){"
+       . "if(e.defaultPrevented||e.button!==0||e.ctrlKey||e.metaKey||e.shiftKey||e.altKey)return;"
+       . "var a=e.target.closest('a[href]');"
+       . "if(a){var h=a.getAttribute('href');"
+       . "if(!h||h.charAt(0)==='#'||/^(javascript:|mailto:|tel:)/i.test(h))return;"
+       . "if(a.target&&a.target!=='_self')return;if(a.hasAttribute('download'))return;"
+       . "show();return}"
+       . "if(e.target.closest('.rowlink'))show()});"
+       . "el.addEventListener('pointerdown',hide);"
+       . "window.addEventListener('pageshow',hide);})();</script>";
     echo "</main></body></html>";
 }

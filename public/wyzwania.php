@@ -282,7 +282,7 @@ layout_header('Wyzwania', $user, 'challenges');
     <div class="ch-step"><i>4</i><b>🏆 Rozliczenie</b><span>buy-in wraca każdemu; top ~20% graczy dzieli dodatkowo pulę wpisowych</span></div>
   </div>
   <p class="muted" style="margin:8px 0 0;font-size:12.5px">
-    <b class="up">Wygrywasz</b> → nagroda z puli + Tokeny Maklera + punkty sezonu i odznaka.
+    <b class="up">Wygrywasz</b> → nagroda z puli + Tokeny inwestora + punkty sezonu i odznaka.
     <b class="down">Przegrywasz</b> → tracisz najwyżej wpisowe (i ewentualną stratę z handlu) — buy-in w formie, do jakiej go doprowadziłeś (gotówka + akcje), wraca na konto.
   </p>
 </section>

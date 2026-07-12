@@ -62,7 +62,7 @@ layout_header('Rekomendacje', $user, 'market');
   </h2>
   <?php if (!$recoPremium): ?>
     <p class="flash info" style="margin:0">Skaner przeszukuje wszystkie spółki i pokazuje najsilniejsze sygnały kupna/sprzedaży
-      — to funkcja <b>Pakietu Analityka</b>. <a href="sklep.php"><b>Aktywuj w Sklepie →</b></a>
+      — to funkcja <b>Pakietu Analityka</b>. <a href="sklep.php"><b>Aktywuj w sekcji Tokeny inwestora →</b></a>
       <span class="muted">Pojedynczą spółkę zawsze sprawdzisz za darmo: karta spółki → zakładka Analiza.</span></p>
   <?php elseif (!$taRows): ?>
     <p class="muted">Rynek bez wyraźnych sygnałów — żadna spółka nie przekracza progu |0,25|. Zajrzyj po następnej sesji.</p>

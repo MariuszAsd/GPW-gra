@@ -1,5 +1,5 @@
 <?php
-/** Konto: profil, premium (Sklep), ustawienia konta i pomoc. Grywalność jest w Rynku, Portfelu i Lidze — nie tutaj. */
+/** Konto: profil, premium (Tokeny inwestora), ustawienia konta i pomoc. Grywalność jest w Rynku, Portfelu i Lidze — nie tutaj. */
 require __DIR__ . '/_boot.php';
 $user = require_login();
 $uid = (int) $user['id'];
@@ -27,7 +27,7 @@ layout_header('Konto', $user, 'more');
 
 <section class="panel menu-list" style="margin-bottom:14px">
   <?php if ($user['role'] === 'player'): ?>
-  <a href="sklep.php"><?= icon('shop') ?>Sklep — Tokeny Maklera i premium<span class="sub">🪙 <?= (int) $me['tokens'] ?></span><span class="arr">›</span></a>
+  <a href="sklep.php"><?= icon('shop') ?>Tokeny inwestora — premium i doładowania<span class="sub">🪙 <?= (int) $me['tokens'] ?></span><span class="arr">›</span></a>
   <?php endif; ?>
   <a href="konto.php"><?= icon('user') ?>Ustawienia konta — e-mail i hasło<span class="arr">›</span></a>
   <a href="powiadomienia.php"><?= icon('bell') ?>Powiadomienia<?= $unread > 0 ? "<span class='sub' style='color:var(--down);font-weight:700'>$unread</span>" : '' ?><span class="arr">›</span></a>

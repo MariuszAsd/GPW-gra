@@ -160,7 +160,7 @@ let chatSince = 0, chatAdmin = 0; const myUid = <?= (int) $user['id'] ?>;
 const chatList = document.getElementById('chat-list');
 function chatRow(m) {
   const del = chatAdmin ? ` <a href="#" class="chat-del" data-id="${m.id}" title="Ukryj wpis">✕</a>` : '';
-  const col = /^#[0-9a-f]{6}$/i.test(m.c || '') ? ` style="color:${m.c}"` : '';   // kolor nicka (kosmetyka ze Sklepu)
+  const col = /^#[0-9a-f]{6}$/i.test(m.c || '') ? ` style="color:${m.c}"` : '';   // kolor nicka (kosmetyka z sekcji Tokeny)
   const who = m.pl ? `<a class="chat-u" href="gracz.php?id=${m.uid}"${col}>${esc(m.u)}</a>`
                    : `<span class="chat-u${m.gm ? ' gm' : ''}">${esc(m.u)}</span>`;   // GM/QA bez linku do profilu
   return `<div class="chat-msg${m.uid === myUid ? ' own' : ''}" data-mid="${m.id}"><span class="chat-t">${m.t}</span> ${who}: ${esc(m.m)}${del}</div>`;

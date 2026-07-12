@@ -18,11 +18,11 @@ layout_header('Płatność', $user, '');
   <?php elseif ($o['status'] === 'completed'): ?>
     <div style="font-size:40px">✅</div>
     <h2 style="margin:8px 0 4px">Tokeny przyznane!</h2>
-    <p class="muted" style="margin:0 0 8px"><?= h(Payments::PACKAGES[$o['package']][2] ?? $o['package']) ?> — 🪙 <?= (int) $o['tokens'] ?> Tokenów Maklera dopisane do konta.</p>
+    <p class="muted" style="margin:0 0 8px"><?= h(Payments::PACKAGES[$o['package']][2] ?? $o['package']) ?> — 🪙 <?= (int) $o['tokens'] ?> Tokenów inwestora dopisane do konta.</p>
   <?php elseif ($o['status'] === 'cancelled'): ?>
     <div style="font-size:40px">✕</div>
     <h2 style="margin:8px 0 4px">Płatność anulowana</h2>
-    <p class="muted" style="margin:0 0 8px">Nic nie zostało pobrane. Możesz spróbować ponownie w Sklepie.</p>
+    <p class="muted" style="margin:0 0 8px">Nic nie zostało pobrane. Możesz spróbować ponownie w sekcji Tokeny inwestora.</p>
   <?php else: ?>
     <div style="font-size:40px">⏳</div>
     <h2 style="margin:8px 0 4px">Przetwarzamy płatność…</h2>
@@ -30,6 +30,6 @@ layout_header('Płatność', $user, '');
     <script>setTimeout(() => location.reload(), 7000);</script>
   <?php endif; ?>
   <p style="margin:14px 0 0">Twoje saldo: <b style="color:var(--gold)">🪙 <?= $balance ?></b></p>
-  <a class="btn sm" style="margin-top:14px;display:inline-block" href="sklep.php">← Wróć do Sklepu</a>
+  <a class="btn sm" style="margin-top:14px;display:inline-block" href="sklep.php">← Wróć do Tokenów</a>
 </section>
 <?php layout_footer();

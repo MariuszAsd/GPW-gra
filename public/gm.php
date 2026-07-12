@@ -328,12 +328,12 @@ layout_header('Panel GM', $user, 'gm');
     foreach ($d7base as $r) { if ($r['first_ts'] < $weekAgo) { $d7old++; if ($r['last_ts'] >= $weekAgo) $d7ret++; } }
     $recentOrders = Engine::all("SELECT po.*, u.username FROM payment_orders po JOIN users u ON u.id=po.user_id ORDER BY po.id DESC LIMIT 8");
   ?>
-  <h2 style="margin-top:18px">Tokeny Maklera (monetyzacja)</h2>
+  <h2 style="margin-top:18px">Tokeny inwestora (monetyzacja)</h2>
   <div class="ch-grid" style="margin:8px 0 10px">
     <div class="ch-stat"><small>KONWERSJA (JAKIKOLWIEK WYDATEK)</small><b><?= number_format($conv, 1, ',', ' ') ?>%</b><span class="muted" style="font-size:11px;display:block"><?= $payers ?> z <?= $playerCount ?> graczy · cel branżowy 2–5% przy realnych płatnościach</span></div>
     <div class="ch-stat"><small>PRZYCHÓD (OPŁACONE)</small><b><?= money($revenue) ?> zł</b><span class="muted" style="font-size:11px;display:block">ARPPU: <?= $realPayers > 0 ? money($arppu) . ' zł' : '—' ?> · płacących: <?= $realPayers ?></span></div>
     <div class="ch-stat"><small>RETENCJA D7</small><b><?= $d7old > 0 ? number_format($d7ret / $d7old * 100, 0) . '%' : '—' ?></b><span class="muted" style="font-size:11px;display:block"><?= $d7ret ?>/<?= $d7old ?> graczy sprzed tygodnia wciąż gra</span></div>
-    <div class="ch-stat"><small>TOKENY: OBIEG</small><b>🪙 <?= $tokensPlus ?> / <?= $tokensMinus ?></b><span class="muted" style="font-size:11px;display:block">przyznane / wydane (zdrowy sklep = rosnące wydane)</span></div>
+    <div class="ch-stat"><small>TOKENY: OBIEG</small><b>🪙 <?= $tokensPlus ?> / <?= $tokensMinus ?></b><span class="muted" style="font-size:11px;display:block">przyznane / wydane (zdrowa monetyzacja = rosnące wydane)</span></div>
     <div class="ch-stat"><small>AKTYWNE PAKIETY</small><b><?= array_sum(array_map(fn($r) => (int) $r['n'], $passActive)) ?: '0' ?></b><span class="muted" style="font-size:11px;display:block"><?= $passActive ? implode(' · ', array_map(fn($r) => h($r['kind']) . ': ' . (int) $r['n'], $passActive)) : 'brak' ?> · karnety sezonu: <?= $seasonPass ?></span></div>
   </div>
   <p class="muted" style="margin:4px 0 8px">Przyznaj tokeny graczowi (reklamacje, nagrody specjalne, ręczna realizacja zakupów gdy płatności wyłączone — status bramki: <b><?= Payments::enabled() ? '<span class="up">PayU podpięte</span>' : 'niepodpięta (sekrety PAYU_* w GitHub Actions)' ?></b>).</p>

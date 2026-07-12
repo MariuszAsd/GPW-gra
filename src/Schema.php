@@ -31,7 +31,7 @@ final class Schema
                 joined_session INT NOT NULL DEFAULT 1,   -- sesja dołączenia (liczy się od niej limit celu)
                 goal_session   INT NULL,                 -- sesja, w której gracz osiągnął cel (NULL = jeszcze nie)
                 start_equity   $money NOT NULL DEFAULT 0, -- kapitał startowy (baza do wyniku % w rankingu)
-                tokens INT NOT NULL DEFAULT 0,             -- Tokeny Maklera (waluta premium; księga w token_ledger)
+                tokens INT NOT NULL DEFAULT 0,             -- Tokeny inwestora (waluta premium; księga w token_ledger)
                 email VARCHAR(120) NULL,                   -- do odzyskiwania hasła (opcjonalny; unikalny gdy podany)
                 goal_target DECIMAL(15,2) NULL,            -- osobisty cel gry (NULL = domyślny z panelu GM)
                 -- kosmetyka (założone przedmioty; katalog w src/Cosmetics.php):
@@ -320,7 +320,7 @@ final class Schema
                 UNIQUE (stock_id, session)
             )",
 
-            // --- MONETYZACJA: Tokeny Maklera (księga), pakiety premium, rekomendacje DM ---
+            // --- MONETYZACJA: Tokeny inwestora (księga), pakiety premium, rekomendacje DM ---
             "token_ledger" => "CREATE TABLE token_ledger (
                 id $pk,
                 user_id INT NOT NULL,
