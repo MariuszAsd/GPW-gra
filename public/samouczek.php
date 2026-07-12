@@ -36,7 +36,7 @@ $kroki = [
      'Rynkiem rządzą wydarzenia: od plotek o przejęciach po krachy. Duże są rzadkie, małe częste. Gdy kurs spółki przekroczy ±15% od otwarcia sesji, giełda ZAWIESZA notowania na ~10 minut (widełki, jak na prawdziwej giełdzie) — panika dostaje przymusową pauzę, a po wznowieniu widełki się rozszerzają. Odważni kupują, gdy leje się krew — jest za to odznaka.',
      'wiadomosci.php', 'Śledź wydarzenia'],
     ['📐', 'Analiza techniczna',
-     'Karta spółki ma zakładkę Analiza: 10 wskaźników (RSI, MACD, średnie, wybicia...) składa się w jeden sygnał kupuj/sprzedaj. Każda spółka ma swój charakter — techniczne słuchają wskaźników, fundamentalne raportów. Boty AT widzą ten sam sygnał co Ty.',
+     'Karta spółki ma zakładkę Analiza: 10 wskaźników (RSI, MACD, średnie, wybicia...) składa się w jeden sygnał kupuj/sprzedaj. Każda spółka ma swój charakter — techniczne słuchają wskaźników, fundamentalne raportów. Fundusze algorytmiczne widzą ten sam sygnał co Ty.',
      'market.php', 'Otwórz spółkę i zakładkę Analiza'],
     ['⭐', 'Obserwowane spółki',
      'Gwiazdka przy spółce (na Rynku albo jej karcie) przypina ją na górze tabeli i w widżecie Pulpitu. Z Pakietem Analityka obserwowane spółki wysyłają alert 🔔, gdy pojawi się mocny sygnał techniczny.',

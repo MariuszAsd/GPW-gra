@@ -63,7 +63,7 @@ layout_header('Newsy i ESPI', $user, 'market');
       <?php foreach ([['', 'wszystkie'], ['fundamental', 'Fundamenty'], ['sentiment', 'Nastroje'], ['technical', 'Technika']] as [$k, $lbl]): ?>
         <a class="tag" style="padding:4px 10px;font-size:10.5px;<?= $kindF === $k ? 'color:var(--accent);border-color:var(--accent)' : '' ?>" href="<?= h($fUrl($scope, $k)) ?>"><?= $lbl ?></a>
       <?php endforeach; ?>
-      <?= tip('Fundamenty = twarde fakty (przesuwają wycenę; grają na nich boty fundamentalne). Nastroje = plotki i opinie (paliwo botów newsowych; efekt zwykle wygasa). Technika = komentarze z wykresu (czytają je fundusze algorytmiczne).', '') ?>
+      <?= tip('Fundamenty = twarde fakty (przesuwają wycenę; grają na nich inwestorzy wartościowi). Nastroje = plotki i opinie (paliwo graczy spekulacyjnych; efekt zwykle wygasa). Technika = komentarze z wykresu (czytają je fundusze algorytmiczne).', '') ?>
     </div>
     <?php if ($scope === 'moje' && empty($myStocks)): ?>
       <p class="muted" style="padding:16px">Nie masz jeszcze akcji — filtr „Moje spółki" pokaże komunikaty spółek z Twojego portfela i ich branż.</p>

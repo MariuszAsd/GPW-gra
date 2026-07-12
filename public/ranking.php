@@ -30,19 +30,6 @@ usort($players, function ($a, $b) {
     return $b['equity'] <=> $a['equity'];
 });
 
-// strategie botów — która wygrywa (średni wynik % od startu)
-$strats = Engine::all(
-    "SELECT b.strategy, COUNT(*) AS n,
-            AVG( (u.cash + u.cash_reserved +
-                  (SELECT COALESCE(SUM((w.qty + w.qty_reserved) * s.price), 0)
-                   FROM wallets w JOIN stocks s ON s.id = w.stock_id WHERE w.user_id = u.id)
-                  - u.start_equity) / NULLIF(u.start_equity, 0) * 100 ) AS avg_ret
-     FROM users u JOIN bots b ON b.user_id = u.id
-     WHERE u.is_bot = 1 AND u.start_equity > 0
-     GROUP BY b.strategy ORDER BY avg_ret DESC"
-);
-$stratName = ['mm' => 'Animator rynku', 'trend' => 'Podążający za trendem', 'rsi' => 'Kontrarianin (RSI)', 'fundamental' => 'Fundamentalny', 'news' => 'Gracz newsowy', 'tech' => 'Techniczny (AT)'];
-
 layout_header('Ranking', $user, 'ranking');
 $medals = ['🥇', '🥈', '🥉'];
 ?>
@@ -82,25 +69,4 @@ $medals = ['🥇', '🥈', '🥉'];
   </div>
 </div>
 
-<?php if ($strats): ?>
-<div class="panel" style="padding:0;overflow:hidden;margin-top:16px">
-  <div style="padding:14px 16px 0"><h2>Boty — która strategia wygrywa</h2></div>
-  <div class="tbl-scroll">
-    <table>
-      <thead><tr><th style="width:52px">#</th><th>Strategia</th><th class="num">Botów</th><th class="num">Śr. wynik od startu</th></tr></thead>
-      <tbody>
-      <?php foreach ($strats as $i => $s): $r = (float) $s['avg_ret']; ?>
-        <tr>
-          <td class="mono"><?= $i + 1 ?></td>
-          <td><b><?= h($stratName[$s['strategy']] ?? $s['strategy']) ?></b> <span class="muted mono"><?= h($s['strategy']) ?></span></td>
-          <td class="num"><?= (int) $s['n'] ?></td>
-          <td class="num"><span class="chg <?= $r >= 0 ? 'p' : 'n' ?>"><span class="ar"><?= $r >= 0 ? '▲' : '▼' ?></span><?= number_format(abs($r), 2, ',', ' ') ?>%</span></td>
-        </tr>
-      <?php endforeach; ?>
-      </tbody>
-    </table>
-  </div>
-  <p class="muted" style="padding:10px 16px 14px;margin:0;font-size:12px">Wynik = zmiana kapitału (gotówka + akcje + lokaty i zapisy IPO) od startu świata. Zmierz się z najlepszą strategią!</p>
-</div>
-<?php endif; ?>
 <?php layout_footer();

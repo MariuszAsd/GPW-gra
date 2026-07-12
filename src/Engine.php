@@ -282,6 +282,7 @@ final class Engine
         $act = (float) (self::one("SELECT v FROM game_state WHERE k='bot_activity'") ?? 1);
         if ($act <= 0) return;
 
+        $pdo = Db::pdo();
         self::ensureTechBots();       // istniejące światy dostają botów AT bez resetu (jednorazowo)
         self::ensureBotNames();       // bot_* -> losowe „ludzkie" nazwy (jednorazowo)
         self::ensureBotPopulation();  // dołóż botów do docelowej populacji: głębszy arkusz (jednorazowo)
@@ -291,7 +292,8 @@ final class Engine
 
         $bots = self::all("SELECT u.id, b.strategy, b.news_reactivity, b.technical_sensitivity, b.risk_appetite, b.horizon
                            FROM users u JOIN bots b ON b.user_id = u.id WHERE u.is_bot = 1");
-        $stocks = self::all("SELECT id, sector_id, price, fundamental, pe_target, last_eps, liquidity, dividend_payout, tech_affinity, ta_signal FROM stocks");
+        $stocks = self::all("SELECT id, sector_id, price, fundamental, pe_target, last_eps, liquidity, dividend_payout, tech_affinity, ta_signal, halted_until FROM stocks");
+        $nowTs = Db::now();   // do pomijania spółek z zawieszonymi notowaniami (jak dawne place()->haltMessage())
         $tick = (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
         $mods = self::activeMods($tick);   // boty fundamentalne rozumieja skutki wydarzen
 
@@ -301,11 +303,54 @@ final class Engine
         // Efekt uboczny: w arkuszu leżą zlecenia z różnych „roczników" → naturalnie zróżnicowany.
         $botActive = fn(int $uid) => (($uid + $tick) % 4) === 0;
 
-        // prefetch: portfele wszystkich botów (jedno zapytanie zamiast setek)
+        // aktywne boty tego ticku (bramka)
+        $activeUids = [];
+        foreach ($bots as $b) if ($botActive((int) $b['id'])) $activeUids[] = (int) $b['id'];
+
+        // BATCH ANULOWANIE: jednym ciągiem zwolnij rezerwacje i skasuj aktywne zlecenia botów,
+        // które teraz przekwotują — zamiast setek pojedynczych cancelAllFor (mniej round-tripów do bazy).
+        if ($activeUids) {
+            $ph = implode(',', array_fill(0, count($activeUids), '?'));
+            $relCash = []; $relSh = [];
+            foreach (self::all("SELECT user_id, stock_id, side, qty, price FROM orders WHERE status='active' AND user_id IN ($ph)", $activeUids) as $o) {
+                if ($o['side'] === 'buy') $relCash[(int) $o['user_id']] = ($relCash[(int) $o['user_id']] ?? 0) + round((float) $o['qty'] * (float) $o['price'], 2);
+                else { $kk = $o['user_id'] . ':' . $o['stock_id']; $relSh[$kk] = ($relSh[$kk] ?? 0) + (int) $o['qty']; }
+            }
+            foreach ($relCash as $uidR => $c) if ($c > 0) $pdo->prepare("UPDATE users SET cash=cash+?, cash_reserved=cash_reserved-? WHERE id=?")->execute([$c, $c, $uidR]);
+            foreach ($relSh as $kk => $q) if ($q > 0) { [$uR, $sR] = explode(':', $kk); $pdo->prepare("UPDATE wallets SET qty=qty+?, qty_reserved=qty_reserved-? WHERE user_id=? AND stock_id=?")->execute([$q, $q, $uR, $sR]); }
+            $pdo->prepare("UPDATE orders SET status='cancelled' WHERE status='active' AND user_id IN ($ph)")->execute($activeUids);
+        }
+
+        // prefetch: portfele botów (PO anulowaniu — odzwierciedla zwolnione akcje) + gotówka
         $wal = [];
         foreach (self::all("SELECT user_id, stock_id, qty, avg_price FROM wallets WHERE user_id IN (SELECT id FROM users WHERE is_bot=1)") as $w) {
             $wal[$w['user_id']][$w['stock_id']] = $w;
         }
+        $botCash = [];
+        foreach (self::all("SELECT id, cash FROM users WHERE is_bot=1") as $u) $botCash[(int) $u['id']] = (float) $u['cash'];
+
+        // KOLEJKA ZLECEŃ botów: zbierana w PHP (z bieżącym saldem gotówki/akcji, by nie przekroczyć),
+        // zapisywana ZBIORCZO po pętli. Zamienia ~2000 zapytań/tick na kilkanaście → tick nie muli
+        // i nie blokuje zleceń graczy. Zwraca bool jak dawne place() (fałsz = brak środków/akcji).
+        $newOrders = []; $resCash = []; $resSh = [];
+        $queue = function (int $uid, int $sid, string $side, int $qty, float $price) use (&$newOrders, &$resCash, &$resSh, &$botCash, &$wal) {
+            if ($qty <= 0 || $price <= 0) return false;
+            $price = round($price, 2);
+            if ($side === 'buy') {
+                $cost = round($qty * $price, 2);
+                if (($botCash[$uid] ?? 0) + 1e-6 < $cost) return false;
+                $botCash[$uid] -= $cost;
+                $resCash[$uid] = ($resCash[$uid] ?? 0) + $cost;
+            } else {
+                $avail = (int) ($wal[$uid][$sid]['qty'] ?? 0);
+                if ($avail < $qty) return false;
+                $wal[$uid][$sid]['qty'] = $avail - $qty;
+                $kk = $uid . ':' . $sid; $resSh[$kk] = ($resSh[$kk] ?? 0) + $qty;
+            }
+            $newOrders[] = [$uid, $sid, $side, $qty, $price];
+            return true;
+        };
+
         // prefetch: historia zamknięć per spółka (raz na tick, nie raz na bota)
         $closes = [];
         foreach ($stocks as $st) $closes[$st['id']] = self::closes((int) $st['id'], 60);
@@ -335,8 +380,7 @@ final class Engine
 
         foreach ($bots as $bot) {
             $uid  = (int) $bot['id'];
-            if (!$botActive($uid)) continue;     // nieaktywny w tym ticku — jego zlecenia zostają w arkuszu
-            self::cancelAllFor($uid);            // aktywny — odśwież własne kwotowania
+            if (!$botActive($uid)) continue;     // nieaktywny w tym ticku — jego zlecenia zostają w arkuszu (anulowanie było zbiorcze wyżej)
             $strat = $bot['strategy'];
             $risk = max(0.3, (float) $bot['risk_appetite']);
             $sens = max(0.3, (float) $bot['technical_sensitivity']);
@@ -345,6 +389,7 @@ final class Engine
 
             foreach ($stocks as $st) {
                 $sid = (int) $st['id'];
+                if ($st['halted_until'] !== null && $st['halted_until'] !== '' && (string) $st['halted_until'] > $nowTs) continue;   // widełki: zawieszone notowania = boty nie dokładają zleceń (jak dawne place())
                 $liq = max(0.3, (float) $st['liquidity']);
                 // pokrycie botami zależne od PŁYNNOŚCI spółki: płynne handluje ~połowa botów,
                 // niepłynne co piąty — obrót i częstotliwość transakcji różnicują się naturalnie
@@ -363,7 +408,7 @@ final class Engine
 
                 // wspólny odruch (ze starej wersji): realizacja zysku — kurs > śr. zakupu +15%
                 if ($strat !== 'mm' && $have > 0 && $avg > 0 && $price > $avg * 1.15 && mt_rand(1, 100) <= 20) {
-                    self::place($uid, $sid, 'sell', max(1, (int) floor($have * 0.25)), round($price * 0.99, 2));
+                    $queue($uid, $sid,'sell', max(1, (int) floor($have * 0.25)), round($price * 0.99, 2));
                     continue;
                 }
 
@@ -381,15 +426,15 @@ final class Engine
                         $jb = 0.55 + mt_rand(0, 95) / 100; $js = 0.55 + mt_rand(0, 95) / 100;   // rozrzut wielkości (0,55–1,5×)
                         $qb = max(5, (int) round($qy * $act * (1 - 0.4 * $inv) * $jb));
                         $qs = max(5, (int) round($qy * $act * (1 + 0.4 * $inv) * $js));
-                        self::place($uid, $sid, 'buy',  $qb, round($base * (1 - $spread), 2));
-                        self::place($uid, $sid, 'sell', $qs, round($base * (1 + $spread), 2));
+                        $queue($uid, $sid,'buy',  $qb, round($base * (1 - $spread), 2));
+                        $queue($uid, $sid,'sell', $qs, round($base * (1 + $spread), 2));
                     }
                 } elseif ($strat === 'trend') {
                     // podaza za trendem: SMA krotka vs dluga + CIECIE STRAT (nie trzyma spadajacych)
                     $c = $closes[$sid];
                     if (count($c) < $hor) continue;
                     if ($have > 0 && $avg > 0 && $price < $avg * 0.93) {   // stop-loss bota: -7% od sredniej
-                        self::place($uid, $sid, 'sell', $have, round($price * 0.995, 2));
+                        $queue($uid, $sid,'sell', $have, round($price * 0.995, 2));
                         continue;
                     }
                     $short = self::sma(array_slice($c, -max(3, (int) round($hor / 4))));
@@ -399,8 +444,8 @@ final class Engine
                     // przestaje płacić ~4% "prowizji" na każdej rundce (bankrutował ~-26%/15 sesji)
                     // przechył AT: zgodny sygnał techniczny powiększa pozycję (do +60%), przeciwny nie blokuje
                     $tilt = $taInf > 0 ? (float) $st['ta_signal'] * $taInf * (float) $st['tech_affinity'] * $sens * 0.6 : 0.0;
-                    if ($short > $long * (1 + $th) && $have < 400 * $risk)  self::place($uid, $sid, 'buy',  max(1, (int) round(50 * $risk * $act * (1 + max(0, $tilt)))), round($price * 1.005, 2));
-                    elseif ($short < $long * (1 - $th) && $have > 0)         self::place($uid, $sid, 'sell', min((int) round(100 * $risk * $act * (1 + max(0, -$tilt))) + 1, $have), round($price * 0.995, 2));
+                    if ($short > $long * (1 + $th) && $have < 400 * $risk)  $queue($uid, $sid,'buy',  max(1, (int) round(50 * $risk * $act * (1 + max(0, $tilt)))), round($price * 1.005, 2));
+                    elseif ($short < $long * (1 - $th) && $have > 0)         $queue($uid, $sid,'sell', min((int) round(100 * $risk * $act * (1 + max(0, -$tilt))) + 1, $have), round($price * 0.995, 2));
                 } elseif ($strat === 'rsi') {
                     // kontrarianin: kupuje wyprzedanie, sprzedaje wykupienie (progi z czułości)
                     $c = $closes[$sid];
@@ -411,10 +456,10 @@ final class Engine
                     // im glebiej w strefie, tym wieksza pozycja (RSI 20 -> mocniejszy zakup niz RSI 29)
                     if ($r < $buyTh && $have < 400 * $risk) {
                         $depth = 1 + min(1.0, ($buyTh - $r) / 20);
-                        self::place($uid, $sid, 'buy',  max(1, (int) round(45 * $risk * $act * $depth)), round($price * 1.015, 2));
+                        $queue($uid, $sid,'buy',  max(1, (int) round(45 * $risk * $act * $depth)), round($price * 1.015, 2));
                     } elseif ($r > $sellTh && $have > 0) {
                         $depth = 1 + min(1.0, ($r - $sellTh) / 20);
-                        self::place($uid, $sid, 'sell', min((int) round(70 * $risk * $act * $depth) + 1, $have), round($price * 0.985, 2));
+                        $queue($uid, $sid,'sell', min((int) round(70 * $risk * $act * $depth) + 1, $have), round($price * 0.985, 2));
                     }
                 } elseif ($strat === 'fundamental') {
                     // inwestor wartosciowy: kurs vs wycena z zyskow (C/Z x EPS); percepcje przesuwaja
@@ -427,8 +472,8 @@ final class Engine
                     $fair *= 1 + ($news / 100) * $react * 6 + ($evEarn / 100) * 2.5 * $react;   // $news = już PRZEFILTROWANA percepcja (twarde fakty, mocniej na spółkach fundamentalnych)
                     $fair *= 1 + 0.05 * (float) $st['dividend_payout'];
                     $margin = 0.08 / $risk;
-                    if ($price < $fair * (1 - $margin) && $have < 500 * $risk)  self::place($uid, $sid, 'buy',  max(1, (int) round(40 * $risk * $act)), round($price * 1.02, 2));
-                    elseif ($price > $fair * (1 + $margin) && $have > 0)         self::place($uid, $sid, 'sell', min((int) round(80 * $risk * $act) + 1, $have), round($price * 0.98, 2));
+                    if ($price < $fair * (1 - $margin) && $have < 500 * $risk)  $queue($uid, $sid,'buy',  max(1, (int) round(40 * $risk * $act)), round($price * 1.02, 2));
+                    elseif ($price > $fair * (1 + $margin) && $have > 0)         $queue($uid, $sid,'sell', min((int) round(80 * $risk * $act) + 1, $have), round($price * 0.98, 2));
                 } elseif ($strat === 'tech') {
                     // gracz TECHNICZNY: handluje niemal wyłącznie na zbiorczym sygnale AT.
                     // Siła = sygnał x wpływ globalny (GM) x podatność spółki x czułość bota —
@@ -437,31 +482,44 @@ final class Engine
                     // komentarz techniczny w mediach = chwilowy dopalacz czułości (samospełniająca się przepowiednia)
                     $sigT = (float) $st['ta_signal'] * $taInf * (0.4 + 1.2 * $aff) * $sens * $news;
                     if ($have > 0 && $avg > 0 && $price < $avg * 0.90) {   // twardy stop bota AT: -10%
-                        self::place($uid, $sid, 'sell', $have, round($price * 0.995, 2));
+                        $queue($uid, $sid,'sell', $have, round($price * 0.995, 2));
                         continue;
                     }
                     if ($sigT > 0.12 && $have < 450 * $risk) {
                         $q = max(1, (int) round(55 * $risk * $act * min(1.6, $sigT * 2)));
-                        self::place($uid, $sid, 'buy', $q, round($price * 1.008, 2));
+                        $queue($uid, $sid,'buy', $q, round($price * 1.008, 2));
                     } elseif ($sigT < -0.12 && $have > 0) {
                         $q = min((int) round(90 * $risk * $act * min(1.6, -$sigT * 2)) + 1, $have);
-                        self::place($uid, $sid, 'sell', $q, round($price * 0.992, 2));
+                        $queue($uid, $sid,'sell', $q, round($price * 0.992, 2));
                     }
                 } elseif ($strat === 'news') {
                     // gracz newsowy: wchodzi za świeżym ESPI (momentum), siła zależna od reaktywności
                     if (abs($news) < 0.05) {
                         // brak newsów: drobny szum rynkowy (płynność + wolumen jak w starej wersji)
                         if (mt_rand(1, 1000) <= (int) round(30 * $liq * $act)) {
-                            if (mt_rand(0, 1) === 1) self::place($uid, $sid, 'buy', mt_rand(1, 8), round($price * 1.03, 2));
-                            elseif ($have > 0)        self::place($uid, $sid, 'sell', min(mt_rand(1, 8), $have), round($price * 0.97, 2));
+                            if (mt_rand(0, 1) === 1) $queue($uid, $sid,'buy', mt_rand(1, 8), round($price * 1.03, 2));
+                            elseif ($have > 0)        $queue($uid, $sid,'sell', min(mt_rand(1, 8), $have), round($price * 0.97, 2));
                         }
                         continue;
                     }
                     $q = max(1, (int) round(18 * $react * $act * min(2, abs($news) * 2.5)));
-                    if ($news > 0 && $have < 600)  self::place($uid, $sid, 'buy',  $q, round($price * 1.012, 2));
-                    elseif ($news < 0 && $have > 0) self::place($uid, $sid, 'sell', min($q * 2, $have), round($price * 0.988, 2));
+                    if ($news > 0 && $have < 600)  $queue($uid, $sid,'buy',  $q, round($price * 1.012, 2));
+                    elseif ($news < 0 && $have > 0) $queue($uid, $sid,'sell', min($q * 2, $have), round($price * 0.988, 2));
                 }
             }
+        }
+
+        // === FLUSH: zapis zebranych zleceń ZBIORCZO (bulk rezerwacja + bulk INSERT) ===
+        foreach ($resCash as $uidF => $c) if ($c > 0) $pdo->prepare("UPDATE users SET cash=cash-?, cash_reserved=cash_reserved+? WHERE id=?")->execute([round($c, 2), round($c, 2), $uidF]);
+        foreach ($resSh as $kk => $q) if ($q > 0) { [$uR, $sR] = explode(':', $kk); $pdo->prepare("UPDATE wallets SET qty=qty-?, qty_reserved=qty_reserved+? WHERE user_id=? AND stock_id=?")->execute([$q, $q, $uR, $sR]); }
+        $nowF = Db::now();
+        foreach (array_chunk($newOrders, 200) as $chunk) {
+            $vals = []; $args = [];
+            foreach ($chunk as [$uidF, $sidF, $sideF, $qtyF, $priceF]) {
+                $vals[] = "(?,?,?,?,?,?, 'active', NULL, ?)";
+                array_push($args, $uidF, $sidF, $sideF, $qtyF, $qtyF, $priceF, $nowF);
+            }
+            $pdo->prepare("INSERT INTO orders (user_id, stock_id, side, qty, qty_init, price, status, expires_session, created_at) VALUES " . implode(',', $vals))->execute($args);
         }
     }
 

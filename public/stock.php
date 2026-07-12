@@ -146,14 +146,11 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
     <div class="panel" style="padding:8px">
       <div class="chartbar">
         <span class="cgl">Świeca</span>
-        <div class="cgrp" id="cg-iv" title="Interwał świecy — ile czasu obejmuje jedna świeca (M = minuty, H1 = godzina, D1 = sesja, T1 = tydzień)">
+        <div class="cgrp" id="cg-iv" title="Rozdzielczość świecy: Auto dobiera samo, Szczegół = każdy tick, Dzień = jedna świeca na sesję, Tydzień = jedna na tydzień">
           <button data-iv="auto" class="on">Auto</button>
-          <button data-iv="1">M1</button>
-          <button data-iv="5">M5</button>
-          <button data-iv="15">M15</button>
-          <button data-iv="60">H1</button>
-          <button data-iv="d">D1</button>
-          <button data-iv="w">T1</button>
+          <button data-iv="1">Szczegół</button>
+          <button data-iv="d">Dzień</button>
+          <button data-iv="w">Tydzień</button>
         </div>
         <span class="cgl">Zakres</span>
         <div class="cgrp" id="cg-range" title="Horyzont czasowy — jak daleko wstecz sięga wykres">
@@ -232,7 +229,7 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
 
       <div class="tabpane" id="tab-ta">
         <h3 style="margin:4px 0 10px;font-size:14px;font-weight:700">Analiza techniczna
-          <?= tip('10 klasycznych wskaźników liczonych z wykresu tej spółki. Każdy daje sygnał od -1 (sprzedaj) do +1 (kupuj), a sygnał zbiorczy to średnia ważona — wagi są RÓŻNE dla każdej spółki. Boty techniczne widzą dokładnie ten sam sygnał co Ty.', '') ?>
+          <?= tip('10 klasycznych wskaźników liczonych z wykresu tej spółki. Każdy daje sygnał od -1 (sprzedaj) do +1 (kupuj), a sygnał zbiorczy to średnia ważona — wagi są RÓŻNE dla każdej spółki. Fundusze algorytmiczne widzą dokładnie ten sam sygnał co Ty.', '') ?>
         </h3>
         <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:6px">
           <span class="chg <?= $taCls ?>" style="font-size:15px;padding:6px 14px"><?= h($taVerdict) ?></span>
@@ -240,7 +237,7 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
         </div>
         <div class="ta-gauge"><i style="left:<?= round(($taComp + 1) / 2 * 100, 1) ?>%"></i></div>
         <p class="muted" style="margin:8px 0 12px">Charakter spółki: <b style="color:var(--ink)"><?= h(Technical::character($taAff)) ?></b>
-          <?= tip('Każda spółka ma DNA podatności na technikę. Techniczne mocniej reagują na sygnały AT (boty grają je odważniej), fundamentalne słuchają raportów i zysków.', '') ?></p>
+          <?= tip('Każda spółka ma DNA podatności na technikę. Techniczne mocniej reagują na sygnały AT (fundusze algorytmiczne grają je odważniej), fundamentalne słuchają raportów i zysków.', '') ?></p>
         <table>
           <thead><tr><th>Wskaźnik</th><th>Typ</th><th class="num">Waga u tej spółki</th><th class="num">Sygnał</th><th class="num">Odczyt</th></tr></thead>
           <tbody>
@@ -298,7 +295,7 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
             <tr><td class="muted">Wrażliwość na newsy</td><td><b><?= $risk((float) $s['news_impact'], ['niska', 'średnia', 'wysoka']) ?></b>
                 <span class="muted">— siła reakcji kursu na ESPI i plotki</span></td></tr>
             <tr><td class="muted">Charakter spółki</td><td><b><?= h(Technical::character($taAff)) ?></b>
-                <span class="muted">— <?= $taAff >= 0.62 ? 'sygnały AT działają tu mocniej (boty techniczne grają odważniej)' : ($taAff <= 0.38 ? 'liczą się raporty i zyski, technika ma mały wpływ' : 'równowaga techniki i fundamentów') ?></span></td></tr>
+                <span class="muted">— <?= $taAff >= 0.62 ? 'sygnały AT działają tu mocniej (fundusze algorytmiczne grają odważniej)' : ($taAff <= 0.38 ? 'liczą się raporty i zyski, technika ma mały wpływ' : 'równowaga techniki i fundamentów') ?></span></td></tr>
             <tr><td class="muted">Trend przychodów</td><td><b class="<?= $rvNew >= $rvOld ? 'up' : 'down' ?>"><?= $rvOld > 0 ? (($rvNew >= $rvOld ? '+' : '') . number_format(($rvNew / $rvOld - 1) * 100, 1, ',', ' ') . '%') : '—' ?></b>
                 <span class="muted">— zmiana od najstarszego z <?= count($reports) ?> ostatnich raportów</span></td></tr>
             <tr><td class="muted">Dywidendy (suma, <?= count($reports) ?> raportów)</td><td><b><?= $dpsSum > 0 ? money($dpsSum) . ' PLN/akcję' : 'brak wypłat' ?></b></td></tr>
@@ -348,12 +345,12 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
               <td class="num"><?= $po > 0 ? '<b class="up">' . number_format($po * 100, 0) . '% zysku</b> <span class="muted">(~' . number_format($po / max(1, (float) $s['pe_target']) * 100, 1, ',', ' ') . '% rocznie)</span>' : '<span class="muted">nie wypłaca (reinwestuje)</span>' ?></td></tr>
         </tbody></table>
 
-        <h2 style="margin-top:16px">🏛️ Najwięksi akcjonariusze<?= tip('Kto trzyma najwięcej akcji tej spółki. Gracze (ludzie) są podświetleni — możesz kliknąć i podejrzeć ich profil.', '') ?></h2>
+        <h2 style="margin-top:16px">🏛️ Najwięksi akcjonariusze<?= tip('Kto trzyma najwięcej akcji tej spółki — fundusze inwestycyjne i gracze. Gracze (ludzie) są podświetleni — możesz kliknąć i podejrzeć ich profil.', '') ?></h2>
         <table><thead><tr><th>#</th><th>Akcjonariusz</th><th class="num">Akcje</th><th class="num">Udział</th></tr></thead><tbody>
           <?php foreach ($holders as $i => $hd): $human = !(int) $hd['is_bot']; $linkable = $human && $hd['role'] === 'player'; ?>
             <tr<?= $linkable ? " class='rowlink' onclick=\"location='gracz.php?id=" . (int) $hd['uid'] . "'\"" : '' ?>>
               <td class="muted"><?= $i + 1 ?></td>
-              <td><?= $human ? '<b style="color:var(--accent)">👤 ' . h($hd['username']) . '</b>' : '<span class="muted">🤖 ' . h($hd['username']) . '</span>' ?></td>
+              <td><?= $human ? '<b style="color:var(--accent)">👤 ' . h($hd['username']) . '</b>' : '<span class="soft">' . h($hd['username']) . '</span>' ?></td>
               <td class="num"><?= number_format($hd['n'], 0, ',', ' ') ?></td>
               <td class="num mono"><?= number_format($hd['n'] / $heldTotal * 100, 1, ',', ' ') ?>%</td>
             </tr>
@@ -474,9 +471,9 @@ let cRange='d', cIv='auto', cType='candles', cAT=false;
 try{ cAT=localStorage.getItem('chart_at')==='1';
   const sr=localStorage.getItem('chart_range'), si=localStorage.getItem('chart_iv');
   if(['d','t','m','r','max'].includes(sr)) cRange=sr;
-  if(['auto','1','5','15','60','d','w'].includes(si)) cIv=si;
+  if(['auto','1','d','w'].includes(si)) cIv=si;
 }catch(e){}
-// pary bez sensu (świeca D1/T1 przy zakresie "Sesja", T1 przy 1T) — dobierz drugi wymiar
+// pary bez sensu (świeca Dzień/Tydzień przy zakresie "Sesja", Tydzień przy 1T) — dobierz drugi wymiar
 function reconcile(changed){
   if((cIv==='d'||cIv==='w')&&cRange==='d'){
     if(changed==='range') cIv='auto'; else cRange=(cIv==='w'?'r':'m');
@@ -494,7 +491,7 @@ function sma(cs,p){ const out=[]; let sum=0;
   for(let i=0;i<cs.length;i++){ sum+=cs[i].c; if(i>=p) sum-=cs[i-p].c; out.push(i>=p-1?sum/p:null); }
   return out; }
 const RANGE_LBL={d:'sesja',t:'tydzień',m:'miesiąc',r:'rok',max:'cała historia'};
-const IV_LBL={auto:'Auto',1:'M1',5:'M5',15:'M15',60:'H1',d:'D1',w:'T1'};
+const IV_LBL={auto:'Auto',1:'Szczegół',d:'Dzień',w:'Tydzień'};
 async function drawChart(){ try{
   const j=await (await fetch('api_chart.php?id=<?= $id ?>&range='+cRange+'&iv='+cIv)).json();
   if(!j.ok) return;
