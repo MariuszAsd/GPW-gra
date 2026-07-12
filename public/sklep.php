@@ -36,9 +36,18 @@ layout_header('Tokeny inwestora', $user, 'shop');
   <span class="muted hide-m">premium bez psucia gry — tokenów nie wymienisz na PLN, kupują informację i wygląd</span>
 </div>
 
-<div class="stats" style="grid-template-columns:repeat(2,1fr);max-width:560px">
-  <div class="stat"><div class="k">Twoje saldo</div><div class="v" style="color:var(--gold)">🪙 <?= $balance ?> Tokenów</div></div>
-  <div class="stat"><div class="k">Jak zdobywać</div><div class="v" style="font-size:13px;font-weight:500;line-height:1.5;letter-spacing:0">+10 na start · +2 za odznakę<br>+10 wygrana / +5 podium wyzwania<br>+ progi sezonu · 🎁 aktywni dostają<br>darmowy okres próbny premium</div></div>
+<div class="stats" style="grid-template-columns:repeat(auto-fit,minmax(250px,1fr));max-width:760px">
+  <div class="stat"><div class="k">Twoje saldo</div><div class="v" style="color:var(--gold)">🪙 <?= $balance ?> Tokenów</div>
+    <p class="muted" style="margin:8px 0 0;font-size:12px;line-height:1.5">Tokenami płacisz za pakiety premium i kosmetykę. Nigdy nie kupisz za nie wirtualnych PLN — ranking pozostaje uczciwy.</p></div>
+  <div class="stat"><div class="k">Jak zdobyć tokeny?</div>
+    <ul class="how-tokens">
+      <li>🎁 <b>+10</b> dostajesz na powitanie — masz je od startu</li>
+      <li>🏅 <b>+2</b> za każdą zdobytą odznakę (osiągnięcia w grze)</li>
+      <li>🏆 <b>+10</b> za wygranie wyzwania, <b>+5</b> za miejsce na podium</li>
+      <li>🎖️ bonusy za progi punktowe sezonu — zobacz <a href="sezon.php">Sezon</a></li>
+      <li>💳 możesz też doładować w zakładce <b>Doładuj tokeny</b> powyżej</li>
+    </ul>
+    <p class="muted" style="margin:6px 0 0;font-size:11.5px">Bonus: regularnie grający dostają raz darmowy okres próbny pełnego premium.</p></div>
 </div>
 
 <div class="subtabs">

@@ -242,11 +242,11 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
         // główna liczba = KAPITAŁ (gotówka + zamrożone + akcje po kursie) — jak w rankingu;
         // sama gotówka („za ile mogę kupić") schodzi do drugiej linijki
         if ($actg) {
-            echo "<span class='bal'><b>" . money(user_equity((int) $actg['id'])) . " PLN</b><small>portfel wyzwania · gotówka " . money($actg['cash']) . "</small></span>";
+            echo "<a class='bal' href='portfolio.php' title='Kliknij — otwórz Portfel'><b>" . money(user_equity((int) $actg['id'])) . " PLN</b><small>portfel wyzwania · gotówka " . money($actg['cash']) . "</small></a>";
             echo "<a class='hide-sm' href='logout.php' style='color:var(--faint)'>" . h($actg['owner_name']) . " ⏻</a>";
         } else {
             $balSub = 'gotówka ' . money($user['cash']) . ((float) $user['cash_reserved'] > 0 ? ' · zamrożone ' . money($user['cash_reserved']) : '');
-            echo "<span class='bal' title='Kapitał: gotówka + zamrożone + akcje po bieżącym kursie'><b>" . money(user_equity((int) $user['id'])) . " PLN</b><small>" . $balSub . "</small></span>";
+            echo "<a class='bal' href='portfolio.php' title='Kapitał: gotówka + zamrożone + akcje po bieżącym kursie. Kliknij — otwórz Portfel'><b>" . money(user_equity((int) $user['id'])) . " PLN</b><small>" . $balSub . "</small></a>";
             echo "<a class='hide-sm' href='logout.php' style='color:var(--faint)'>" . h($user['username']) . " ⏻</a>";
         }
     }

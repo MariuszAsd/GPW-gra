@@ -9,7 +9,7 @@
 final class Bank
 {
     /** Oferta: sesje => oprocentowanie % za CAŁY okres (GM może nadpisać w game_state 'bank_offers'). */
-    public const OFFERS = [3 => 1.0, 7 => 3.0, 14 => 7.5];
+    public const OFFERS = [3 => 1.0, 7 => 3.0, 14 => 7.5, 30 => 18.0];
     public const MIN_AMOUNT = 1000.0;
 
     /** Aktualna oferta (z ewentualną nadpiską GM w formacie "3:1.0,7:3.0,14:7.5"). */

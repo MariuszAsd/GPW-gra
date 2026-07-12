@@ -499,12 +499,16 @@ td.nowrap{white-space:nowrap}
   .expl-x{top:6px;right:6px}
 }
 
-/* formularz SL/TP w pozycjach: na mobile zawija się zamiast rozpychać tabelę */
-@media(max-width:760px){
-  .sltp-form{flex-wrap:wrap;max-width:172px}
-  .sltp-form input{width:76px !important;padding:8px 6px !important;font-size:16px}
-  .sltp-form input[name=qty]{width:60px !important}
-}
+/* pozycje portfela: klik w wiersz rozwija szczegóły (SL/TP) — akordeon */
+.pos-row{cursor:pointer}
+.pos-row.open td{background:var(--bg3)}
+.pos-detail>td{background:var(--bg3);padding:12px 14px;border-bottom:1px solid var(--line)}
+.pos-actions{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap}
+.sltp-form{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
+.sltp-form>div{display:flex;flex-direction:column;gap:3px}
+.sltp-form label{margin:0;font-size:10.5px;color:var(--faint);font-weight:650}
+.sltp-form input{width:92px;padding:8px 8px;margin:0}
+@media(max-width:760px){.sltp-form input{width:76px;font-size:16px}}
 
 /* SVG z viewBox zgłasza szerokość wewnętrzną (ratio × height) i rozpycha kolumny
    grida do content-min — pozwól elementom siatek kurczyć się poniżej zawartości */
@@ -594,3 +598,28 @@ td.nowrap{white-space:nowrap}
 #busy .spin{width:21px;height:21px;flex:0 0 auto;border-radius:50%;
   border:3px solid var(--line);border-top-color:var(--accent);animation:busyspin .7s linear infinite}
 @keyframes busyspin{to{transform:rotate(360deg)}}
+
+/* ---------- licznik kapitału w nagłówku jest linkiem do Portfela ---------- */
+.topbar nav a.bal{display:block;padding-top:0;padding-right:0;padding-bottom:0}
+.topbar nav a.bal:hover b{color:var(--accent)}
+
+/* ---------- Tokeny inwestora: czytelna instrukcja zdobywania ---------- */
+.how-tokens{margin:6px 0 0;padding:0;list-style:none}
+.how-tokens li{padding:3.5px 0;font-size:12.5px;line-height:1.45;color:var(--soft)}
+.how-tokens li b{color:var(--ink)}
+.how-tokens a{color:var(--accent);font-weight:600}
+
+/* ---------- lokaty jako karty (bez tabeli — mieszczą się na mobile) ---------- */
+.deps{display:flex;flex-direction:column;gap:8px}
+.dep{display:flex;gap:14px;align-items:center;justify-content:space-between;flex-wrap:wrap;
+  border:1px solid var(--line);border-radius:12px;padding:11px 14px}
+.dep-col{display:flex;flex-direction:column;gap:1px;min-width:150px}
+.dep-col b{font-size:14px}
+.dep-col .muted{font-size:11.5px}
+.dep form{margin-left:auto}
+
+/* ---------- podsumowanie zlecenia: wartość + prowizja + razem ---------- */
+.osummary{margin:12px 0;padding-top:10px;border-top:1px solid var(--line);font-size:13px;color:var(--soft)}
+.osummary>div{display:flex;justify-content:space-between;gap:10px;padding:2px 0}
+.osummary b{font-variant-numeric:tabular-nums;color:var(--ink);white-space:nowrap}
+.osummary .tot{border-top:1px dashed var(--line2);margin-top:5px;padding-top:7px;font-weight:650;color:var(--ink)}

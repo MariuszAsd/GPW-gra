@@ -102,7 +102,7 @@ layout_header('Portfel', $user, 'portfolio');
 <div class="page-head"><h1>Portfel</h1><span class="tag" style="color:var(--accent);border-color:var(--accent)">Sesja #<?= $sessionNo ?></span>
   <a class="btn sm ghost" style="margin-left:auto" href="dziennik.php">Dziennik</a></div>
 <?php explainer('portfel', 'Jak czytać Portfel', [
-    'pozycje ze średnią ceną i wynikiem', 'ustaw SL/TP przy pozycji',
+    'pozycje: kurs, cena kupna i wynik', 'kliknij pozycję, by ustawić SL/TP',
     'kliknij zlecenie po szczegóły', 'pełna historia w Dzienniku']); ?>
 
 <?php if ($goalTarget > 0 && ($user['ctx'] ?? '') !== 'challenge'): // cel gry = dyskretna wzmianka (szczegóły po rozwinięciu) ?>
@@ -150,32 +150,40 @@ layout_header('Portfel', $user, 'portfolio');
 </div>
 
 <div class="panel" style="padding:0;overflow:hidden">
-  <div style="padding:14px 16px 0"><h2>Pozycje w portfelu</h2></div>
+  <div style="padding:14px 16px 0"><h2>Pozycje w portfelu <span class="muted" style="text-transform:none;letter-spacing:0">· kliknij pozycję — SL/TP i szczegóły</span></h2></div>
   <div class="tbl-scroll">
     <table>
-      <thead><tr><th>Instrument</th><th class="num">Ilość</th><th class="num hide-m">Śr. cena</th><th class="num hide-m">Kurs</th><th class="num hide-m">Wartość</th><th class="num">Wynik</th><th>SL / TP<?= tip('Zlecenie obronne: podaj ilość i próg — gra sama sprzeda pakiet, gdy kurs spadnie do SL (ucina stratę) lub wzrośnie do TP (zgarnia zysk).', 'sl') ?></th></tr></thead>
+      <thead><tr><th>Instrument</th><th class="num">Ilość</th><th class="num">Kurs</th><th class="num">Kupno</th><th class="num hide-m">Wartość</th><th class="num">Wynik</th></tr></thead>
       <tbody>
-      <?php foreach ($pos as $p): $q = $p['qty'] + $p['qty_reserved']; $ppl = $q * ($p['price'] - $p['avg_price']); ?>
-        <tr>
-          <td><div class="sym"><a class="tk" href="stock.php?id=<?= (int) $p['stock_id'] ?>"><?= h($p['ticker']) ?></a><span class="nm"><?= h($p['name']) ?></span></div>
-            <?php if ($p['qty_reserved'] > 0): ?><span class="muted" style="font-size:11px"><?= (int) $p['qty_reserved'] ?> w zleceniach</span><?php endif; ?></td>
+      <?php foreach ($pos as $p): $q = $p['qty'] + $p['qty_reserved']; $ppl = $q * ($p['price'] - $p['avg_price']);
+            $pplPct = (float) $p['avg_price'] > 0 ? ($p['price'] / $p['avg_price'] - 1) * 100 : 0; $sid3 = (int) $p['stock_id']; ?>
+        <tr class="pos-row" data-pos="<?= $sid3 ?>" title="Kliknij — zlecenie obronne SL/TP i szczegóły pozycji">
+          <td><div class="sym"><a class="tk" href="stock.php?id=<?= $sid3 ?>"><?= h($p['ticker']) ?></a><span class="nm hide-m"><?= h($p['name']) ?></span></div></td>
           <td class="num"><?= (int) $q ?></td>
-          <td class="num hide-m"><?= money($p['avg_price']) ?></td>
-          <td class="num hide-m"><?= money($p['price']) ?></td>
+          <td class="num mono"><?= money($p['price']) ?></td>
+          <td class="num mono muted"><?= money($p['avg_price']) ?></td>
           <td class="num hide-m"><?= money($q * $p['price']) ?></td>
-          <td class="num <?= $ppl >= 0 ? 'up' : 'down' ?>"><?= ($ppl >= 0 ? '+' : '') . money($ppl) ?></td>
-          <td>
-            <form method="post" action="set_sltp.php" class="sltp-form" style="display:flex;gap:6px;align-items:center" title="Zlecenie obronne: sprzeda podaną ilość, gdy kurs spadnie do SL lub wzrośnie do TP. Krocz. % = SL kroczący: próg sam podąża za rosnącym kursem (np. 8 = zawsze 8% pod szczytem).">
-              <input type="hidden" name="stock_id" value="<?= (int) $p['stock_id'] ?>">
-              <input type="number" name="qty" min="1" placeholder="szt." value="<?= (int) $p['qty'] ?>" style="width:64px;padding:6px 8px">
-              <input type="number" step="0.01" name="sl_price" placeholder="SL" style="width:78px;padding:6px 8px">
-              <input type="number" step="0.01" name="tp_price" placeholder="TP" style="width:78px;padding:6px 8px">
-              <input type="number" step="0.5" min="0.5" max="50" name="trail" placeholder="krocz.%" style="width:70px;padding:6px 8px" title="SL kroczący: % pod kursem — próg sam rośnie za kursem">
-              <button class="btn sm ghost">OK</button>
-            </form>
+          <td class="num <?= $ppl >= 0 ? 'up' : 'down' ?>"><b><?= ($ppl >= 0 ? '+' : '') . money($ppl) ?></b>
+            <span style="display:block;font-size:11px"><?= ($pplPct >= 0 ? '+' : '') . number_format($pplPct, 1, ',', ' ') ?>%</span></td>
+        </tr>
+        <tr class="pos-detail" id="pos-d-<?= $sid3 ?>" hidden>
+          <td colspan="6">
+            <?php if ($p['qty_reserved'] > 0): ?><p class="muted" style="margin:0 0 8px;font-size:12px"><?= (int) $p['qty_reserved'] ?> szt. czeka w zleceniach sprzedaży (zakładka Zlecenia).</p><?php endif; ?>
+            <div class="pos-actions">
+              <form method="post" action="set_sltp.php" class="sltp-form">
+                <div><label>Ilość (szt.)</label><input type="number" name="qty" min="1" value="<?= (int) $p['qty'] ?>"></div>
+                <div><label>Stop-Loss</label><input type="number" step="0.01" name="sl_price" placeholder="—"></div>
+                <div><label>Take-Profit</label><input type="number" step="0.01" name="tp_price" placeholder="—"></div>
+                <div><label>SL krocz. %<?= tip('SL kroczący: próg sam podąża za rosnącym kursem, np. 8 = zawsze 8% pod szczytem.', 'sl') ?></label><input type="number" step="0.5" min="0.5" max="50" name="trail" placeholder="—"></div>
+                <input type="hidden" name="stock_id" value="<?= $sid3 ?>">
+                <button class="btn sm">Ustaw zlecenie obronne</button>
+              </form>
+              <a class="btn sm ghost" href="stock.php?id=<?= $sid3 ?>">Karta spółki →</a>
+            </div>
+            <p class="muted" style="margin:8px 0 0;font-size:11.5px">Zlecenie obronne sprzeda podaną ilość, gdy kurs spadnie do SL (ucina stratę) lub wzrośnie do TP (zgarnia zysk). Widoczne i anulowalne w zakładce Zlecenia.</p>
           </td>
         </tr>
-      <?php endforeach; if (!$pos) echo "<tr><td class='muted' colspan=7 style='padding:20px'>Brak pozycji — kup coś na Rynku.</td></tr>"; ?>
+      <?php endforeach; if (!$pos) echo "<tr><td class='muted' colspan=6 style='padding:20px'>Brak pozycji — kup coś na Rynku.</td></tr>"; ?>
       </tbody>
     </table>
   </div>
@@ -277,21 +285,24 @@ layout_header('Portfel', $user, 'portfolio');
   <div class="panel">
     <h2>Aktywne lokaty<?= $deposits ? ' — razem ' . money(array_sum(array_map(fn($d) => (float) $d['amount'], $deposits))) . ' PLN' : '' ?></h2>
     <?php if (!$deposits): ?><p class="muted">Brak aktywnych lokat. Nadwyżkę gotówki, której nie inwestujesz, możesz tu bezpiecznie oprocentować.</p><?php else: ?>
-    <div class="tbl-scroll"><table>
-      <thead><tr><th class="num">Kwota</th><th class="num">Oprocentowanie</th><th class="num">Wypłata</th><th class="num">Sesji zostało</th><th></th></tr></thead>
-      <tbody>
-      <?php foreach ($deposits as $d): $payout = round((float) $d['amount'] * (1 + (float) $d['rate_pct'] / 100), 2); ?>
-        <tr>
-          <td class="num mono"><?= money($d['amount']) ?></td>
-          <td class="num"><?= number_format((float) $d['rate_pct'], 1, ',', ' ') ?>%</td>
-          <td class="num mono up">+<?= money($payout) ?></td>
-          <td class="num"><?= max(0, (int) $d['end_session'] - $curSession) ?> <span class="muted">(sesja #<?= (int) $d['end_session'] ?>)</span></td>
-          <td style="text-align:right"><form method="post" onsubmit="return confirm('Zerwać lokatę? Kapitał wróci, ale odsetki przepadną.')">
-            <button class="btn sm ghost" name="bank_break" value="<?= (int) $d['id'] ?>">Zerwij</button></form></td>
-        </tr>
+    <div class="deps">
+      <?php foreach ($deposits as $d): $payout = round((float) $d['amount'] * (1 + (float) $d['rate_pct'] / 100), 2);
+            $left = max(0, (int) $d['end_session'] - $curSession);
+            $odm = $left === 1 ? 'sesję' : Bank::sesje($left); ?>
+        <div class="dep">
+          <div class="dep-col">
+            <b class="mono"><?= money($d['amount']) ?> PLN</b>
+            <span class="muted"><?= number_format((float) $d['rate_pct'], 1, ',', ' ') ?>% za cały okres</span>
+          </div>
+          <div class="dep-col">
+            <b class="mono up">→ <?= money($payout) ?> PLN</b>
+            <span class="muted"><?= $left > 0 ? "wypłata za $left $odm (sesja #" . (int) $d['end_session'] . ')' : 'wypłata przy najbliższej sesji' ?></span>
+          </div>
+          <form method="post" onsubmit="return confirm('Zerwać lokatę? Kapitał wróci, ale odsetki przepadną.')">
+            <button class="btn sm ghost" name="bank_break" value="<?= (int) $d['id'] ?>">Zerwij</button></form>
+        </div>
       <?php endforeach; ?>
-      </tbody>
-    </table></div>
+    </div>
     <?php endif; ?>
   </div>
 <?php endif; ?>
@@ -346,6 +357,15 @@ layout_header('Portfel', $user, 'portfolio');
 </div><!-- /tab-his -->
 
 <script>
+// akordeon pozycji: klik w wiersz rozwija SL/TP i szczegóły (linki/formularze nie przełączają)
+document.querySelectorAll('.pos-row').forEach(r => r.onclick = e => {
+  if (e.target.closest('a,form,button,input,select,label')) return;
+  const d = document.getElementById('pos-d-' + r.dataset.pos);
+  const wasOpen = d && !d.hidden;
+  document.querySelectorAll('.pos-detail').forEach(x => x.hidden = true);
+  document.querySelectorAll('.pos-row').forEach(x => x.classList.remove('open'));
+  if (d && !wasOpen) { d.hidden = false; r.classList.add('open'); }
+});
 document.querySelectorAll('.subtabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.subtabs button').forEach(x => x.classList.remove('on'));
   document.querySelectorAll('.tabpane').forEach(x => x.classList.remove('on'));

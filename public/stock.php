@@ -393,7 +393,14 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
           <option value="session">Do końca sesji</option>
         </select>
       </div>
-      <div class="summary"><span id="val-label">Wartość zlecenia</span><b id="val">—</b></div>
+      <?php $feePct = Engine::one("SELECT v FROM game_state WHERE k='fee_rate'"); $feePct = ($feePct === false || $feePct === null) ? 0.5 : (float) $feePct;
+            $feeTxt = rtrim(rtrim(number_format($feePct, 2, ',', ''), '0'), ','); ?>
+      <div class="osummary">
+        <div><span id="val-label">Wartość akcji</span><b id="val">—</b></div>
+        <div><span id="fee-label">Prowizja</span><b id="fee">—</b></div>
+        <div class="tot"><span id="tot-label">Razem do zapłaty</span><b id="tot">—</b></div>
+        <p class="muted" id="fee-note" style="margin:4px 0 0;font-size:11px"></p>
+      </div>
       <?php if ($liqCls === 'lo'): ?>
       <p class="muted" style="font-size:12px;margin:0 0 4px"><span class="liq lo">●</span> <b>Niska płynność</b> — arkusz jest płytki: zlecenie PKC może zrealizować się po wyraźnie gorszej cenie (poślizg). Bezpieczniej użyć zlecenia LIMIT.</p>
       <?php endif; ?>
@@ -406,8 +413,7 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
       </div>
       <button class="btn buy" id="submit" style="margin-top:14px">Kup <?= h($s['ticker']) ?></button>
     </form>
-    <?php $feePct = Engine::one("SELECT v FROM game_state WHERE k='fee_rate'"); $feePct = ($feePct === false || $feePct === null) ? 0.5 : (float) $feePct; ?>
-    <p class="muted" style="margin-top:10px;font-size:12px">Prowizja <?= rtrim(rtrim(number_format($feePct, 2, ',', ''), '0'), ',') ?>% wartości pobierana przy sprzedaży. SL/TP są egzekwowane przez silnik: co tick sprawdza kurs i zamyka pozycję.</p>
+    <p class="muted" style="margin-top:10px;font-size:12px">Prowizja <?= $feeTxt ?>% wartości pobierana przy sprzedaży. SL/TP są egzekwowane przez silnik: co tick sprawdza kurs i zamyka pozycję.</p>
   </aside>
 </div>
 
@@ -430,15 +436,23 @@ document.querySelectorAll('.subtabs button').forEach(b => b.onclick = () => {
 const side=document.getElementById('side'), qty=document.getElementById('qty'), price=document.getElementById('price');
 const val=document.getElementById('val'), sub=document.getElementById('submit'), type=document.getElementById('type');
 const tk=<?= json_encode($s['ticker']) ?>, curPx=<?= json_encode((float) $s['price']) ?>;
-function upd(){ const px=type.value==='market'?curPx:(parseFloat(price.value)||0);
-  const v=(parseFloat(qty.value)||0)*px;
-  document.getElementById('val-label').textContent=type.value==='market'?'Wartość (szacunkowo)':'Wartość zlecenia';
-  val.textContent='≈ '.repeat(type.value==='market'?1:0)+v.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' PLN'; }
+const FEE=<?= json_encode($feePct / 100) ?>, FEETXT=<?= json_encode($feeTxt) ?>;
+function upd(){ const est=type.value==='market', buy=side.value==='buy';
+  const px=est?curPx:(parseFloat(price.value)||0);
+  const v=(parseFloat(qty.value)||0)*px, fee=v*FEE, pre=est?'≈ ':'';
+  const fmt=n=>n.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' PLN';
+  document.getElementById('val-label').textContent='Wartość akcji'+(est?' (szacunkowo)':'');
+  val.textContent=pre+fmt(v);
+  document.getElementById('fee-label').textContent=buy?'Prowizja przy kupnie':'Prowizja ('+FEETXT+'%)';
+  document.getElementById('fee').textContent=buy?fmt(0):'− '+pre+fmt(fee);
+  document.getElementById('tot-label').textContent=buy?'Razem do zapłaty':'Otrzymasz na konto';
+  document.getElementById('tot').textContent=pre+fmt(buy?v:v-fee);
+  document.getElementById('fee-note').textContent=buy?FEETXT+'% prowizji zapłacisz dopiero przy sprzedaży tych akcji.':''; }
 function setSide(s){ side.value=s;
   document.getElementById('tb-buy').classList.toggle('on',s==='buy');
   document.getElementById('tb-sell').classList.toggle('on',s==='sell');
   document.getElementById('f-sltp').style.display=s==='buy'?'':'none';
-  sub.className='btn '+s; sub.textContent=(s==='buy'?'Kup ':'Sprzedaj ')+tk; }
+  sub.className='btn '+s; sub.textContent=(s==='buy'?'Kup ':'Sprzedaj ')+tk; upd(); }
 function setType(t){ type.value=t;
   document.getElementById('tt-limit').classList.toggle('on',t==='limit');
   document.getElementById('tt-pkc').classList.toggle('on',t==='market');
