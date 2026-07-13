@@ -444,6 +444,24 @@ final class Migrator
                 "UPDATE stocks SET report_period = report_period * 3",
                 "UPDATE game_state SET v = '300' WHERE k = 'ticks_per_month'",
             ],
+            31 => [
+                // sterowanie rynkiem (GM market maker): zaplanowany ruch popytu/podaży
+                "CREATE TABLE market_moves (
+                    id " . (Db::driver() === 'mysql' ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT') . ",
+                    scope      VARCHAR(8) NOT NULL,
+                    target_id  INT NULL,
+                    pct        DECIMAL(15,2) NOT NULL,
+                    start_tick INT NOT NULL,
+                    end_tick   INT NOT NULL,
+                    status     VARCHAR(10) NOT NULL DEFAULT 'active',
+                    label      VARCHAR(120) NULL,
+                    created_at VARCHAR(19) NOT NULL
+                )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
+                // „miesiąc" = ~30 sesji (sesje lecą też w weekendy) — nie 20
+                "UPDATE game_state SET v = '30' WHERE k = 'report_sessions'",
+                // wyczyść stare, zbyt częste raporty z historii (nowa kadencja startuje na czysto)
+                "DELETE FROM financial_reports",
+            ],
         ];
     }
 

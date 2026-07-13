@@ -115,9 +115,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         Engine::setState('macro_rate', (string) $mr);
         flash('Ustawiono częstotliwość lekkich sygnałów makro (branżowych): ' . $mr . '‰ na tick (0 = wyłączone).');
     } elseif ($a === 'report_sessions') {
-        $rs = max(1, min(120, (int) round((float) str_replace(',', '.', $_POST['report_sessions'] ?? '20'))));
+        $rs = max(1, min(120, (int) round((float) str_replace(',', '.', $_POST['report_sessions'] ?? '30'))));
         Engine::setState('report_sessions', (string) $rs);
         flash("Ustawiono kadencję raportów: co ~$rs sesji na spółkę (mniej = częstsze raporty i szybszy wzrost fundamentów). Zmiana wchodzi od kolejnych raportów.");
+    } elseif ($a === 'market_maker') {
+        $scope = in_array($_POST['mm_scope'] ?? '', ['MARKET', 'SECTOR', 'COMPANY'], true) ? $_POST['mm_scope'] : 'MARKET';
+        $dir   = ($_POST['mm_dir'] ?? 'down') === 'up' ? 1 : -1;
+        $mag   = max(1.0, min(60.0, (float) str_replace(',', '.', $_POST['mm_pct'] ?? '15')));
+        $pct   = $dir * $mag;
+        $durMin   = max(1, min(1440, (int) ($_POST['mm_duration'] ?? 10)));   // minuty = ticki (cron 1/min)
+        $delayMin = max(0, min(120, (int) ($_POST['mm_delay'] ?? 2)));
+        $head  = trim((string) ($_POST['mm_headline'] ?? ''));
+        $body  = trim((string) ($_POST['mm_body'] ?? ''));
+        if ($head === '') $head = $dir > 0 ? 'Popyt napędza wzrosty' : 'Fala wyprzedaży na rynku';
+        $targetId = null; $scopeLbl = 'cały rynek';
+        if ($scope === 'SECTOR')  { $targetId = (int) ($_POST['mm_sector'] ?? 0); $scopeLbl = 'branżę ' . (string) (Engine::one("SELECT name FROM sectors WHERE id=?", [$targetId]) ?: '?'); }
+        elseif ($scope === 'COMPANY') { $targetId = (int) ($_POST['mm_stock'] ?? 0); $scopeLbl = (string) (Engine::one("SELECT ticker FROM stocks WHERE id=?", [$targetId]) ?: '?'); }
+        // 1) wiadomość leci OD RAZU (widoczna przez cały ruch)
+        $tk = (int) (Engine::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
+        $pdo->prepare("INSERT INTO news (headline,body,type,kind,scope,target_id,is_espi,impact_strength,publish_tick,expire_tick,published_at)
+                       VALUES (?,?,?,?,?,?,?,0,?,?,?)")
+            ->execute([mb_substr($head, 0, 250), $body, $dir > 0 ? 'POS' : 'NEG', 'sentiment', $scope, $targetId,
+                       $scope === 'COMPANY' ? 1 : 0, $tk, $tk + $delayMin + $durMin + 20, Db::now()]);
+        // 2) ruch rynku startuje po opóźnieniu i rozkłada się na czas trwania
+        $mid = Engine::scheduleMarketMove($scope, $targetId, $pct, $durMin, $delayMin, ($dir > 0 ? '+' : '') . $mag . '% ' . $scopeLbl);
+        Log::write('info', 'gm', 'market.move', ($dir > 0 ? 'pompa +' : 'panika ') . $mag . '% / ' . $durMin . 'min / ' . $scope, ['id' => $mid, 'target' => $targetId]);
+        flash('📰 Wiadomość opublikowana. ' . ($dir > 0 ? 'Pompa popytu +' : 'Zrzut podaży ') . $mag . '% na „' . $scopeLbl . '" ruszy za ' . $delayMin . ' min i rozłoży się na ' . $durMin . ' min.');
+    } elseif ($a === 'market_move_cancel') {
+        Engine::cancelMarketMove((int) ($_POST['move_id'] ?? 0));
+        flash('Ruch rynku anulowany.');
     } elseif ($a === 'challenge_create') {
         [$sess] = Engine::sessionInfo();
         Challenges::create([
@@ -574,7 +600,7 @@ $modTop = Engine::all("SELECT m.user_id, u.username, COUNT(*) n, MAX(m.created_a
     <form method="post" class="inline" style="align-items:flex-end;gap:6px">
       <input type="hidden" name="action" value="report_sessions">
       <label style="font-size:11px;color:var(--soft)">Raporty co N sesji
-        <input type="number" name="report_sessions" step="1" min="1" max="120" value="<?= (int) (Engine::one("SELECT v FROM game_state WHERE k='report_sessions'") ?: 20) ?>" style="width:70px" title="Co ile sesji spółka publikuje raport (miesięcznie ≈ 20). Mniej = częstsze raporty i szybszy wzrost fundamentów rynku. Raporty rozkładają się na różne dni."></label>
+        <input type="number" name="report_sessions" step="1" min="1" max="120" value="<?= (int) (Engine::one("SELECT v FROM game_state WHERE k='report_sessions'") ?: 30) ?>" style="width:70px" title="Co ile sesji spółka publikuje raport (miesięcznie ≈ 30). Mniej = częstsze raporty i szybszy wzrost fundamentów rynku. Raporty rozkładają się na różne dni."></label>
       <button class="btn sm ghost">Ustaw</button>
     </form>
   </div>
@@ -604,6 +630,105 @@ $modTop = Engine::all("SELECT m.user_id, u.username, COUNT(*) n, MAX(m.created_a
       <?php endforeach; ?>
     </div>
   <?php endif; ?>
+</section>
+
+<?php
+  $tkNow = (int) (Engine::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
+  $activeMoves = Engine::all("SELECT mm.*, s.ticker, sec.name AS sname FROM market_moves mm
+      LEFT JOIN stocks s ON mm.scope='COMPANY' AND s.id=mm.target_id
+      LEFT JOIN sectors sec ON mm.scope='SECTOR' AND sec.id=mm.target_id
+      WHERE mm.status='active' ORDER BY mm.id DESC");
+?>
+<section class="panel" style="margin-top:16px">
+  <h2>🎛️ Market maker — sterowanie popytem/podażą</h2>
+  <p class="muted" style="margin:2px 0 12px;font-size:12.5px">Ustaw ruch kursu (panika/pompa), zasięg i czas, wygeneruj lub napisz zapowiedź — po akceptacji wiadomość leci od razu, a rynek zaczyna zjazd podaży / pompę popytu po zadanym opóźnieniu. 1 min ≈ 1 tick.</p>
+  <form method="post" onsubmit="return confirm('Opublikować wiadomość i uruchomić ruch rynku?')">
+    <input type="hidden" name="action" value="market_maker">
+    <div class="row" style="align-items:flex-end;gap:14px;flex-wrap:wrap">
+      <div><label>Zasięg</label>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:13px">
+          <label><input type="radio" name="mm_scope" value="MARKET" checked> Cały rynek</label>
+          <label><input type="radio" name="mm_scope" value="SECTOR"> Branża</label>
+          <select name="mm_sector" style="width:150px"><?php foreach ($sectors as $sec): ?><option value="<?= (int) $sec['id'] ?>"><?= h($sec['name']) ?></option><?php endforeach; ?></select>
+          <label><input type="radio" name="mm_scope" value="COMPANY"> Spółka</label>
+          <select name="mm_stock" style="width:120px"><?php foreach ($stocks as $st): ?><option value="<?= (int) $st['id'] ?>"><?= h($st['ticker']) ?></option><?php endforeach; ?></select>
+        </div>
+      </div>
+    </div>
+    <div class="row" style="align-items:flex-end;gap:14px;flex-wrap:wrap;margin-top:10px">
+      <div><label>Kierunek</label>
+        <div style="display:flex;gap:10px;font-size:13px">
+          <label><input type="radio" name="mm_dir" value="down" checked onchange="mmGen()"> 📉 Panika (podaż)</label>
+          <label><input type="radio" name="mm_dir" value="up" onchange="mmGen()"> 📈 Pompa (popyt)</label>
+        </div>
+      </div>
+      <div><label>Siła (%)</label><input type="number" name="mm_pct" value="15" min="1" max="60" step="1" style="width:80px"></div>
+      <div><label>Czas trwania (min)</label><input type="number" name="mm_duration" value="10" min="1" max="1440" step="1" style="width:100px" title="Mało = ostro (panika), dużo = wolny zjazd. 10 min = szybki krach, 660 min = powolne osuwanie."></div>
+      <div><label>Start za (min)</label><input type="number" name="mm_delay" value="2" min="0" max="60" step="1" style="width:80px" title="Ile po publikacji wiadomości rynek zacznie ruch"></div>
+    </div>
+    <div style="margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--info-bg)">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <b style="font-size:13px">Zapowiedź na rynek</b>
+        <button type="button" class="btn sm ghost" onclick="mmGen()">🎲 Generuj</button>
+        <button type="button" class="btn sm ghost" onclick="mmGen()">↻ Inna</button>
+        <span class="muted" style="font-size:11px">możesz też napisać/poprawić ręcznie</span>
+      </div>
+      <input type="text" name="mm_headline" id="mm_headline" maxlength="120" placeholder="Nagłówek wiadomości" style="width:100%;margin-bottom:6px" required>
+      <textarea name="mm_body" id="mm_body" rows="3" maxlength="600" placeholder="Treść wiadomości" style="width:100%;resize:vertical"></textarea>
+    </div>
+    <button class="btn" style="margin-top:12px">📰 Akceptuj i uruchom</button>
+  </form>
+
+  <?php if ($activeMoves): ?>
+    <p class="muted" style="margin:14px 0 4px"><b>Ruchy w toku</b>:</p>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <?php foreach ($activeMoves as $mv):
+          $tgt = $mv['scope'] === 'MARKET' ? 'cały rynek' : ($mv['scope'] === 'SECTOR' ? ('branża ' . h($mv['sname'] ?? '?')) : h($mv['ticker'] ?? '?'));
+          $pct = (float) $mv['pct']; $st = (int) $mv['start_tick']; $en = (int) $mv['end_tick'];
+          $phase = $tkNow < $st ? ('start za ' . ($st - $tkNow) . ' min') : ($tkNow <= $en ? ('trwa, do końca ' . ($en - $tkNow) . ' min') : 'kończy się'); ?>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12.5px">
+          <span class="chg <?= $pct >= 0 ? 'p' : 'n' ?>" style="min-width:64px"><?= $pct >= 0 ? '▲ +' : '▼ ' ?><?= rtrim(rtrim(number_format($pct, 1, ',', ''), '0'), ',') ?>%</span>
+          <span><b><?= $tgt ?></b></span>
+          <span class="muted"><?= $phase ?></span>
+          <form method="post" style="margin-left:auto"><input type="hidden" name="action" value="market_move_cancel"><input type="hidden" name="move_id" value="<?= (int) $mv['id'] ?>"><button class="btn sm ghost">Anuluj</button></form>
+        </div>
+      <?php endforeach; ?>
+    </div>
+  <?php endif; ?>
+
+  <script>
+  const MM_PRESETS = {
+    down: [
+      {h:'{t}: gwałtowna wyprzedaż', b:'Fala zleceń sprzedaży zalewa arkusze. Kolejne poziomy wsparcia pękają, a strach napędza kolejnych sprzedających.'},
+      {h:'Panika na rynku — {t} nurkuje', b:'Nagły odpływ kapitału i lawina podaży. Rynek szuka dna, kupujący czekają z boku.'},
+      {h:'{t} w odwrocie', b:'Negatywne nastroje i realizacja stop-lossów pogłębiają spadki. Zmienność ostro w górę.'},
+      {h:'Sprzedający przejmują ster — {t}', b:'Duzi gracze redukują pozycje, za nimi rusza tłum. Przewaga wyraźnie po stronie podaży.'},
+      {h:'{t} pod presją podaży', b:'Zlecenia sprzedaży dominują arkusz. Bez świeżego popytu spadki mogą przyspieszyć.'}
+    ],
+    up: [
+      {h:'{t}: mocny popyt wynosi kursy', b:'Napływ kapitału i fala zleceń kupna. Kupujący gonią rynek, a podaż topnieje.'},
+      {h:'Hossa — {t} w górę', b:'Optymizm i FOMO ściągają kolejnych inwestorów. Kurs przyspiesza.'},
+      {h:'{t} rozgrzany do czerwoności', b:'Byki przejmują ster, każda korekta jest natychmiast wykupywana. Popyt nie odpuszcza.'},
+      {h:'Kupujący rządzą — {t}', b:'Fala popytu przełamuje kolejne opory. Sprzedający wycofują oferty, kurs rośnie.'},
+      {h:'{t}: rajd popytu', b:'Świeży kapitał wchodzi szerokim frontem. Momentum wyraźnie po stronie byków.'}
+    ]
+  };
+  function mmTarget(){
+    const scope = (document.querySelector('input[name=mm_scope]:checked')||{}).value || 'MARKET';
+    if(scope==='SECTOR'){ const s=document.querySelector('[name=mm_sector]'); return 'branża '+((s&&s.selectedOptions[0]&&s.selectedOptions[0].text)||''); }
+    if(scope==='COMPANY'){ const s=document.querySelector('[name=mm_stock]'); return (s&&s.selectedOptions[0]&&s.selectedOptions[0].text)||'spółka'; }
+    return 'cały rynek';
+  }
+  function mmGen(){
+    const dir = (document.querySelector('input[name=mm_dir]:checked')||{}).value || 'down';
+    const arr = MM_PRESETS[dir]||MM_PRESETS.down; const p = arr[Math.floor(Math.random()*arr.length)];
+    const t = mmTarget();
+    document.getElementById('mm_headline').value = p.h.split('{t}').join(t);
+    document.getElementById('mm_body').value = p.b.split('{t}').join(t);
+  }
+  document.querySelectorAll('input[name=mm_scope],[name=mm_sector],[name=mm_stock]').forEach(function(el){ el.addEventListener('change', mmGen); });
+  mmGen();
+  </script>
 </section>
 
 <section class="panel" style="margin-top:16px">

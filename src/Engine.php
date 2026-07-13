@@ -936,10 +936,10 @@ final class Engine
         if ((int) (self::one("SELECT v FROM game_state WHERE k='report_sched_v2'") ?: 0) === 1) return;
         self::setState('report_sched_v2', '1');
         try {
-            if ((int) (self::one("SELECT v FROM game_state WHERE k='report_sessions'") ?: 0) <= 0) self::setState('report_sessions', '20');
+            if ((int) (self::one("SELECT v FROM game_state WHERE k='report_sessions'") ?: 0) <= 0) self::setState('report_sessions', '30');
             $tick = (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
             [, , $tps] = self::sessionInfo($tick);
-            $repSess    = max(1, (int) (self::one("SELECT v FROM game_state WHERE k='report_sessions'") ?: 20));
+            $repSess    = max(1, (int) (self::one("SELECT v FROM game_state WHERE k='report_sessions'") ?: 30));
             $monthTicks = max(50, $repSess * max(1, (int) $tps));
             $pdo = Db::pdo();
             $upd = $pdo->prepare("UPDATE stocks SET next_report_tick=? WHERE id=?");
@@ -959,7 +959,7 @@ final class Engine
         $globalPer = max(1, (int) (self::one("SELECT v FROM game_state WHERE k='ticks_per_month'") ?: 20));
         // kolejny raport za ~N sesji (miesiąc), w tickach — adaptuje się do trybu godzin handlu (tps = długość sesji)
         [, , $tps] = self::sessionInfo($tick);
-        $repSess    = max(1, (int) (self::one("SELECT v FROM game_state WHERE k='report_sessions'") ?: 20));
+        $repSess    = max(1, (int) (self::one("SELECT v FROM game_state WHERE k='report_sessions'") ?: 30));
         $monthTicks = max(50, $repSess * max(1, (int) $tps));
 
         $mods = self::activeMods($tick);
@@ -1153,6 +1153,52 @@ final class Engine
             } else {
                 $pdo->prepare("UPDATE stocks SET fundamental = ROUND(fundamental * (1 + ?), 2)")->execute([$nudge]);
             }
+        }
+    }
+
+    /* ---------- Market maker (GM): zaplanowany ruch popytu/podaży ---------- */
+
+    /** Zaplanuj ruch rynku: łączna zmiana $pct% na $durationTicks ticków, start za $delayTicks. Zwraca id. */
+    public static function scheduleMarketMove(string $scope, ?int $targetId, float $pct, int $durationTicks, int $delayTicks, ?string $label = null): int
+    {
+        $scope = in_array($scope, ['MARKET', 'SECTOR', 'COMPANY'], true) ? $scope : 'MARKET';
+        $tick  = (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
+        $start = $tick + max(0, $delayTicks);
+        $end   = $start + max(1, $durationTicks);
+        Db::pdo()->prepare("INSERT INTO market_moves (scope, target_id, pct, start_tick, end_tick, status, label, created_at) VALUES (?,?,?,?,?,'active',?,?)")
+            ->execute([$scope, $scope === 'MARKET' ? null : $targetId, round($pct, 2), $start, $end, $label !== null ? mb_substr($label, 0, 120) : null, Db::now()]);
+        return (int) Db::pdo()->lastInsertId();
+    }
+
+    public static function cancelMarketMove(int $id): void
+    {
+        Db::pdo()->prepare("UPDATE market_moves SET status='cancelled' WHERE id=? AND status='active'")->execute([$id]);
+    }
+
+    /**
+     * Zastosuj aktywne ruchy market makera. Każdy rozkłada łączne $pct na cały okres (składany
+     * współczynnik na tick), ruszając KURS i FUNDAMENT razem — dzięki temu ruch „się trzyma"
+     * (arbitraż nie widzi luki i nie odwraca go od razu), a boty i tak dokładają wolumen.
+     */
+    public static function applyMarketMoves(int $tick): void
+    {
+        $moves = self::all("SELECT * FROM market_moves WHERE status='active' AND start_tick <= ? AND end_tick >= ?", [$tick, $tick - 1]);
+        if (!$moves) return;
+        $pdo = Db::pdo();
+        foreach ($moves as $m) {
+            $start = (int) $m['start_tick'];
+            $end   = max($start + 1, (int) $m['end_tick']);
+            $dur   = max(1, $end - $start);
+            $pct   = (float) $m['pct'];
+            $f     = pow(1.0 + max(-0.95, min(5.0, $pct / 100.0)), 1.0 / $dur) - 1.0;   // składany współczynnik na tick
+            if ($m['scope'] === 'SECTOR' && $m['target_id'] !== null) {
+                $pdo->prepare("UPDATE stocks SET price = ROUND(price * (1+?), 2), fundamental = ROUND(fundamental * (1+?), 2) WHERE sector_id=? AND price > 1")->execute([$f, $f, (int) $m['target_id']]);
+            } elseif ($m['scope'] === 'COMPANY' && $m['target_id'] !== null) {
+                $pdo->prepare("UPDATE stocks SET price = ROUND(price * (1+?), 2), fundamental = ROUND(fundamental * (1+?), 2) WHERE id=? AND price > 1")->execute([$f, $f, (int) $m['target_id']]);
+            } else {
+                $pdo->prepare("UPDATE stocks SET price = ROUND(price * (1+?), 2), fundamental = ROUND(fundamental * (1+?), 2) WHERE price > 1")->execute([$f, $f]);
+            }
+            if ($tick >= $end) $pdo->prepare("UPDATE market_moves SET status='done' WHERE id=?")->execute([(int) $m['id']]);
         }
     }
 
@@ -1470,6 +1516,7 @@ final class Engine
         self::generateNews($t);      // losowe ESPI/newsy pozytywne i negatywne
         self::maybeRandomEvent($t);  // rzadkie wydarzenia: krach / hossa / kryzys i boom sektorowy
         self::applyNewsImpact($t);   // aktywne newsy lekko ruszają fundamentem (z zanikiem)
+        self::applyMarketMoves($t);  // GM „market maker": zaplanowany, stopniowy ruch popytu/podaży
 
         self::checkStops();
         self::runBots();

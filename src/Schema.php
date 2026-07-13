@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 30;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 31;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -325,6 +325,19 @@ final class Schema
             "session_dates" => "CREATE TABLE session_dates (
                 session    INT PRIMARY KEY,
                 trade_date VARCHAR(10) NOT NULL
+            )",
+
+            // --- STEROWANIE RYNKIEM (GM „market maker"): zaplanowany, stopniowy ruch popytu/podaży ---
+            "market_moves" => "CREATE TABLE market_moves (
+                id $pk,
+                scope      VARCHAR(8) NOT NULL,            -- MARKET | SECTOR | COMPANY
+                target_id  INT NULL,                       -- sector_id / stock_id (NULL dla MARKET)
+                pct        $money NOT NULL,                -- łączna zmiana %, np. -15.00 (panika) lub +12.00 (pompa)
+                start_tick INT NOT NULL,
+                end_tick   INT NOT NULL,
+                status     VARCHAR(10) NOT NULL DEFAULT 'active',
+                label      VARCHAR(120) NULL,
+                created_at VARCHAR(19) NOT NULL
             )",
 
             // --- MONETYZACJA: Tokeny inwestora (księga), pakiety premium, rekomendacje DM ---
