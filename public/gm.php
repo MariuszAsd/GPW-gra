@@ -114,6 +114,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $mr = max(0, min(200, (int) round((float) str_replace(',', '.', $_POST['macro_rate'] ?? '45'))));
         Engine::setState('macro_rate', (string) $mr);
         flash('Ustawiono częstotliwość lekkich sygnałów makro (branżowych): ' . $mr . '‰ na tick (0 = wyłączone).');
+    } elseif ($a === 'report_sessions') {
+        $rs = max(1, min(120, (int) round((float) str_replace(',', '.', $_POST['report_sessions'] ?? '20'))));
+        Engine::setState('report_sessions', (string) $rs);
+        flash("Ustawiono kadencję raportów: co ~$rs sesji na spółkę (mniej = częstsze raporty i szybszy wzrost fundamentów). Zmiana wchodzi od kolejnych raportów.");
     } elseif ($a === 'challenge_create') {
         [$sess] = Engine::sessionInfo();
         Challenges::create([
@@ -565,6 +569,12 @@ $modTop = Engine::all("SELECT m.user_id, u.username, COUNT(*) n, MAX(m.created_a
       <input type="hidden" name="action" value="macro_rate">
       <label style="font-size:11px;color:var(--soft)">Sygnały makro (branże)
         <input type="number" name="macro_rate" step="5" min="0" max="200" value="<?= (int) round((float) (($mrv = Engine::one("SELECT v FROM game_state WHERE k='macro_rate'")) === false || $mrv === null ? 45 : $mrv)) ?>" style="width:70px" title="Lekkie sygnały koniunktury dla branż (‰ na tick, mikro-wpływ na spółki sektora). Domyślnie 45. 0 = wyłączone."></label>
+      <button class="btn sm ghost">Ustaw</button>
+    </form>
+    <form method="post" class="inline" style="align-items:flex-end;gap:6px">
+      <input type="hidden" name="action" value="report_sessions">
+      <label style="font-size:11px;color:var(--soft)">Raporty co N sesji
+        <input type="number" name="report_sessions" step="1" min="1" max="120" value="<?= (int) (Engine::one("SELECT v FROM game_state WHERE k='report_sessions'") ?: 20) ?>" style="width:70px" title="Co ile sesji spółka publikuje raport (miesięcznie ≈ 20). Mniej = częstsze raporty i szybszy wzrost fundamentów rynku. Raporty rozkładają się na różne dni."></label>
       <button class="btn sm ghost">Ustaw</button>
     </form>
   </div>

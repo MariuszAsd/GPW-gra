@@ -925,17 +925,46 @@ final class Engine
 
     /* ---------- Raporty finansowe (miesięczne) ---------- */
 
+    /** „Miesiąc" wzrostu zysku dla JEDNEGO raportu (stała normalizacja) — growth_potential×100/100 ≈ growth_potential%
+     *  na raport, NIEZALEŻNIE od tego, co ile ticków raport wypada. Koniec z eksplozją zysków przy częstych raportach. */
+    private const REPORT_GROWTH_UNIT = 100;
+
+    /** Jednorazowo (flaga report_sched_v2): rozłóż next_report_tick wszystkich spółek RÓWNOMIERNIE na najbliższy
+     *  „miesiąc" (N sesji). Naprawia stare światy, w których raporty wypadały po kilka na sesję i wszystkie naraz. */
+    private static function ensureReportSchedule(): void
+    {
+        if ((int) (self::one("SELECT v FROM game_state WHERE k='report_sched_v2'") ?: 0) === 1) return;
+        self::setState('report_sched_v2', '1');
+        try {
+            if ((int) (self::one("SELECT v FROM game_state WHERE k='report_sessions'") ?: 0) <= 0) self::setState('report_sessions', '20');
+            $tick = (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
+            [, , $tps] = self::sessionInfo($tick);
+            $repSess    = max(1, (int) (self::one("SELECT v FROM game_state WHERE k='report_sessions'") ?: 20));
+            $monthTicks = max(50, $repSess * max(1, (int) $tps));
+            $pdo = Db::pdo();
+            $upd = $pdo->prepare("UPDATE stocks SET next_report_tick=? WHERE id=?");
+            foreach (self::col("SELECT id FROM stocks ORDER BY id") as $sid) {
+                $upd->execute([$tick + mt_rand((int) round($monthTicks * 0.03), $monthTicks), (int) $sid]);   // różne dni w ciągu miesiąca
+            }
+            Log::write('info', 'engine', 'reports.reschedule', "rozłożono raporty na ~{$repSess} sesji ({$monthTicks} ticków)");
+        } catch (\Throwable $e) { Log::write('warn', 'engine', 'reports.reschedule', $e->getMessage()); }
+    }
+
     public static function generateReports(int $tick): void
     {
+        self::ensureReportSchedule();   // jednorazowo: rozłóż raporty na ~miesiąc (różne dni), zamiast kilku na sesję
         $pdo = Db::pdo();
         $due = self::all("SELECT s.*, sec.profit_climate AS sector_climate FROM stocks s JOIN sectors sec ON sec.id = s.sector_id WHERE s.next_report_tick <= ?", [$tick]);
         if (!$due) return;
         $globalPer = max(1, (int) (self::one("SELECT v FROM game_state WHERE k='ticks_per_month'") ?: 20));
+        // kolejny raport za ~N sesji (miesiąc), w tickach — adaptuje się do trybu godzin handlu (tps = długość sesji)
+        [, , $tps] = self::sessionInfo($tick);
+        $repSess    = max(1, (int) (self::one("SELECT v FROM game_state WHERE k='report_sessions'") ?: 20));
+        $monthTicks = max(50, $repSess * max(1, (int) $tps));
 
         $mods = self::activeMods($tick);
         foreach ($due as $s) {
             $sid = (int) $s['id'];
-            $per = max(1, (int) $s['report_period']);   // kadencja raportu per spółka
             $shares = max(1.0, (float) $s['total_shares']);
             $prev = ((float) $s['last_profit']) ?: (float) $s['base_profit'];
 
@@ -943,7 +972,7 @@ final class Engine
             // + CZASOWE nakładki z wydarzeń (kryzysy/boomy branż, kontrakty i afery spółek)
             $evTrend   = self::modVal($mods, 'stock', $sid, 'profit_trend');
             $evClimate = self::modVal($mods, 'sector', (int) $s['sector_id'], 'profit_climate');
-            $trend_m  = ((float) $s['profit_trend'] + $evTrend + (float) $s['sector_climate'] + $evClimate + (float) $s['growth_potential'] * $per) / 100.0;
+            $trend_m  = ((float) $s['profit_trend'] + $evTrend + (float) $s['sector_climate'] + $evClimate + (float) $s['growth_potential'] * self::REPORT_GROWTH_UNIT) / 100.0;
             $expected = $prev * (1 + $trend_m);
             // faktyczny wynik = oczekiwany × niespodzianka (szum × agresywność, z sufitem)
             $noise    = (mt_rand(-10, 10) / 100.0) * max(0.2, min(1.4, (float) $s['aggressiveness']));
@@ -974,8 +1003,11 @@ final class Engine
             $rerate    = max(-0.07, min(0.07, ($streakAvg / 100.0) * ($sameDir ? 0.9 : 0.45)));   // seria = mocniejszy re-rating
             $newPe     = max(4.0, min(60.0, (float) $s['pe_target'] * (1 + $rerate)));
 
-            $pdo->prepare("UPDATE stocks SET fundamental=?, last_profit=?, last_eps=?, pe_target=?, next_report_tick=next_report_tick+? WHERE id=?")
-                ->execute([$newFund, $profit, $eps, round($newPe, 2), $per, $sid]);
+            // następny raport tej spółki za ~miesiąc (N sesji) z rozrzutem ±15% — spółki raportują w RÓŻNE dni,
+            // a nie wszystkie naraz; kadencja niezależna od długości ticka/sesji
+            $nextRep = $tick + mt_rand((int) round($monthTicks * 0.85), (int) round($monthTicks * 1.15));
+            $pdo->prepare("UPDATE stocks SET fundamental=?, last_profit=?, last_eps=?, pe_target=?, next_report_tick=? WHERE id=?")
+                ->execute([$newFund, $profit, $eps, round($newPe, 2), $nextRep, $sid]);
 
             // dywidenda: spółka dzieli się zyskiem wg swojej polityki wypłat (payout% zysku / liczbę akcji);
             // wydarzenie (np. afera księgowa) może ją czasowo zawiesić

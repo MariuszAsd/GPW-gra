@@ -25,7 +25,8 @@ Engine::setState('tick', '0');
 Engine::setState('sentiment', '0');
 Engine::setState('session', '1');
 Engine::setState('ticks_per_session', '20');   // 1 sesja giełdowa = 20 ticków (~20 min przy cronie co 1 min)
-Engine::setState('ticks_per_month', '300');    // 1 miesiąc raportowy ~ kilka sesji (rzadsze, „grubsze" raporty = mniej ESPI)
+Engine::setState('ticks_per_month', '300');    // etykieta „Miesiąc N" na raportach
+Engine::setState('report_sessions', '20');      // raporty ~co 20 sesji na spółkę (miesięcznie), rozłożone na różne dni
 Engine::setState('goal_target', '1000000');    // CEL GRY: kapitał 1 000 000 PLN...
 Engine::setState('goal_sessions', '60');       // ...w 60 sesji od dołączenia
 Engine::setState('fee_rate', '0.5');           // prowizja od obrotu (% wartości, płaci sprzedający)

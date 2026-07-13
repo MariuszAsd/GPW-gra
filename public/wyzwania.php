@@ -277,10 +277,13 @@ layout_header('Wyzwania', $user, 'challenges');
   </h2>
   <div class="ch-steps">
     <div class="ch-step"><i>1</i><b>📝 Zgłaszasz się</b><span>z konta schodzi buy-in + wpisowe (znasz kwotę z góry)</span></div>
-    <div class="ch-step"><i>2</i><b>📈 Handlujesz</b><span>osobnym portfelem wyzwania — konto główne gra dalej normalnie</span></div>
+    <div class="ch-step"><i>2</i><b>📈 Handlujesz</b><span>tylko kwotą buy-inu, na osobnym portfelu wyzwania — konto główne gra dalej normalnie</span></div>
     <div class="ch-step"><i>3</i><b>🏁 Wracasz po finał</b><span>po ostatniej sesji liczy się kapitał portfela wyzwania</span></div>
     <div class="ch-step"><i>4</i><b>🏆 Rozliczenie</b><span>buy-in wraca każdemu; top ~20% graczy dzieli dodatkowo pulę wpisowych</span></div>
   </div>
+  <p class="muted" style="margin:10px 0 0;font-size:12.5px;padding:8px 10px;background:var(--info-bg);border-radius:8px">
+    ℹ️ To <b>osobny konkurs</b>, niezależny od Ligi/Rankingu. Handlujesz tylko kwotą buy-inu (np. 20&nbsp;000 PLN) na oddzielnym portfelu — Twój główny kapitał i licznik „do celu: N&nbsp;sesji" w Rankingu się <b>nie zmieniają</b>. „Sesje" w wyzwaniu to po prostu czas jego trwania, a nie limit na milion.
+  </p>
   <p class="muted" style="margin:8px 0 0;font-size:12.5px">
     <b class="up">Wygrywasz</b> → nagroda z puli + Tokeny inwestora + punkty sezonu i odznaka.
     <b class="down">Przegrywasz</b> → tracisz najwyżej wpisowe (i ewentualną stratę z handlu) — buy-in w formie, do jakiej go doprowadziłeś (gotówka + akcje), wraca na konto.

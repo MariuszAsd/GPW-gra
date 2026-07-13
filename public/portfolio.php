@@ -110,7 +110,7 @@ layout_header('Portfel', $user, 'portfolio');
   <summary>🎯 Cel gry: <b><?= number_format($progress, 0, ',', ' ') ?>%</b> z <?= money_short($goalTarget) ?> PLN
     <span class="bar"><i style="width:<?= round(min(100, $progress), 1) ?>%"></i></span>
     <?php if ($me['goal_session'] !== null): ?><span class="up">🏆 osiągnięty (sesja #<?= (int) $me['goal_session'] ?>)</span>
-    <?php elseif ($sessionsLeft >= 0 && $me['my_goal'] === null): ?><span class="muted">zostało <?= $sessionsLeft ?> sesji</span><?php endif; ?>
+    <?php elseif ($sessionsLeft >= 0 && $me['my_goal'] === null): ?><span class="muted" title="Ile sesji zostało Ci na milion CAŁYM kapitałem konta (nie dotyczy Wyzwań)">do celu gry: <?= $sessionsLeft ?> sesji</span><?php endif; ?>
     <span class="muted" style="text-decoration:underline">szczegóły</span>
   </summary>
   <div class="panel" style="padding:12px 14px">

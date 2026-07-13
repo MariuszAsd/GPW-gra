@@ -513,8 +513,8 @@ final class Newsroom
                               JOIN sectors sec ON sec.id = s.sector_id WHERE s.next_report_tick = ?", [$tick + 5]) as $s) {
             if (mt_rand(1, 100) > 40) continue;   // analitycy nie zapowiadają każdego raportu — mniej szumu ESPI
             $prev = ((float) $s['last_profit']) ?: (float) $s['base_profit'];
-            $per = max(1, (int) $s['report_period']);
-            $trend = ((float) $s['profit_trend'] + (float) $s['sector_climate'] + (float) $s['growth_potential'] * $per) / 100.0;
+            // wzrost zysku „na miesiąc" (stała normalizacja 100) — spójne z generateReports, niezależne od kadencji
+            $trend = ((float) $s['profit_trend'] + (float) $s['sector_climate'] + (float) $s['growth_potential'] * 100) / 100.0;
             $expProfit = $prev * (1 + $trend) * (1 + mt_rand(-3, 3) / 100);   // analitycy też mają rozrzut
             $expEps = round($expProfit * 12.0 / max(1.0, (float) $s['total_shares']), 2);
             self::insert($tick, 'fundamental', 'NEU', 'COMPANY', (int) $s['id'], 0, 0.0, 6,

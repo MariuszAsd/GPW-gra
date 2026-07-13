@@ -34,10 +34,13 @@ layout_header('Ranking', $user, 'ranking');
 $medals = ['🥇', '🥈', '🥉'];
 ?>
 <?php explainer('ranking', 'O co gramy', [
-    'cel: pierwszy milion', 'wynik = gotówka + akcje + lokaty i zapisy IPO',
-    'zbieraj odznaki', 'kliknij nick, aby zobaczyć profil gracza']); ?>
+    'cel: pierwszy milion — grasz CAŁYM kapitałem konta',
+    'wynik = gotówka + akcje + lokaty i zapisy IPO',
+    '„🏆 cel w N sesji" = zwycięzca doszedł do celu w N sesji (tempo)',
+    '„do celu: N sesji" = tyle ZOSTAŁO Ci na milion (limit ' . $goalSessions . ')',
+    'to nie Wyzwania — tam grasz osobnym portfelem z buy-inu']); ?>
 <div class="page-head"><h1>Liga</h1><?= session_tag($sessionNo) ?>
-  <?php if ($goalTarget > 0): ?><span class="muted hide-m">cel: <?= money($goalTarget) ?> PLN w <?= $goalSessions ?> sesji — zwycięzcy wg tempa, reszta wg kapitału</span><?php endif; ?>
+  <?php if ($goalTarget > 0): ?><span class="muted hide-m">cel: <?= money($goalTarget) ?> PLN w <?= $goalSessions ?> sesji — całym kapitałem konta (osobne konkursy z wpisowym: zakładka <b>Wyzwania</b>)</span><?php endif; ?>
 </div>
 <?php liga_subnav('ranking'); ?>
 
@@ -56,9 +59,9 @@ $medals = ['🥇', '🥈', '🥉'];
           <td class="num"><?php if ($p['ret'] === null): ?><span class="muted">—</span>
             <?php else: ?><span class="chg <?= $p['ret'] >= 0 ? 'p' : 'n' ?>"><span class="ar"><?= $p['ret'] >= 0 ? '▲' : '▼' ?></span><?= number_format(abs($p['ret']), 1, ',', ' ') ?>%</span><?php endif; ?></td>
           <td>
-            <?php if ($p['won']): ?><span class="up">🏆 w <?= $p['speed'] ?> sesji</span>
+            <?php if ($p['won']): ?><span class="up" title="Zwycięzca — tyle sesji zajęło mu dojście do celu (mniej = szybciej)">🏆 cel w <?= $p['speed'] ?> sesji</span>
             <?php elseif ($goalTarget <= 0): ?><span class="muted">—</span>
-            <?php elseif ($left >= 0): ?><span class="soft">w grze · zostało sesji: <?= $left ?></span>
+            <?php elseif ($left >= 0): ?><span class="soft" title="Ile sesji ZOSTAŁO temu graczowi na osiągnięcie celu (milion) — limit <?= $goalSessions ?> sesji od dołączenia">w grze · do celu: <?= $left ?> sesji</span>
             <?php else: ?><span class="muted">czas minął</span><?php endif; ?>
           </td>
           <td class="num muted">#<?= (int) $p['joined_session'] ?></td>
