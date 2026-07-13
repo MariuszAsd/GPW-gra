@@ -882,20 +882,45 @@ final class Engine
 
     /* ---------- Świece ---------- */
 
-    public static function recordCandles(int $t, array $tickTrades): void
+    public static function recordCandles(int $t): void
     {
         $pdo = Db::pdo();
+        // Świece z REALNYCH transakcji (boty + GRACZE, także te złożone przez HTTP MIĘDZY tickami crona),
+        // a nie tylko z handlu botów w tym ticku — inaczej ruch z zlecenia gracza nie pokazywał się na wykresie
+        // (kurs skakał w bazie, ale świeca była płaska). Znacznik last_candle_tx to kursor ostatniej ujętej transakcji.
+        [$trades, $maxTx] = self::tradesSinceCandle();
         foreach (self::all("SELECT id, price FROM stocks") as $st) {
             $sid = (int) $st['id'];
             $prev = self::closes($sid, 1);
-            $o = $prev ? (float) $prev[0] : (float) $st['price'];
-            $tr = $tickTrades[$sid] ?? [];
-            if ($tr) { $ps = array_column($tr, 'p'); $c = end($ps); $h = max($ps); $l = min($ps); $v = array_sum(array_column($tr, 'q')); }
-            else     { $c = $o; $h = $o; $l = $o; $v = 0; }
+            $o   = $prev ? (float) $prev[0] : (float) $st['price'];
+            $cur = (float) $st['price'];   // aktualny kurs = ostatnia transakcja (bot lub gracz)
+            $tr  = $trades[$sid] ?? [];
+            if ($tr) { $ps = array_column($tr, 'p'); $c = $cur; $h = max(max($ps), $o, $cur); $l = min(min($ps), $o, $cur); $v = array_sum(array_column($tr, 'q')); }
+            else     { $c = $cur; $h = max($o, $cur); $l = min($o, $cur); $v = 0; }
             $pdo->prepare("INSERT INTO candles (stock_id,t,o,h,l,c,v) VALUES (?,?,?,?,?,?,?)")->execute([$sid, $t, $o, $h, $l, $c, $v]);
         }
+        self::setState('last_candle_tx', (string) $maxTx);   // kursor = dokładnie granica użyta wyżej (bez wyścigu z transakcją HTTP)
         // retencja: świece rosną 50/tick — trzymaj ~20k ticków wstecz (wystarcza na wykres sesyjny 80×200)
         if ($t % 500 === 0) $pdo->prepare("DELETE FROM candles WHERE t < ?")->execute([$t - 20000]);
+    }
+
+    /**
+     * Transakcje (boty + gracze) od ostatniej ujętej świecy do BIEŻĄCEGO MAX(id) — pogrupowane per spółka.
+     * Zwraca [trades, maxTx]; ten sam maxTx służy jako nowy kursor, więc żadna transakcja złożona w trakcie
+     * przetwarzania nie zostaje pominięta (trafi do następnej świecy). Pierwszy raz (brak kursora) = od teraz.
+     */
+    private static function tradesSinceCandle(): array
+    {
+        $lw = self::one("SELECT v FROM game_state WHERE k='last_candle_tx'");
+        $maxTx = (int) (self::one("SELECT COALESCE(MAX(id),0) FROM transactions") ?: 0);
+        $lastTx = ($lw === false || $lw === null || $lw === '') ? $maxTx : (int) $lw;
+        $out = [];
+        if ($maxTx > $lastTx) {
+            foreach (self::all("SELECT stock_id, price, qty FROM transactions WHERE id > ? AND id <= ? ORDER BY id ASC", [$lastTx, $maxTx]) as $tx) {
+                $out[(int) $tx['stock_id']][] = ['p' => (float) $tx['price'], 'q' => (int) $tx['qty']];
+            }
+        }
+        return [$out, $maxTx];
     }
 
     /* ---------- Raporty finansowe (miesięczne) ---------- */
@@ -1418,10 +1443,9 @@ final class Engine
         self::runBots();
         self::arbitrage();   // boty domykają lukę kurs -> wartość fundamentalna (kurs podąża za sterowaniem)
 
-        $tickTrades = [];
-        foreach (self::all("SELECT id FROM stocks") as $st) self::matchBook((int) $st['id'], $tickTrades);
+        foreach (self::all("SELECT id FROM stocks") as $st) self::matchBook((int) $st['id']);
         try { self::checkHalts($t); } catch (\Throwable $e) { Log::write('warn', 'engine', 'halt.check', $e->getMessage()); }
-        self::recordCandles($t, $tickTrades);
+        self::recordCandles($t);
         // cache sygnału AT per spółka (skaner na Rynku i rekomendacje czytają kolumnę)
         try {
             if (!class_exists('Technical')) require_once __DIR__ . '/Technical.php';
@@ -1457,15 +1481,18 @@ final class Engine
             self::checkStops();
             self::runBots();
             self::arbitrage();
-            $tickTrades = [];
-            foreach (self::all("SELECT id FROM stocks") as $st) self::matchBook((int) $st['id'], $tickTrades);
-            foreach ($tickTrades as $sid => $tr) {   // scal z biezaca swieca (handel wewnatrz minuty)
-                $ps = array_column($tr, 'p');
+            foreach (self::all("SELECT id FROM stocks") as $st) self::matchBook((int) $st['id']);
+            // scal z bieżącą świecą REALNE transakcje od kursora (handel botów tej podrundy + zlecenia graczy między nimi)
+            [$trades, $maxTx] = self::tradesSinceCandle();
+            foreach ($trades as $sid => $tr) {
                 $c = self::row("SELECT h, l FROM candles WHERE stock_id=? AND t=?", [$sid, $t]);
                 if (!$c) continue;
+                $ps = array_column($tr, 'p');
+                $cur = (float) self::one("SELECT price FROM stocks WHERE id=?", [$sid]);
                 $pdo->prepare("UPDATE candles SET h=?, l=?, c=?, v=v+? WHERE stock_id=? AND t=?")
-                    ->execute([max((float) $c['h'], max($ps)), min((float) $c['l'], min($ps)), end($ps), array_sum(array_column($tr, 'q')), $sid, $t]);
+                    ->execute([max((float) $c['h'], max($ps), $cur), min((float) $c['l'], min($ps), $cur), $cur, array_sum(array_column($tr, 'q')), $sid, $t]);
             }
+            self::setState('last_candle_tx', (string) $maxTx);   // kursor = granica użyta wyżej
             $pdo->commit();
         } catch (\Throwable $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
