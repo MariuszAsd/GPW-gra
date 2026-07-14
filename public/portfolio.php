@@ -92,7 +92,9 @@ $eqSvg = equity_svg($eqSeries);
 $value = 0; $cost = 0;
 foreach ($pos as $p) { $q = $p['qty'] + $p['qty_reserved']; $value += $q * $p['price']; $cost += $q * $p['avg_price']; }
 $pl = $value - $cost;
-$locked = Engine::lockedFunds((int) $user['id']);   // lokaty + zapisy IPO (konto-cień wyzwania: 0)
+$locked = Engine::lockedFunds((int) $user['id']);          // lokaty + IPO + zablokowane w wyzwaniu
+$chLocked = Engine::challengeLocked((int) $user['id']);    // sam buy-in/portfel wyzwania (do osobnej karty)
+$depIpo = round($locked - $chLocked, 2);                   // lokaty + zapisy IPO (bez wyzwania)
 $equity = $user['cash'] + $user['cash_reserved'] + $value + $locked;
 $plPct = $cost > 0 ? $pl / $cost * 100 : 0;
 $deposits = ($user['ctx'] ?? '') !== 'challenge' ? Bank::activeFor($uidReal) : [];
@@ -141,8 +143,11 @@ layout_header('Portfel', $user, 'portfolio');
   <div class="stat"><div class="k">Kapitał</div><div class="v"><?= money($equity) ?></div></div>
   <div class="stat"><div class="k">Gotówka</div><div class="v"><?= money($user['cash']) ?></div></div>
   <div class="stat"><div class="k">Wartość akcji</div><div class="v"><?= money($value) ?></div></div>
-  <?php if ($locked > 0): ?>
-  <div class="stat"><div class="k">Lokaty i zapisy IPO</div><div class="v"><?= money($locked) ?></div></div>
+  <?php if ($depIpo > 0): ?>
+  <div class="stat"><div class="k">Lokaty i zapisy IPO</div><div class="v"><?= money($depIpo) ?></div></div>
+  <?php endif; ?>
+  <?php if ($chLocked > 0): ?>
+  <div class="stat"><div class="k">Zablokowane w wyzwaniu</div><div class="v"><?= money($chLocked) ?><span class="muted" style="font-size:11px;display:block;font-weight:500;letter-spacing:0;text-transform:none">buy-in — wciąż Twój majątek</span></div></div>
   <?php endif; ?>
   <div class="stat"><div class="k">Wynik</div><div class="v <?= $pl >= 0 ? 'up' : 'down' ?>"><?= ($pl >= 0 ? '+' : '') . money($pl) ?><span style="font-size:13px"> (<?= ($plPct >= 0 ? '+' : '') . number_format($plPct, 1, ',', ' ') ?>%)</span></div></div>
 </div>

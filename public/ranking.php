@@ -17,7 +17,10 @@ $players = Engine::all(
      FROM users u WHERE u.is_bot = 0 AND u.role = 'player'"
 );
 foreach ($players as &$p) {
-    $p['equity'] = (float) $p['cash'] + (float) $p['cash_reserved'] + (float) $p['stock_val'] + (float) $p['dep_val'] + (float) $p['ipo_val'];
+    // kapitał = całość majątku: gotówka + zamrożone + akcje + lokaty/IPO + ZABLOKOWANE w wyzwaniu
+    // (buy-in wyzwania to nie strata — dalej Twój majątek, jak lokata)
+    $p['equity'] = (float) $p['cash'] + (float) $p['cash_reserved'] + (float) $p['stock_val'] + (float) $p['dep_val'] + (float) $p['ipo_val']
+                 + Engine::challengeLocked((int) $p['id']);
     $p['ret'] = (float) $p['start_equity'] > 0 ? ($p['equity'] - $p['start_equity']) / $p['start_equity'] * 100 : null;
     $p['won'] = $p['goal_session'] !== null;
     $p['speed'] = $p['won'] ? max(1, (int) $p['goal_session'] - (int) $p['joined_session'] + 1) : null;
@@ -35,7 +38,7 @@ $medals = ['🥇', '🥈', '🥉'];
 ?>
 <?php explainer('ranking', 'O co gramy', [
     'cel: pierwszy milion — grasz CAŁYM kapitałem konta',
-    'wynik = gotówka + akcje + lokaty i zapisy IPO',
+    'wynik = gotówka + akcje + lokaty/IPO + zablokowane w wyzwaniu',
     '„🏆 cel w N sesji" = zwycięzca doszedł do celu w N sesji (tempo)',
     '„do celu: N sesji" = tyle ZOSTAŁO Ci na milion (limit ' . $goalSessions . ')',
     'to nie Wyzwania — tam grasz osobnym portfelem z buy-inu']); ?>

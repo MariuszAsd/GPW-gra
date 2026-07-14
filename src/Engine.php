@@ -877,7 +877,28 @@ final class Engine
     {
         $d = (float) (self::one("SELECT SUM(amount) FROM deposits WHERE user_id=? AND status='active'", [$uid]) ?: 0);
         $i = (float) (self::one("SELECT SUM(s.paid) FROM ipo_subs s JOIN ipo_offers o ON o.id=s.offer_id WHERE s.user_id=? AND o.status='open'", [$uid]) ?: 0);
-        return round($d + $i, 2);
+        return round($d + $i + self::challengeLocked($uid), 2);
+    }
+
+    /** Wartość ZABLOKOWANA w wyzwaniach — wciąż majątek gracza (jak lokata), nie strata.
+     *  Zapisy przed startem: buy-in + wpisowe (przed startem pełny zwrot). Wyzwania w toku:
+     *  bieżąca wartość portfela-cienia (gotówka + zamrożone + akcje po kursie). Dzięki temu
+     *  po zapisie kapitał NIE spada — buy-in schodzi z gotówki, ale wraca jako „zablokowane". */
+    public static function challengeLocked(int $uid): float
+    {
+        $signup = (float) (self::one(
+            "SELECT COALESCE(SUM(cp.buyin + cp.fee), 0)
+             FROM challenge_players cp JOIN challenges c ON c.id = cp.challenge_id
+             WHERE cp.user_id = ? AND c.status = 'signup' AND cp.shadow_user_id IS NULL", [$uid]) ?: 0);
+        $running = (float) (self::one(
+            "SELECT COALESCE(SUM(su.cash + su.cash_reserved + COALESCE(sv.v, 0)), 0)
+             FROM challenge_players cp
+             JOIN challenges c ON c.id = cp.challenge_id AND c.status = 'running'
+             JOIN users su ON su.id = cp.shadow_user_id
+             LEFT JOIN (SELECT w.user_id AS uid, SUM((w.qty + w.qty_reserved) * s.price) AS v
+                        FROM wallets w JOIN stocks s ON s.id = w.stock_id GROUP BY w.user_id) sv ON sv.uid = su.id
+             WHERE cp.user_id = ?", [$uid]) ?: 0);
+        return round($signup + $running, 2);
     }
 
     /* ---------- Świece ---------- */
@@ -1238,13 +1259,26 @@ final class Engine
     {
         Db::pdo()->prepare(
             "INSERT INTO equity_history (user_id, t, equity)
-             SELECT u.id, ?, ROUND(u.cash + u.cash_reserved + COALESCE(sv.v, 0) + COALESCE(dep.v, 0) + COALESCE(ipo.v, 0), 2)
+             SELECT u.id, ?, ROUND(u.cash + u.cash_reserved + COALESCE(sv.v, 0) + COALESCE(dep.v, 0) + COALESCE(ipo.v, 0)
+                                   + COALESCE(chs.v, 0) + COALESCE(chr.v, 0), 2)
              FROM users u
              LEFT JOIN (SELECT w.user_id AS uid, SUM((w.qty + w.qty_reserved) * s.price) AS v
                         FROM wallets w JOIN stocks s ON s.id = w.stock_id GROUP BY w.user_id) sv ON sv.uid = u.id
              LEFT JOIN (SELECT user_id AS uid, SUM(amount) AS v FROM deposits WHERE status='active' GROUP BY user_id) dep ON dep.uid = u.id
              LEFT JOIN (SELECT s2.user_id AS uid, SUM(s2.paid) AS v FROM ipo_subs s2
                         JOIN ipo_offers o2 ON o2.id = s2.offer_id AND o2.status='open' GROUP BY s2.user_id) ipo ON ipo.uid = u.id
+             -- zablokowane w wyzwaniu (dla WŁAŚCICIELA): zapisy przed startem = buy-in+wpisowe
+             LEFT JOIN (SELECT cp.user_id AS uid, SUM(cp.buyin + cp.fee) AS v FROM challenge_players cp
+                        JOIN challenges c ON c.id = cp.challenge_id AND c.status='signup' AND cp.shadow_user_id IS NULL
+                        GROUP BY cp.user_id) chs ON chs.uid = u.id
+             -- wyzwania w toku = bieżąca wartość portfela-cienia
+             LEFT JOIN (SELECT cp.user_id AS uid, SUM(su.cash + su.cash_reserved + COALESCE(ssv.v, 0)) AS v
+                        FROM challenge_players cp
+                        JOIN challenges c ON c.id = cp.challenge_id AND c.status='running'
+                        JOIN users su ON su.id = cp.shadow_user_id
+                        LEFT JOIN (SELECT w.user_id AS uid, SUM((w.qty + w.qty_reserved) * s.price) AS v
+                                   FROM wallets w JOIN stocks s ON s.id = w.stock_id GROUP BY w.user_id) ssv ON ssv.uid = su.id
+                        GROUP BY cp.user_id) chr ON chr.uid = u.id
              WHERE (u.is_bot = 0 AND u.role = 'player') OR u.role = 'challenger'"
         )->execute([$t]);
         if ($t % 500 === 0) Db::pdo()->prepare("DELETE FROM equity_history WHERE t < ?")->execute([$t - 10000]);
