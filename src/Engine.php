@@ -1135,6 +1135,9 @@ final class Engine
      * (komentarz z wykresu nie zmienia wartości firmy — działa przez boty AT).
      */
     public const KIND_FUNDAMENT_WEIGHT = ['fundamental' => 1.0, 'sentiment' => 0.45, 'technical' => 0.0];
+    // wzmocnienie reakcji kursu na newsy/ESPI: news rusza kurs+fundament razem (patrz applyNewsImpact).
+    // 1.0 = jak dawniej (ledwo widoczne); wyżej = wyraźniejsze skoki. „wyraźnie" ≈ 1.6.
+    public const NEWS_IMPACT_GAIN = 1.6;
 
     public static function applyNewsImpact(int $tick): void
     {
@@ -1143,17 +1146,21 @@ final class Engine
                              FROM news WHERE publish_tick <= ? AND expire_tick > ? AND impact_strength <> 0", [$tick, $tick]);
         foreach ($active as $nw) {
             $kw = self::KIND_FUNDAMENT_WEIGHT[$nw['kind'] ?? 'fundamental'] ?? 1.0;
-            if ($kw <= 0) continue;
+            if ($kw <= 0) continue;   // technical (np. „nietypowy obrót") = flavor, nie rusza kursem
             $span  = max(1, (int) $nw['expire_tick'] - (int) $nw['publish_tick']);
             $decay = ((int) $nw['expire_tick'] - $tick) / $span;               // 1 -> 0
-            $nudge = ((float) $nw['impact_strength'] / 100.0) * $decay * $kw;    // ułamek na tick
+            // News ma WIDOCZNIE ruszać kursem: gain podbija reakcję, a ruch idzie w KURS I FUNDAMENT
+            // naraz (jak market maker, l. 1197) — natychmiastowy i „trzyma się" (arbitraż nie widzi luki,
+            // boty dokładają wolumen). Wcześniej ruszał tylko fundament -> kurs ledwo drgał, tonął w szumie.
+            // Skala: mocny ESPI (impact ~0,5, dur ~12) daje ~+4-5% narastająco; słabszy news ~+1-2%.
+            $nudge = ((float) $nw['impact_strength'] / 100.0) * $decay * $kw * self::NEWS_IMPACT_GAIN;
             if (abs($nudge) < 1e-9) continue;
             if ($nw['scope'] === 'COMPANY') {
-                $pdo->prepare("UPDATE stocks SET fundamental = ROUND(fundamental * (1 + ?), 2) WHERE id=?")->execute([$nudge, (int) $nw['target_id']]);
+                $pdo->prepare("UPDATE stocks SET price = ROUND(price * (1+?), 2), fundamental = ROUND(fundamental * (1+?), 2) WHERE id=? AND price > 1")->execute([$nudge, $nudge, (int) $nw['target_id']]);
             } elseif ($nw['scope'] === 'SECTOR') {
-                $pdo->prepare("UPDATE stocks SET fundamental = ROUND(fundamental * (1 + ?), 2) WHERE sector_id=?")->execute([$nudge, (int) $nw['target_id']]);
+                $pdo->prepare("UPDATE stocks SET price = ROUND(price * (1+?), 2), fundamental = ROUND(fundamental * (1+?), 2) WHERE sector_id=? AND price > 1")->execute([$nudge, $nudge, (int) $nw['target_id']]);
             } else {
-                $pdo->prepare("UPDATE stocks SET fundamental = ROUND(fundamental * (1 + ?), 2)")->execute([$nudge]);
+                $pdo->prepare("UPDATE stocks SET price = ROUND(price * (1+?), 2), fundamental = ROUND(fundamental * (1+?), 2) WHERE price > 1")->execute([$nudge, $nudge]);
             }
         }
     }

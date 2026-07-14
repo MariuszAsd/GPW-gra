@@ -561,8 +561,56 @@ async function drawChart(){ try{
     }
     if(drawn.length&&chartNote) chartNote.textContent+=' · AT: SMA '+drawn.join('/');
   }
-  chartBox.innerHTML=s+'</svg>';
+  // --- nakładka interaktywna (HTML nad SVG, bo SVG jest rozciągany): znaczniki newsów, osie, crosshair ---
+  const esc=x=>String(x).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+  let ov='<div class="chart-ov">';
+  (j.news||[]).forEach(m=>{
+    const x=((pl+m.pos*(n-1)*slot+slot/2)/W*100).toFixed(2);
+    const cls=m.type==='POS'?'up':(m.type==='NEG'?'down':'neu');
+    const side=m.pos>0.62?' te':(m.pos<0.25?' ts':'');   // dymek przy krawędzi nie wychodzi poza wykres
+    ov+='<div class="chmark '+cls+side+'" style="left:'+x+'%">'+(m.espi?'⚡':'▼')+
+        '<div class="chmark-tip">'+(m.espi?'<b>ESPI · </b>':'')+(m.scope==='SECTOR'?'<b>sektor · </b>':'')+esc(m.head)+
+        (m.imp?' <span class="'+cls+'">('+(m.imp>0?'+':'')+m.imp+'%/tick)</span>':'')+'</div></div>';
+  });
+  if((j.news||[]).length&&chartNote) chartNote.textContent+=' · ⚡/▼ newsy (najedź)';
+  const yTop=pt/H*100, yMid=(pt+(H-pb-pt)/2)/H*100, yBot=(H-pb)/H*100;
+  ov+='<div class="chy" style="top:'+yTop.toFixed(1)+'%">'+money2(mx)+'</div>';
+  ov+='<div class="chy" style="top:'+yMid.toFixed(1)+'%">'+money2((mx+mn)/2)+'</div>';
+  ov+='<div class="chy" style="top:'+yBot.toFixed(1)+'%">'+money2(mn)+'</div>';
+  const lbl=i=>(cs[i]&&cs[i].lbl)?cs[i].lbl:'';
+  ov+='<div class="chx" style="left:'+((pl+slot/2)/W*100).toFixed(1)+'%">'+lbl(0)+'</div>';
+  ov+='<div class="chx" style="left:50%;transform:translateX(-50%)">'+lbl(n>>1)+'</div>';
+  ov+='<div class="chx" style="left:'+((pl+(n-1)*slot+slot/2)/W*100).toFixed(1)+'%;transform:translateX(-100%)">'+lbl(n-1)+'</div>';
+  ov+='<div class="chcross chcross-x" hidden></div><div class="chcross chcross-y" hidden></div>';
+  ov+='<div class="chylab" hidden></div><div class="chtip" hidden></div>';
+  ov+='</div>';
+  chartBox.innerHTML='<div class="chart-wrap">'+s+'</svg>'+ov+'</div>';
+  window._CH={cs,n,mn,mx,slot,pl,pr,pt,pb,W,H};
 }catch(e){} }
+function chLeave(){ const w=chartBox.querySelector('.chart-wrap'); if(!w)return;
+  w.querySelectorAll('.chcross,.chylab,.chtip').forEach(el=>el.hidden=true); }
+chartBox.addEventListener('mouseleave',chLeave);
+chartBox.addEventListener('mousemove',e=>{
+  const ch=window._CH, w=chartBox.querySelector('.chart-wrap'); if(!ch||!w)return;
+  const r=w.getBoundingClientRect(); if(!r.width)return;
+  const fx=(e.clientX-r.left)/r.width, fy=(e.clientY-r.top)/r.height;
+  if(fx<0||fx>1||fy<0||fy>1){chLeave();return;}
+  let i=Math.round((fx*ch.W-ch.pl-ch.slot/2)/ch.slot); i=Math.max(0,Math.min(ch.n-1,i));
+  const c=ch.cs[i]; if(!c)return;
+  const xc=(ch.pl+i*ch.slot+ch.slot/2)/ch.W;
+  const cx=w.querySelector('.chcross-x'),cy=w.querySelector('.chcross-y'),tip=w.querySelector('.chtip'),yl=w.querySelector('.chylab');
+  cx.hidden=false; cx.style.left=(xc*100).toFixed(2)+'%';
+  const fyc=Math.max(ch.pt/ch.H,Math.min((ch.H-ch.pb)/ch.H,fy));
+  cy.hidden=false; cy.style.top=(fyc*100).toFixed(2)+'%';
+  const yp=(fyc*ch.H-ch.pt)/(ch.H-ch.pt-ch.pb), priceAt=ch.mx-yp*(ch.mx-ch.mn);
+  yl.hidden=false; yl.style.top=(fyc*100).toFixed(2)+'%'; yl.textContent=money2(priceAt);
+  const up=c.c>=c.o;
+  tip.hidden=false;
+  tip.innerHTML='<div class="cht-t">'+(c.lbl||'')+'</div>'+
+    '<div class="cht-r"><span>O</span><b>'+money2(c.o)+'</b> <span>H</span><b>'+money2(c.h)+'</b></div>'+
+    '<div class="cht-r"><span>L</span><b>'+money2(c.l)+'</b> <span>C</span><b class="'+(up?'up':'down')+'">'+money2(c.c)+'</b></div>'+
+    (c.v?'<div class="cht-v">wolumen '+c.v+'</div>':'');
+});
 const atBtn=document.getElementById('cg-at');
 if(atBtn){ atBtn.classList.toggle('on',cAT);
   atBtn.onclick=()=>{ cAT=!cAT; atBtn.classList.toggle('on',cAT);
