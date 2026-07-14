@@ -128,7 +128,9 @@ p a:hover,td a:hover{text-decoration:underline;text-underline-offset:2px}
   .bottomnav a.active::before{content:'';position:absolute;top:0;width:34px;height:3px;border-radius:0 0 3px 3px;background:var(--accent)}
 }
 
-.wrap{max-width:1160px;margin:0 auto;padding:22px 20px}
+/* treść wypełnia szerokość ekranu (dopasowanie do rozdzielczości): płynna szerokość
+   z wysokim capem i płynnym paddingiem — koniec wąskiej kolumny 1160 px z pustymi bokami */
+.wrap{width:100%;max-width:2160px;margin:0 auto;padding:24px clamp(18px,2.4vw,44px)}
 @media(min-width:761px){
   body{padding-left:78px}
   .topbar,.ctxbar{margin-left:-78px;padding-left:20px}   /* pasek górny na pełną szerokość, treść za szyną */
@@ -145,6 +147,14 @@ h2{font-size:13.5px;font-weight:700;letter-spacing:-.01em;color:var(--ink);margi
 
 /* ---------- Tabele / Market Watch ---------- */
 .tbl-scroll{overflow-x:auto}
+/* rzadkie tabele (mało kolumn) nie rozłażą się na bardzo szerokim ekranie:
+   ograniczenie do czytelnej szerokości, wyrównane do lewej pod nagłówkiem panelu */
+.tbl-cap{max-width:1440px}
+/* słupek udziału pozycji w portfelu (skalowany do największej pozycji) —
+   szerokość rośnie z ekranem, więc kolumna sensownie wypełnia szeroki układ */
+.wbar{display:inline-block;width:clamp(70px,11vw,220px);height:7px;background:var(--bg3);
+  border-radius:5px;overflow:hidden;vertical-align:middle;margin-right:9px}
+.wbar i{display:block;height:100%;background:var(--accent);border-radius:5px}
 table{width:100%;border-collapse:collapse}
 thead th{
   text-align:left;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;
@@ -283,6 +293,8 @@ input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:var(
 .help-toc a:hover{color:var(--ink);border-color:var(--faint)}
 .help-sec{margin-bottom:16px;scroll-margin-top:70px}
 .help-sec h3{margin:0 0 8px;font-size:16px;font-weight:700;letter-spacing:-.01em}
+/* długie linie tekstu męczą na szerokim ekranie — komfortowa miara czytania (~80 znaków) */
+.help-sec p,.help-sec .help-ex{max-width:80ch}
 .help-sec p{margin:8px 0;color:var(--soft);font-size:14px;line-height:1.6}
 .help-sec p b{color:var(--ink)}
 .help-svg{width:100%;max-width:560px;height:auto;display:block;margin:12px auto;background:var(--bg);border-radius:10px}
@@ -579,6 +591,14 @@ td.nowrap{white-space:nowrap}
 .sec-head{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
 .sec-head b{font-size:14.5px}
 .sec-tickers{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
+
+/* ---------- Pulpit: panele jako kafelki dashboardu (kolumny „masonry") ----------
+   Zamiast jednej długiej kolumny na środku szerokiego ekranu — panele układają się
+   w 2–3 kolumny i wypełniają dostępną szerokość. Na wąskim ekranie: jedna kolumna. */
+.dash{margin:0}
+.dash>section,.dash>div{margin:0 0 16px !important;break-inside:avoid}
+@media(min-width:1180px){ .dash{columns:2;column-gap:16px} }
+@media(min-width:1720px){ .dash{columns:3} }
 
 /* skróty na Pulpicie: kafelki do modułów */
 .shortcuts{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:8px}

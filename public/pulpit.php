@@ -115,6 +115,9 @@ function stock_row(array $w, bool $premium, bool $withPl): void {
 </details>
 <?php endif; ?>
 
+<?php /* dashboard: panele układają się w kolumny (masonry) na szerokim ekranie */ ?>
+<div class="dash">
+
 <?php /* onboarding tuż po kapitale — znika po odhaczeniu wszystkiego */ ?>
 <?php if ($stepsDone < count($steps)): ?>
 <section class="panel" style="margin-bottom:16px">
@@ -179,7 +182,6 @@ function stock_row(array $w, bool $premium, bool $withPl): void {
   </div>
 </section>
 
-<div class="gm-grid">
   <section class="panel">
     <h2>Ruchy dnia</h2>
     <table>
@@ -222,7 +224,6 @@ function stock_row(array $w, bool $premium, bool $withPl): void {
     <?php endforeach; if (!$notifs) echo "<p class='muted'>Cisza — powiadomienia pojawią się przy pierwszych ruchach.</p>"; ?>
     <p style="margin:8px 0 0"><a href="powiadomienia.php">Wszystkie →</a> · <a href="dziennik.php">Dziennik</a></p>
   </section>
-</div>
 
 <section class="panel" style="margin-top:16px">
   <h2>Z ostatniej chwili</h2>
@@ -232,4 +233,6 @@ function stock_row(array $w, bool $premium, bool $withPl): void {
   <?php endforeach; ?>
   <p style="margin:8px 0 0"><a href="wiadomosci.php">Wszystkie newsy →</a></p>
 </section>
+
+</div><?php /* .dash */ ?>
 <?php layout_footer();

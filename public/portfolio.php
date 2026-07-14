@@ -154,21 +154,25 @@ layout_header('Portfel', $user, 'portfolio');
   <div style="padding:14px 16px 0"><h2>Pozycje w portfelu <span class="muted" style="text-transform:none;letter-spacing:0">· kliknij pozycję — SL/TP i szczegóły</span></h2></div>
   <div class="tbl-scroll">
     <table>
-      <thead><tr><th>Instrument</th><th class="num">Ilość</th><th class="num">Kurs</th><th class="num">Kupno</th><th class="num hide-m">Wartość</th><th class="num">Wynik</th></tr></thead>
+      <thead><tr><th>Instrument</th><th class="num">Ilość</th><th class="num">Kurs</th><th class="num">Kupno</th><th class="num hide-m">Wartość</th><th class="hide-m">Udział</th><th class="num">Wynik</th></tr></thead>
       <tbody>
-      <?php foreach ($pos as $p): $q = $p['qty'] + $p['qty_reserved']; $ppl = $q * ($p['price'] - $p['avg_price']);
-            $pplPct = (float) $p['avg_price'] > 0 ? ($p['price'] / $p['avg_price'] - 1) * 100 : 0; $sid3 = (int) $p['stock_id']; ?>
+      <?php $maxPosVal = 0.0; foreach ($pos as $pp) { $vv = ((int) $pp['qty'] + (int) $pp['qty_reserved']) * (float) $pp['price']; if ($vv > $maxPosVal) $maxPosVal = $vv; }
+            foreach ($pos as $p): $q = $p['qty'] + $p['qty_reserved']; $ppl = $q * ($p['price'] - $p['avg_price']);
+            $pplPct = (float) $p['avg_price'] > 0 ? ($p['price'] / $p['avg_price'] - 1) * 100 : 0; $sid3 = (int) $p['stock_id'];
+            $posVal = $q * (float) $p['price']; $sharePct = (float) $value > 0 ? $posVal / (float) $value * 100 : 0;
+            $barPct = $maxPosVal > 0 ? min(100, $posVal / $maxPosVal * 100) : 0; ?>
         <tr class="pos-row" data-pos="<?= $sid3 ?>" title="Kliknij — zlecenie obronne SL/TP i szczegóły pozycji">
           <td><div class="sym"><a class="tk" href="stock.php?id=<?= $sid3 ?>"><?= h($p['ticker']) ?></a><span class="nm hide-m"><?= h($p['name']) ?></span></div></td>
           <td class="num"><?= (int) $q ?></td>
           <td class="num mono"><?= money($p['price']) ?></td>
           <td class="num mono muted"><?= money($p['avg_price']) ?></td>
           <td class="num hide-m"><?= money($q * $p['price']) ?></td>
+          <td class="hide-m"><div class="wbar" title="<?= number_format($sharePct, 1, ',', ' ') ?>% wartości akcji"><i style="width:<?= round($barPct, 1) ?>%"></i></div><span class="muted mono" style="font-size:11px"><?= number_format($sharePct, 1, ',', ' ') ?>%</span></td>
           <td class="num <?= $ppl >= 0 ? 'up' : 'down' ?>"><b><?= ($ppl >= 0 ? '+' : '') . money($ppl) ?></b>
             <span style="display:block;font-size:11px"><?= ($pplPct >= 0 ? '+' : '') . number_format($pplPct, 1, ',', ' ') ?>%</span></td>
         </tr>
         <tr class="pos-detail" id="pos-d-<?= $sid3 ?>" hidden>
-          <td colspan="6">
+          <td colspan="7">
             <?php if ($p['qty_reserved'] > 0): ?><p class="muted" style="margin:0 0 8px;font-size:12px"><?= (int) $p['qty_reserved'] ?> szt. czeka w zleceniach sprzedaży (zakładka Zlecenia).</p><?php endif; ?>
             <div class="pos-actions">
               <form method="post" action="set_sltp.php" class="sltp-form">
@@ -184,7 +188,7 @@ layout_header('Portfel', $user, 'portfolio');
             <p class="muted" style="margin:8px 0 0;font-size:11.5px">Zlecenie obronne sprzeda podaną ilość, gdy kurs spadnie do SL (ucina stratę) lub wzrośnie do TP (zgarnia zysk). Widoczne i anulowalne w zakładce Zlecenia.</p>
           </td>
         </tr>
-      <?php endforeach; if (!$pos) echo "<tr><td class='muted' colspan=6 style='padding:20px'>Brak pozycji — kup coś na Rynku.</td></tr>"; ?>
+      <?php endforeach; if (!$pos) echo "<tr><td class='muted' colspan=7 style='padding:20px'>Brak pozycji — kup coś na Rynku.</td></tr>"; ?>
       </tbody>
     </table>
   </div>
@@ -194,7 +198,7 @@ layout_header('Portfel', $user, 'portfolio');
 <div class="tabpane" id="tab-zle">
 <div class="panel" style="padding:0;overflow:hidden">
   <div style="padding:14px 16px 0"><h2>Aktywne zlecenia <span class="muted" style="text-transform:none;letter-spacing:0">· kliknij wiersz, aby zobaczyć szczegóły</span></h2></div>
-  <div class="tbl-scroll">
+  <div class="tbl-scroll tbl-cap">
     <table>
       <thead><tr><th>Instrument</th><th>Typ</th><th class="num">Ilość<?= tip('Ile jeszcze czeka w arkuszu / ile było w całym zleceniu. „częściowo" = część już się zrealizowała, reszta czeka na kupca/sprzedawcę.', '') ?></th><th class="num">Cena</th><th class="hide-m">Ważność</th><th></th></tr></thead>
       <tbody>
@@ -216,7 +220,7 @@ layout_header('Portfel', $user, 'portfolio');
 <?php /* archiwum zleceń — razem ze zleceniami (ta sama podzakładka) */ ?>
 <div class="panel" style="padding:0;overflow:hidden;margin-top:16px">
   <div style="padding:14px 16px 0"><h2>Archiwum zleceń <span class="muted" style="text-transform:none;letter-spacing:0">· kliknij wiersz — pełna oś czasu: co, kiedy i dlaczego</span></h2></div>
-  <div class="tbl-scroll">
+  <div class="tbl-scroll tbl-cap">
     <table>
       <thead><tr><th class="hide-m">Czas</th><th>Instrument</th><th>Strona</th><th>Status</th><th class="num hide-m">Obrót</th><th></th></tr></thead>
       <tbody>
@@ -314,7 +318,7 @@ layout_header('Portfel', $user, 'portfolio');
 <div class="panel" style="padding:0;overflow:hidden">
   <div style="padding:14px 16px 0"><h2>Zamknięte pozycje <span class="muted" style="text-transform:none;letter-spacing:0">· na czym zarobiłeś, na czym straciłeś (po prowizji, bez dywidend)</span>
     <span style="float:right" class="mono <?= $realizedTotal >= 0 ? 'up' : 'down' ?>"><?= ($realizedTotal >= 0 ? '+' : '') . money($realizedTotal) ?> PLN</span></h2></div>
-  <div class="tbl-scroll">
+  <div class="tbl-scroll tbl-cap">
     <table>
       <thead><tr><th>Instrument</th><th class="num hide-m">Sprzedane</th><th class="num hide-m">Śr. koszt</th><th class="num hide-m">Śr. sprzedaż (netto)</th><th class="num">Zrealizowany wynik</th></tr></thead>
       <tbody>
@@ -335,7 +339,7 @@ layout_header('Portfel', $user, 'portfolio');
 
 <div class="panel" style="padding:0;overflow:hidden;margin-top:16px">
   <div style="padding:14px 16px 0"><h2>Historia transakcji</h2></div>
-  <div class="tbl-scroll">
+  <div class="tbl-scroll tbl-cap">
     <table>
       <thead><tr><th>Czas</th><th>Instrument</th><th>Strona</th><th class="num">Ilość</th><th class="num">Kurs</th><th class="num hide-m">Wartość</th></tr></thead>
       <tbody>
