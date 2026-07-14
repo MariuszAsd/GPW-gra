@@ -38,15 +38,25 @@ $pos = Engine::all("SELECT w.stock_id, s.ticker, s.name, s.price, w.qty, w.qty_r
                     WHERE w.user_id=? AND (w.qty>0 OR w.qty_reserved>0) ORDER BY s.ticker", [$user['id']]);
 $orders = Engine::all("SELECT o.*, s.ticker FROM orders o JOIN stocks s ON s.id=o.stock_id
                        WHERE o.user_id=? AND o.status IN ('active','pending') ORDER BY o.id DESC", [$user['id']]);
-$history = Engine::all("SELECT t.*, s.ticker FROM transactions t JOIN stocks s ON s.id=t.stock_id
-                        WHERE t.buyer_id=? OR t.seller_id=? ORDER BY t.id DESC LIMIT 30", [$user['id'], $user['id']]);
+// buyer_id=? OR seller_id=? rozbite na UNION: MySQL dla OR na dwóch kolumnach (z JOIN i ORDER BY)
+// często NIE stosuje index_merge i skanuje całą — ogromną od botów — tabelę transakcji. UNION wymusza
+// seek po ix_tx_buyer / ix_tx_seller. Wynik identyczny (gracz jest kupującym ALBO sprzedającym).
+$history = Engine::all("SELECT t.*, s.ticker FROM transactions t JOIN stocks s ON s.id=t.stock_id WHERE t.buyer_id=?
+                        UNION
+                        SELECT t.*, s.ticker FROM transactions t JOIN stocks s ON s.id=t.stock_id WHERE t.seller_id=?
+                        ORDER BY id DESC LIMIT 30", [$user['id'], $user['id']]);
 $archive = Engine::all("SELECT o.*, s.ticker FROM orders o JOIN stocks s ON s.id=o.stock_id
                         WHERE o.user_id=? AND o.status<>'active' ORDER BY o.id DESC LIMIT 30", [$user['id']]);
 
 // --- zamknięte pozycje: zrealizowany wynik metodą średniego kosztu (odtworzenie z transakcji) ---
-$allTx = Engine::all("SELECT t.stock_id, t.qty, t.price, t.buyer_id, s.ticker, s.name
-                      FROM transactions t JOIN stocks s ON s.id=t.stock_id
-                      WHERE t.buyer_id=? OR t.seller_id=? ORDER BY t.id", [$user['id'], $user['id']]);
+// jak wyżej: OR -> UNION (seek po indeksach zamiast pełnego skanu transakcji na MySQL).
+// t.id w SELECT jest potrzebne do poprawnego dedupu UNION (dwie identyczne transakcje mają różne id).
+$allTx = Engine::all("SELECT t.id AS tid, t.stock_id, t.qty, t.price, t.buyer_id, s.ticker, s.name
+                        FROM transactions t JOIN stocks s ON s.id=t.stock_id WHERE t.buyer_id=?
+                      UNION
+                      SELECT t.id AS tid, t.stock_id, t.qty, t.price, t.buyer_id, s.ticker, s.name
+                        FROM transactions t JOIN stocks s ON s.id=t.stock_id WHERE t.seller_id=?
+                      ORDER BY tid", [$user['id'], $user['id']]);
 $feeRate = Engine::feeRate();
 $closed = [];   // stock_id => [ticker, name, sold_qty, buy_value, sell_value_net, realized]
 $lots = [];     // stock_id => [qty, avg]

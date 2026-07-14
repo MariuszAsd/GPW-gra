@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 33;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 34;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -549,7 +549,10 @@ final class Schema
     {
         return [
             "CREATE INDEX ix_orders_book ON orders (stock_id, side, status, price)",
+            "CREATE INDEX ix_orders_user ON orders (user_id, status)",              // „moje zlecenia" (Portfel/Spółka/Pulpit) — seek zamiast skanu całej tabeli
+            "CREATE INDEX ix_orders_active ON orders (status, side, stock_id, price)", // agregaty bid/ask na Rynku — seek do aktywnych zamiast skanu wszystkich
             "CREATE INDEX ix_candles ON candles (stock_id, t)",
+            "CREATE INDEX ix_candles_t ON candles (t)",                             // sparkline / świece z ostatnich N ticków (zakres po t dla wszystkich spółek)
             "CREATE INDEX ix_wallets_user ON wallets (user_id)",
             "CREATE INDEX ix_reports_stock ON financial_reports (stock_id, id)",
             "CREATE INDEX ix_news_live ON news (scope, target_id, expire_tick)",

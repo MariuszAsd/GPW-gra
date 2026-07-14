@@ -490,6 +490,15 @@ final class Migrator
                 )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
                 "CREATE INDEX ix_cashledger ON cash_ledger (user_id, id)",
             ],
+            34 => [
+                // WYDAJNOŚĆ: gorące zapytania skanowały całą (wciąż rosnącą) tabelę zleceń/świec.
+                // „moje zlecenia" (Portfel/Spółka/Pulpit) filtrują po user_id — bez indeksu = pełny skan
+                // przy każdym wejściu. Agregaty bid/ask na Rynku szukają aktywnych wśród wszystkich zleceń.
+                // Sparkline czyta świece z ostatnich N ticków (zakres po t). Indeksy zamieniają skan w seek.
+                "CREATE INDEX ix_orders_user ON orders (user_id, status)",
+                "CREATE INDEX ix_orders_active ON orders (status, side, stock_id, price)",
+                "CREATE INDEX ix_candles_t ON candles (t)",
+            ],
         ];
     }
 
