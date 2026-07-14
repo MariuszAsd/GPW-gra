@@ -1087,6 +1087,8 @@ final class Engine
             $pdo->prepare("UPDATE users SET cash = cash + ? WHERE id = ?")->execute([$amt, $h['user_id']]);
             $total += $amt;
             if (!(int) $h['is_bot']) {
+                self::ledger((int) $h['user_id'], $amt, 'dividend',
+                    "Dywidenda $ticker: " . (int) $h['n'] . " szt. × " . number_format($dps, 2, ',', ' ') . " PLN", 'stock.php?id=' . $sid);
                 Log::write('info', 'engine', 'dividend.received',
                     "Dywidenda $ticker: +" . number_format($amt, 2, ',', ' ') . " PLN (" . (int) $h['n'] . " szt. × " . number_format($dps, 2, ',', ' ') . " PLN)",
                     ['user_id' => (int) $h['user_id']]);
@@ -1907,6 +1909,27 @@ final class Engine
                 if ($edge) Db::pdo()->prepare("DELETE FROM player_journal WHERE user_id=? AND id <= ?")->execute([$userId, $edge]);
             }
         } catch (\Throwable $e) { /* dziennik nie może wywalić silnika */ }
+    }
+
+    /**
+     * Księga gotówki: zapisuje przepływ, którego NIE da się odtworzyć z innych tabel
+     * (np. dywidenda). Kupno/sprzedaż, IPO i lokaty historia.php czyta wprost z
+     * transactions/ipo_subs/deposits — ich tu NIE dublujemy. amount>0 = wpływ, <0 = wypływ.
+     * Tylko realne konta graczy (nie boty); subkonto wyzwania księgujemy na koncie głównym.
+     * Nigdy nie może wywalić silnika.
+     */
+    public static function ledger(int $userId, float $amount, string $category, string $note = '', string $link = ''): void
+    {
+        try {
+            $u = self::row("SELECT is_bot FROM users WHERE id=?", [$userId]);
+            if (!$u || (int) $u['is_bot'] === 1) return;
+            $owner = self::challengeOwner($userId);
+            if ($owner !== $userId) $userId = $owner;
+            [$session] = self::sessionInfo();
+            $tick = (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
+            Db::pdo()->prepare("INSERT INTO cash_ledger (user_id, ts, session, tick, amount, category, note, link) VALUES (?,?,?,?,?,?,?,?)")
+                ->execute([$userId, Db::now(), (int) $session, $tick, round($amount, 2), mb_substr($category, 0, 24), mb_substr($note, 0, 200), $link !== '' ? mb_substr($link, 0, 120) : null]);
+        } catch (\Throwable $e) { /* księga nie może wywalić silnika */ }
     }
 
     /* ---------- Małe helpery bazodanowe ---------- */

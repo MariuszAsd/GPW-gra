@@ -462,6 +462,34 @@ final class Migrator
                 // wyczyść stare, zbyt częste raporty z historii (nowa kadencja startuje na czysto)
                 "DELETE FROM financial_reports",
             ],
+            32 => [
+                // BŁĄD: debiut IPO dokładał 6 świec cofniętych w czasie (tick-5..tick) — świeżo wprowadzona
+                // spółka „miała" wykres sprzed debiutu (niemożliwe). Usuwamy fałszywą historię sprzed debiutu.
+                // Tick debiutu odzyskujemy z raportu 'Prospekt emisyjny' (wstawianego dokładnie na ticku debiutu).
+                // Zostaje świeca-kotwica na ticku debiutu; resztę dokłada recordCandles do przodu.
+                "DELETE FROM candles WHERE EXISTS (
+                    SELECT 1 FROM financial_reports fr
+                    WHERE fr.stock_id = candles.stock_id
+                      AND fr.period = 'Prospekt emisyjny'
+                      AND candles.t < fr.tick
+                )",
+            ],
+            33 => [
+                // Księga gotówki dla zdarzeń nierekonstruowalnych z innych tabel (dywidendy).
+                // Historia konta (kupno/sprzedaż/IPO/lokaty) czytana wprost z transactions/ipo_subs/deposits.
+                "CREATE TABLE cash_ledger (
+                    id " . (Db::driver() === 'mysql' ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT') . ",
+                    user_id  INT NOT NULL,
+                    ts       VARCHAR(19) NOT NULL,
+                    session  INT NOT NULL DEFAULT 0,
+                    tick     INT NOT NULL DEFAULT 0,
+                    amount   DECIMAL(15,2) NOT NULL,
+                    category VARCHAR(24) NOT NULL,
+                    note     VARCHAR(200) NOT NULL DEFAULT '',
+                    link     VARCHAR(120) NULL
+                )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
+                "CREATE INDEX ix_cashledger ON cash_ledger (user_id, id)",
+            ],
         ];
     }
 

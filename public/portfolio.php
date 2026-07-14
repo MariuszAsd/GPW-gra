@@ -100,7 +100,8 @@ $progress = $goalTarget > 0 ? min(100, $equity / $goalTarget * 100) : 0;
 layout_header('Portfel', $user, 'portfolio');
 ?>
 <div class="page-head"><h1>Portfel</h1><?= session_tag($sessionNo) ?>
-  <a class="btn sm ghost" style="margin-left:auto" href="dziennik.php">Dziennik</a></div>
+  <a class="btn sm ghost" style="margin-left:auto" href="historia.php">💸 Historia konta</a>
+  <a class="btn sm ghost" href="dziennik.php">Dziennik</a></div>
 <?php explainer('portfel', 'Jak czytać Portfel', [
     'pozycje: kurs, cena kupna i wynik', 'kliknij pozycję, by ustawić SL/TP',
     'kliknij zlecenie po szczegóły', 'pełna historia w Dzienniku']); ?>

@@ -32,6 +32,7 @@ layout_header('Konto', $user, 'more');
   <a href="konto.php"><?= icon('user') ?>Ustawienia konta — e-mail i hasło<span class="arr">›</span></a>
   <a href="powiadomienia.php"><?= icon('bell') ?>Powiadomienia<?= $unread > 0 ? "<span class='sub' style='color:var(--down);font-weight:700'>$unread</span>" : '' ?><span class="arr">›</span></a>
   <a href="dziennik.php"><?= icon('book') ?>Dziennik konta<span class="arr">›</span></a>
+  <a href="historia.php"><?= icon('book') ?>Historia konta — wpływy i wydatki<span class="arr">›</span></a>
 </section>
 
 <section class="panel menu-list" style="margin-bottom:14px">

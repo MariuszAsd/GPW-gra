@@ -330,9 +330,11 @@ final class Ipo
             $uUp->execute([round($q * $price, 2), (int) $b['id']]);
         }
 
-        // płaska historia świec (żeby wykres miał punkt zaczepienia) + raport startowy
-        $cIns = $pdo->prepare("INSERT INTO candles (stock_id,t,o,h,l,c,v) VALUES (?,?,?,?,?,?,0)");
-        for ($t = $tick - 5; $t <= $tick; $t++) $cIns->execute([$sid, $t, $price, $price, $price, $price]);
+        // JEDNA świeca-kotwica DOKŁADNIE na ticku debiutu (żeby wykres miał punkt startowy).
+        // NIE cofamy jej w czasie — spółka debiutuje dziś, więc nie może mieć historii sprzed debiutu.
+        // Kolejne świece dokłada recordCandles() z realnych transakcji, do przodu.
+        $pdo->prepare("INSERT INTO candles (stock_id,t,o,h,l,c,v) VALUES (?,?,?,?,?,?,0)")
+            ->execute([$sid, $tick, $price, $price, $price, $price]);
         $rev = round($base / 0.15, 2);
         $pdo->prepare("INSERT INTO financial_reports (stock_id,tick,period,report_date,revenue,costs,net_profit,eps,expected_eps,surprise_pct)
                        VALUES (?,?,'Prospekt emisyjny',?,?,?,?,?,?,0)")

@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 31;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 33;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -514,6 +514,21 @@ final class Schema
                 link VARCHAR(120) NULL
             )",
 
+            // --- KSIĘGA GOTÓWKI (przepływy na koncie: zdarzenia NIErekonstruowalne z innych tabel, np. dywidendy).
+            // Kupno/sprzedaż, IPO i lokaty czyta się wprost z transactions/ipo_subs/deposits (historia.php) —
+            // tu trafia tylko to, czego tam nie widać. amount>0 = wpływ, amount<0 = wypływ. ---
+            "cash_ledger" => "CREATE TABLE cash_ledger (
+                id $pk,
+                user_id INT NOT NULL,
+                ts VARCHAR(19) NOT NULL,
+                session INT NOT NULL DEFAULT 0,
+                tick INT NOT NULL DEFAULT 0,
+                amount $money NOT NULL,
+                category VARCHAR(24) NOT NULL,   -- dividend | ...
+                note VARCHAR(200) NOT NULL DEFAULT '',
+                link VARCHAR(120) NULL
+            )",
+
             // --- DZIENNIK LOGÓW (dane do analizy błędów; pisany przez QA, silnik i akcje graczy) ---
             "logs" => "CREATE TABLE logs (
                 id $pk,
@@ -554,6 +569,7 @@ final class Schema
             "CREATE INDEX ix_chp_user ON challenge_players (user_id)",
             "CREATE INDEX ix_chp_shadow ON challenge_players (shadow_user_id)",
             "CREATE INDEX ix_journal ON player_journal (user_id, id)",
+            "CREATE INDEX ix_cashledger ON cash_ledger (user_id, id)",
             "CREATE INDEX ix_cd ON candles_daily (stock_id, session)",
             "CREATE INDEX ix_ledger ON token_ledger (user_id, id)",
             "CREATE INDEX ix_reco ON recommendations (session)",
