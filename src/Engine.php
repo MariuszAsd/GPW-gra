@@ -21,24 +21,37 @@ final class Engine
     {
         $side = strtolower($side);
         if (!in_array($side, ['buy', 'sell'], true)) return [false, 'Nieznany typ zlecenia.'];
+        $price = round($price, 2);   // normalizuj cenę do 2 miejsc U ŹRÓDŁA: rezerwacja == zapis == zwrot.
+        // Wcześniej rezerwacja liczyła się z surowej ceny (np. 1,009), a zlecenie/zwrot z zaokrąglonej
+        // (1,01) — różnica „drukowała" gotówkę i dawała ujemne cash_reserved przy anulacji/realizacji.
         if ($qty <= 0 || $price <= 0)               return [false, 'Nieprawidłowa ilość lub cena.'];
         if (($m = self::haltMessage($stockId)) !== null) return [false, $m];   // widełki: zawieszone = brak nowych zleceń
         $pdo = Db::pdo();
 
         if ($side === 'buy') {
             $cost = round($qty * $price, 2);
-            $cash = (float) self::one("SELECT cash FROM users WHERE id=?", [$userId]);
-            if ($cash + 1e-6 < $cost) return [false, "Za mało gotówki. Masz " . number_format($cash, 2, ',', ' ') . " PLN, potrzeba " . number_format($cost, 2, ',', ' ') . " PLN."];
-            $pdo->prepare("UPDATE users SET cash=cash-?, cash_reserved=cash_reserved+? WHERE id=?")->execute([$cost, $cost, $userId]);
+            // ATOMOWO: potrąć tylko gdy naprawdę starczy gotówki (jeden UPDATE z warunkiem) — chroni przed
+            // double-spend i ujemnym saldem przy równoległych żądaniach (dwie sesje / podwójny submit).
+            // próg z tolerancją liczony w PHP i bindowany jako gotowa liczba — NIE „cash + 0.000001" w SQL
+            // (SQLite z arytmetyką na kolumnie potrafi nie dopasować wiersza; bindowany próg działa wszędzie).
+            $st = $pdo->prepare("UPDATE users SET cash=cash-?, cash_reserved=cash_reserved+? WHERE id=? AND cash >= ?");
+            $st->execute([$cost, $cost, $userId, $cost - 0.000001]);
+            if ($st->rowCount() === 0) {
+                $cash = (float) self::one("SELECT cash FROM users WHERE id=?", [$userId]);
+                return [false, "Za mało gotówki. Masz " . number_format($cash, 2, ',', ' ') . " PLN, potrzeba " . number_format($cost, 2, ',', ' ') . " PLN."];
+            }
         } else {
             self::ensureWallet($userId, $stockId);
-            $avail = (int) self::one("SELECT qty FROM wallets WHERE user_id=? AND stock_id=?", [$userId, $stockId]);
-            if ($avail < $qty) return [false, "Nie masz tylu akcji (dostępne: $avail)."];
-            $pdo->prepare("UPDATE wallets SET qty=qty-?, qty_reserved=qty_reserved+? WHERE user_id=? AND stock_id=?")->execute([$qty, $qty, $userId, $stockId]);
+            $st = $pdo->prepare("UPDATE wallets SET qty=qty-?, qty_reserved=qty_reserved+? WHERE user_id=? AND stock_id=? AND qty >= ?");
+            $st->execute([$qty, $qty, $userId, $stockId, $qty]);
+            if ($st->rowCount() === 0) {
+                $avail = (int) self::one("SELECT qty FROM wallets WHERE user_id=? AND stock_id=?", [$userId, $stockId]);
+                return [false, "Nie masz tylu akcji (dostępne: $avail)."];
+            }
         }
 
         $pdo->prepare("INSERT INTO orders (user_id, stock_id, side, qty, qty_init, price, status, expires_session, created_at) VALUES (?,?,?,?,?,?, 'active', ?, ?)")
-            ->execute([$userId, $stockId, $side, $qty, $qty, round($price, 2), $expiresSession, Db::now()]);
+            ->execute([$userId, $stockId, $side, $qty, $qty, $price, $expiresSession, Db::now()]);
         return [true, 'Zlecenie przyjęte.', (int) $pdo->lastInsertId()];
     }
 
