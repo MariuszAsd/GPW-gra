@@ -89,6 +89,10 @@ function chartNews(int $id, array $candles): array {
     if (!$candles || !isset($candles[0]['t'])) return [];
     $ts = array_map(fn($c) => (int) $c['t'], $candles);
     $tMin = min($ts); $tMax = max($ts); $n = count($candles);
+    // 't' koszyka = jego OSTATNI tick, więc pierwszy widoczny koszyk zaczyna się ~jedną szerokość wcześniej niż $tMin.
+    // Bez obniżenia dolnej granicy newsy z wczesnej części pierwszego koszyka wypadały z markerów.
+    $span = $n > 1 ? ($tMax - $tMin) / ($n - 1) : 60;
+    $lo = (int) floor($tMin - $span);
     $secId = (int) (Engine::one("SELECT sector_id FROM stocks WHERE id=?", [$id]) ?: 0);
     $rows = Engine::all(
         "SELECT headline, type, is_espi, impact_strength, publish_tick, scope, kind
@@ -97,7 +101,7 @@ function chartNews(int $id, array $candles): array {
            AND (is_espi = 1 OR impact_strength <> 0)
            AND ( (scope='COMPANY' AND target_id=?) OR (scope='SECTOR' AND target_id=?) OR scope='MARKET' )
          ORDER BY publish_tick ASC",
-        [$tMin, $tMax, $id, $secId]
+        [$lo, $tMax, $id, $secId]
     );
     $out = [];
     foreach ($rows as $nw) {

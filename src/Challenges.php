@@ -114,18 +114,47 @@ final class Challenges
         $ch = Engine::row("SELECT * FROM challenges WHERE id=? AND status IN ('signup','running')", [$challengeId]);
         if (!$ch) return;
         $pdo = Db::pdo();
-        foreach (Engine::all("SELECT * FROM challenge_players WHERE challenge_id=?", [$challengeId]) as $cp) {
-            if (!empty($cp['shadow_user_id'])) {
-                self::settlePlayer($ch, $cp);                                       // subkonto (buy-in w obecnej formie) wraca w całości
-                $refund = round((float) $cp['fee'], 2);                             // do zwrotu zostaje samo wpisowe
-            } else {
-                $refund = round((float) $cp['buyin'] + (float) $cp['fee'], 2);      // przed startem: pełny zwrot
+        $own = !$pdo->inTransaction();
+        if ($own) $pdo->beginTransaction();
+        try {
+            // PRZEJMIJ atomowo (signup/running -> cancelled): zwrot środków tylko raz. Chroni przed podwójnym
+            // wywołaniem (GM + automat, ponowny onRoll po crashu) — inaczej groził podwójny zwrot z powietrza.
+            $claim = $pdo->prepare("UPDATE challenges SET status='cancelled', pot=0 WHERE id=? AND status IN ('signup','running')");
+            $claim->execute([$challengeId]);
+            if ($claim->rowCount() !== 1) { if ($own) $pdo->rollBack(); return; }
+            foreach (Engine::all("SELECT * FROM challenge_players WHERE challenge_id=?", [$challengeId]) as $cp) {
+                if (!empty($cp['shadow_user_id'])) {
+                    self::settlePlayer($ch, $cp);                                       // subkonto (buy-in w obecnej formie) wraca w całości
+                    $refund = round((float) $cp['fee'], 2);                             // do zwrotu zostaje samo wpisowe
+                } else {
+                    $refund = round((float) $cp['buyin'] + (float) $cp['fee'], 2);      // przed startem: pełny zwrot
+                }
+                $pdo->prepare("UPDATE users SET cash = cash + ? WHERE id = ?")->execute([$refund, $cp['user_id']]);
+                Engine::notify((int) $cp['user_id'], 'challenge', '⚔️ Wyzwanie „' . $ch['name'] . "” odwołane ($why). Środki wróciły na konto.", 'wyzwania.php');
             }
-            $pdo->prepare("UPDATE users SET cash = cash + ? WHERE id = ?")->execute([$refund, $cp['user_id']]);
-            Engine::notify((int) $cp['user_id'], 'challenge', '⚔️ Wyzwanie „' . $ch['name'] . "” odwołane ($why). Środki wróciły na konto.", 'wyzwania.php');
+            Log::write('warn', 'engine', 'challenge.cancel', $ch['name'] . " odwołane: $why", []);
+            if ($own) $pdo->commit();
+        } catch (\Throwable $e) {
+            if ($own && $pdo->inTransaction()) $pdo->rollBack();
+            throw $e;
         }
-        $pdo->prepare("UPDATE challenges SET status='cancelled', pot=0 WHERE id=?")->execute([$challengeId]);
-        Log::write('warn', 'engine', 'challenge.cancel', $ch['name'] . " odwołane: $why", []);
+    }
+
+    /** Wykonaj operację edycji w SAVEPOINCIE: błąd jednej edycji cofa TYLKO jej zmiany (rollback do savepointu)
+     *  i nie psuje reszty ticka ani już rozliczonych edycji. Poza transakcją (np. brak ticka) — po prostu odpal. */
+    private static function guarded(string $tag, callable $fn): void
+    {
+        $pdo = Db::pdo();
+        if (!$pdo->inTransaction()) { $fn(); return; }
+        $sp = 'chsp_' . preg_replace('/[^a-z0-9]/i', '', $tag);
+        $pdo->exec("SAVEPOINT $sp");
+        try {
+            $fn();
+            $pdo->exec("RELEASE SAVEPOINT $sp");
+        } catch (\Throwable $e) {
+            $pdo->exec("ROLLBACK TO SAVEPOINT $sp");
+            Log::write('error', 'engine', 'challenge.guard', $tag . ': ' . $e->getMessage());
+        }
     }
 
     /** Hak wołany przy zmianie sesji (z Engine::rollSession). */
@@ -133,11 +162,11 @@ final class Challenges
     {
         foreach (Engine::all("SELECT * FROM challenges WHERE status='signup' AND start_session <= ?", [$session]) as $ch) {
             $players = Engine::all("SELECT cp.*, u.username FROM challenge_players cp JOIN users u ON u.id=cp.user_id WHERE cp.challenge_id=?", [$ch['id']]);
-            if (count($players) >= (int) $ch['min_players']) self::start($ch, $players, $session, $tick);
-            else self::cancel((int) $ch['id'], 'za mało uczestników — minimum ' . (int) $ch['min_players']);
+            if (count($players) >= (int) $ch['min_players']) self::guarded('start' . (int) $ch['id'], fn() => self::start($ch, $players, $session, $tick));
+            else self::guarded('cancel' . (int) $ch['id'], fn() => self::cancel((int) $ch['id'], 'za mało uczestników — minimum ' . (int) $ch['min_players']));
         }
         foreach (Engine::all("SELECT * FROM challenges WHERE status='running' AND end_session < ?", [$session]) as $ch) {
-            self::finish($ch, $tick);
+            self::guarded('finish' . (int) $ch['id'], fn() => self::finish($ch, $tick));
         }
         // serie cykliczne (np. liga co N sesji): każda otwiera zapisy nowej edycji wg własnego rytmu
         foreach (Engine::all("SELECT * FROM challenge_series WHERE enabled=1 AND next_session <= ?", [$session]) as $s) {
@@ -171,6 +200,7 @@ final class Challenges
         $dur = (int) $ch['end_session'] - (int) $ch['start_session'];
         $end = $session + $dur;
         foreach ($players as $cp) {
+            if (!empty($cp['shadow_user_id'])) continue;   // subkonto już istnieje (wznowienie po częściowym starcie) — nie dubluj
             $base = mb_substr((string) $cp['username'], 0, 40) . '~w' . $cid;
             try {
                 $pdo->prepare("INSERT INTO users (username, password_hash, is_bot, role, cash, cash_reserved, joined_session, start_equity)
@@ -187,7 +217,10 @@ final class Challenges
             Engine::notify((int) $cp['user_id'], 'challenge', '⚔️ ' . $ch['name'] . ' WYSTARTOWAŁO! Handlujesz portfelem '
                 . number_format((float) $cp['buyin'], 0, ',', ' ') . ' PLN do końca sesji #' . $end . '. Powodzenia!', 'wyzwania.php');
         }
-        $pdo->prepare("UPDATE challenges SET status='running', start_session=?, end_session=? WHERE id=?")->execute([$session, $end, $cid]);
+        // przejmij status tylko jeśli WCIĄŻ signup (idempotencja: przy wznowieniu po crashu nie dubluj newsa/logu)
+        $flip = $pdo->prepare("UPDATE challenges SET status='running', start_session=?, end_session=? WHERE id=? AND status='signup'");
+        $flip->execute([$session, $end, $cid]);
+        if ($flip->rowCount() !== 1) return;   // ktoś już wystartował tę edycję
         $pot = (float) Engine::one("SELECT pot FROM challenges WHERE id=?", [$cid]);
         $pdo->prepare("INSERT INTO news (headline,body,type,scope,target_id,is_espi,impact_strength,publish_tick,expire_tick,published_at)
                        VALUES (?,?,'POS','MARKET',NULL,0,0,?,?,?)")
@@ -243,13 +276,19 @@ final class Challenges
     {
         $pdo = Db::pdo();
         $cid = (int) $ch['id'];
+        // PRZEJMIJ atomowo (running -> finished): rozstrzygnięcie i wypłata puli tylko raz. Bez tego ponowny
+        // onRoll (po częściowym crashu) rozliczyłby wyzwanie drugi raz = podwójna wypłata z puli.
+        $claim = $pdo->prepare("UPDATE challenges SET status='finished' WHERE id=? AND status='running'");
+        $claim->execute([$cid]);
+        if ($claim->rowCount() !== 1) return;   // już rozstrzygnięte przez inny przebieg
         $rows = Engine::all("SELECT cp.*, u.username FROM challenge_players cp JOIN users u ON u.id=cp.user_id WHERE cp.challenge_id=?", [$cid]);
         $results = [];
         foreach ($rows as $cp) {
             $eq = !empty($cp['shadow_user_id']) ? self::settlePlayer($ch, $cp) : 0.0;
             $results[] = ['cp' => $cp, 'equity' => $eq];
         }
-        usort($results, fn($a, $b) => $b['equity'] <=> $a['equity']);
+        // remis rozstrzyga niższe cp.id (spójnie z leaderboard ORDER BY equity DESC, cp.id ASC) — stabilna kolejność
+        usort($results, fn($a, $b) => ($b['equity'] <=> $a['equity']) ?: ((int) $a['cp']['id'] <=> (int) $b['cp']['id']));
 
         $pot   = round((float) $ch['pot'], 2);
         $split = self::payoutSplit(count($results));
@@ -287,7 +326,7 @@ final class Challenges
                     Seasons::pointsFor($rank, count($results)), 'miejsce ' . $rank . ' w ' . $ch['name']);
             }
         }
-        $pdo->prepare("UPDATE challenges SET status='finished', pot=0 WHERE id=?")->execute([$cid]);
+        $pdo->prepare("UPDATE challenges SET pot=0 WHERE id=?")->execute([$cid]);   // status='finished' już ustawiony przy przejęciu
         $pdo->prepare("INSERT INTO news (headline,body,type,scope,target_id,is_espi,impact_strength,publish_tick,expire_tick,published_at)
                        VALUES (?,?,'POS','MARKET',NULL,0,0,?,?,?)")
             ->execute(['🏆 ' . $ch['name'] . ' rozstrzygnięte! Wygrywa ' . ($results[0]['cp']['username'] ?? '—'),

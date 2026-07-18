@@ -132,21 +132,37 @@ final class Engine
     private static function cancelRemainder(int $orderId, int $userId): int
     {
         if ($orderId <= 0) return 0;
-        $o = self::row("SELECT * FROM orders WHERE id=? AND user_id=? AND status='active'", [$orderId, $userId]);
+        // PRZEJMIJ najpierw (active -> cancelled atomowo), DOPIERO POTEM zwolnij escrow: tylko zwycięzca
+        // wyścigu (rowCount=1) oddaje rezerwację — bez podwójnego zwrotu przy równoległym cancel/realizacji.
+        $up = Db::pdo()->prepare("UPDATE orders SET status='cancelled' WHERE id=? AND user_id=? AND status='active'");
+        $up->execute([$orderId, $userId]);
+        if ($up->rowCount() !== 1) return 0;
+        // wiersz jest już nasz — odczytaj BIEŻĄCĄ resztę (po ewentualnych realizacjach) i oddaj dokładnie tyle
+        $o = self::row("SELECT * FROM orders WHERE id=?", [$orderId]);
         if (!$o) return 0;
         self::release($o);
-        Db::pdo()->prepare("UPDATE orders SET status='cancelled' WHERE id=?")->execute([$orderId]);
         return (int) $o['qty'];
     }
 
     public static function cancel(int $orderId, int $userId): array
     {
         $pdo = Db::pdo();
-        $o = self::row("SELECT * FROM orders WHERE id=? AND user_id=? AND status IN ('active','pending')", [$orderId, $userId]);
-        if (!$o) return [false, 'Nie znaleziono aktywnego zlecenia.'];
-        self::release($o);
-        $pdo->prepare("UPDATE orders SET status='cancelled' WHERE id=?")->execute([$orderId]);
-        return [true, "Zlecenie #$orderId anulowane."];
+        $own = !$pdo->inTransaction();
+        if ($own) $pdo->beginTransaction();
+        try {
+            // PRZEJMIJ najpierw (active/pending -> cancelled atomowo): chroni przed podwójnym kliknięciem
+            // i wyścigiem z tickiem (realizacja/wygaśnięcie/stop) — zwolnienie escrow tylko dla zwycięzcy.
+            $up = $pdo->prepare("UPDATE orders SET status='cancelled' WHERE id=? AND user_id=? AND status IN ('active','pending')");
+            $up->execute([$orderId, $userId]);
+            if ($up->rowCount() !== 1) { if ($own) $pdo->rollBack(); return [false, 'Nie znaleziono aktywnego zlecenia.']; }
+            $o = self::row("SELECT * FROM orders WHERE id=?", [$orderId]);
+            if ($o) self::release($o);
+            if ($own) $pdo->commit();
+            return [true, "Zlecenie #$orderId anulowane."];
+        } catch (\Throwable $e) {
+            if ($own && $pdo->inTransaction()) $pdo->rollBack();
+            throw $e;
+        }
     }
 
     /**
@@ -257,8 +273,10 @@ final class Engine
     {
         $pdo = Db::pdo();
         $feeRate = self::feeRate();
-        $buys  = self::all("SELECT * FROM orders WHERE stock_id=? AND side='buy'  AND status='active' ORDER BY price DESC, id ASC", [$stockId]);
-        $sells = self::all("SELECT * FROM orders WHERE stock_id=? AND side='sell' AND status='active' ORDER BY price ASC,  id ASC", [$stockId]);
+        // priorytet: cena, potem CZAS (created_at) — edycja zlecenia odświeża created_at, więc realnie traci
+        // priorytet (wcześniej sort po id nie zmieniał się przy edycji, więc „utrata priorytetu" była pozorna); id = rozstrzygnięcie remisu w tej samej sekundzie
+        $buys  = self::all("SELECT * FROM orders WHERE stock_id=? AND side='buy'  AND status='active' ORDER BY price DESC, created_at ASC, id ASC", [$stockId]);
+        $sells = self::all("SELECT * FROM orders WHERE stock_id=? AND side='sell' AND status='active' ORDER BY price ASC,  created_at ASC, id ASC", [$stockId]);
         $trades = 0; $achUids = [];
 
         foreach ($buys as &$b) {
@@ -672,7 +690,8 @@ final class Engine
         self::setState('bots_named', '1');
         try {
             $pdo = Db::pdo();
-            $bots = self::all("SELECT id FROM users WHERE is_bot=1 AND username LIKE 'bot\\_%' ESCAPE '\\'");
+            // ESCAPE '!' zamiast '\\' — backslash bywa też znakiem ucieczki napisu (MySQL), więc jest kruchy między sterownikami
+            $bots = self::all("SELECT id FROM users WHERE is_bot=1 AND username LIKE 'bot!_%' ESCAPE '!'");
             if (!$bots) return;
             $existing = self::col("SELECT username FROM users");
             $names = self::botNames(count($bots), $existing);
@@ -729,16 +748,27 @@ final class Engine
     private static function cancelAllFor(int $uid): void
     {
         $pdo = Db::pdo();
-        foreach (self::all("SELECT * FROM orders WHERE user_id=? AND status='active'", [$uid]) as $o) self::release($o);
-        $pdo->prepare("UPDATE orders SET status='cancelled' WHERE user_id=? AND status='active'")->execute([$uid]);
+        // PRZEJMIJ każde zlecenie osobno przed zwolnieniem escrow (jw. — bez podwójnego zwrotu w wyścigu z tickiem)
+        $claim = $pdo->prepare("UPDATE orders SET status='cancelled' WHERE id=? AND status='active'");
+        foreach (self::all("SELECT id FROM orders WHERE user_id=? AND status='active'", [$uid]) as $r) {
+            $claim->execute([(int) $r['id']]);
+            if ($claim->rowCount() !== 1) continue;
+            $o = self::row("SELECT * FROM orders WHERE id=?", [(int) $r['id']]);
+            if ($o) self::release($o);
+        }
     }
 
     /** Anuluj WSZYSTKIE zlecenia konta (też obronne SL/TP) i zwolnij rezerwacje — likwidacja subkonta wyzwania. */
     public static function releaseAllOrders(int $uid): void
     {
         $pdo = Db::pdo();
-        foreach (self::all("SELECT * FROM orders WHERE user_id=? AND status IN ('active','pending')", [$uid]) as $o) self::release($o);
-        $pdo->prepare("UPDATE orders SET status='cancelled' WHERE user_id=? AND status IN ('active','pending')")->execute([$uid]);
+        $claim = $pdo->prepare("UPDATE orders SET status='cancelled' WHERE id=? AND status IN ('active','pending')");
+        foreach (self::all("SELECT id FROM orders WHERE user_id=? AND status IN ('active','pending')", [$uid]) as $r) {
+            $claim->execute([(int) $r['id']]);
+            if ($claim->rowCount() !== 1) continue;
+            $o = self::row("SELECT * FROM orders WHERE id=?", [(int) $r['id']]);
+            if ($o) self::release($o);
+        }
     }
 
     /**
@@ -789,10 +819,14 @@ final class Engine
             $hitTP = $o['tp_price'] !== null && (float) $o['cur'] >= (float) $o['tp_price'];
             if (!$hitSL && !$hitTP) continue;
 
+            // PRZEJMIJ najpierw (pending -> triggered atomowo): jeśli gracz w tej samej chwili anulował
+            // stopa, przegramy wyścig (rowCount=0) i nie zwolnimy escrow po raz drugi.
+            $claim = $pdo->prepare("UPDATE orders SET status='triggered' WHERE id=? AND status='pending'");
+            $claim->execute([$o['id']]);
+            if ($claim->rowCount() !== 1) continue;
             // zwolnij rezerwację i sprzedaj po REALNYCH cenach z arkusza (jak PKC),
             // nie po sztywnym limicie pod kursem — gracz dostaje to, co stoi w bidach
             self::release($o);
-            $pdo->prepare("UPDATE orders SET status='triggered' WHERE id=?")->execute([$o['id']]);
             $txFrom = (int) (self::one("SELECT MAX(id) FROM transactions") ?: 0);
             [$ok, $msg] = self::marketOrder((int) $o['user_id'], (int) $o['stock_id'], 'sell', (int) $o['qty']);
             $txTo = (int) (self::one("SELECT MAX(id) FROM transactions") ?: 0);
@@ -847,8 +881,8 @@ final class Engine
     }
 
     /**
-     * Widełki jak na prawdziwej giełdzie: |zmiana od otwarcia| >= 15% -> zawieszenie na 10 ticków.
-     * Po wznowieniu widełki się ROZSZERZAJĄ (30% dla drugiego zawieszenia) — kurs może
+     * Widełki jak na prawdziwej giełdzie: |zmiana od otwarcia| >= 20% (HALT_BAND) -> zawieszenie na 10 ticków.
+     * Po wznowieniu widełki się ROZSZERZAJĄ (40% dla drugiego zawieszenia) — kurs może
      * dalej szukać równowagi, ale panika dostaje przymusową pauzę. Max 2 zawieszenia/sesję.
      */
     private static function checkHalts(int $t): void
@@ -923,6 +957,15 @@ final class Engine
         // a nie tylko z handlu botów w tym ticku — inaczej ruch z zlecenia gracza nie pokazywał się na wykresie
         // (kurs skakał w bazie, ale świeca była płaska). Znacznik last_candle_tx to kursor ostatniej ujętej transakcji.
         [$trades, $maxTx] = self::tradesSinceCandle();
+        // spółki, które MAJĄ już świecę na tym ticku = świeże debiuty IPO (Ipo::debut wstawia świecę-kotwicę
+        // na ticku debiutu). Nie dublujemy jej drugą świecą — zamiast tego DOKŁADAMY do niej ewentualny
+        // obrót z tego samego ticka (zachowując open = cena debiutu). Bez tego były DWIE świece na (spółka,t).
+        $anchor = [];
+        foreach (self::all("SELECT stock_id, h, l FROM candles WHERE t=?", [$t]) as $a) {
+            $anchor[(int) $a['stock_id']] = ['h' => (float) $a['h'], 'l' => (float) $a['l']];
+        }
+        $ins = $pdo->prepare("INSERT INTO candles (stock_id,t,o,h,l,c,v) VALUES (?,?,?,?,?,?,?)");
+        $upd = $pdo->prepare("UPDATE candles SET h=?, l=?, c=?, v=v+? WHERE stock_id=? AND t=?");
         foreach (self::all("SELECT id, price FROM stocks") as $st) {
             $sid = (int) $st['id'];
             $prev = self::closes($sid, 1);
@@ -931,7 +974,11 @@ final class Engine
             $tr  = $trades[$sid] ?? [];
             if ($tr) { $ps = array_column($tr, 'p'); $c = $cur; $h = max(max($ps), $o, $cur); $l = min(min($ps), $o, $cur); $v = array_sum(array_column($tr, 'q')); }
             else     { $c = $cur; $h = max($o, $cur); $l = min($o, $cur); $v = 0; }
-            $pdo->prepare("INSERT INTO candles (stock_id,t,o,h,l,c,v) VALUES (?,?,?,?,?,?,?)")->execute([$sid, $t, $o, $h, $l, $c, $v]);
+            if (isset($anchor[$sid])) {   // debiut: rozszerz kotwicę o obrót, nie twórz drugiej świecy
+                $upd->execute([max($h, $anchor[$sid]['h']), min($l, $anchor[$sid]['l']), $c, $v, $sid, $t]);
+            } else {
+                $ins->execute([$sid, $t, $o, $h, $l, $c, $v]);
+            }
         }
         self::setState('last_candle_tx', (string) $maxTx);   // kursor = dokładnie granica użyta wyżej (bez wyścigu z transakcją HTTP)
         // retencja: świece rosną 50/tick — trzymaj ~20k ticków wstecz (wystarcza na wykres sesyjny 80×200)
@@ -1176,6 +1223,7 @@ final class Engine
     public static function applyNewsImpact(int $tick): void
     {
         $pdo = Db::pdo();
+        $now = Db::now();   // spółki zawieszone (widełki) NIE reagują na news — bezpiecznik ma chłodzić
         $active = self::all("SELECT scope, target_id, impact_strength, publish_tick, expire_tick, kind
                              FROM news WHERE publish_tick <= ? AND expire_tick > ? AND impact_strength <> 0", [$tick, $tick]);
         foreach ($active as $nw) {
@@ -1188,13 +1236,16 @@ final class Engine
             // boty dokładają wolumen). Wcześniej ruszał tylko fundament -> kurs ledwo drgał, tonął w szumie.
             // Skala: mocny ESPI (impact ~0,5, dur ~12) daje ~+4-5% narastająco; słabszy news ~+1-2%.
             $nudge = ((float) $nw['impact_strength'] / 100.0) * $decay * $kw * self::NEWS_IMPACT_GAIN;
+            $nudge = max(-0.08, min(0.08, $nudge));   // twardy cap na pojedynczy tick (bezpiecznik przeciw ekstremom)
             if (abs($nudge) < 1e-9) continue;
+            // halt-guard: pomiń spółki z aktywnym zawieszeniem notowań (halted_until w przyszłości).
+            $notHalted = "(halted_until IS NULL OR halted_until = '' OR halted_until <= ?)";
             if ($nw['scope'] === 'COMPANY') {
-                $pdo->prepare("UPDATE stocks SET price = ROUND(price * (1+?), 2), fundamental = ROUND(fundamental * (1+?), 2) WHERE id=? AND price > 1")->execute([$nudge, $nudge, (int) $nw['target_id']]);
+                $pdo->prepare("UPDATE stocks SET price = ROUND(price * (1+?), 2), fundamental = ROUND(fundamental * (1+?), 2) WHERE id=? AND price > 1 AND $notHalted")->execute([$nudge, $nudge, (int) $nw['target_id'], $now]);
             } elseif ($nw['scope'] === 'SECTOR') {
-                $pdo->prepare("UPDATE stocks SET price = ROUND(price * (1+?), 2), fundamental = ROUND(fundamental * (1+?), 2) WHERE sector_id=? AND price > 1")->execute([$nudge, $nudge, (int) $nw['target_id']]);
+                $pdo->prepare("UPDATE stocks SET price = ROUND(price * (1+?), 2), fundamental = ROUND(fundamental * (1+?), 2) WHERE sector_id=? AND price > 1 AND $notHalted")->execute([$nudge, $nudge, (int) $nw['target_id'], $now]);
             } else {
-                $pdo->prepare("UPDATE stocks SET price = ROUND(price * (1+?), 2), fundamental = ROUND(fundamental * (1+?), 2) WHERE price > 1")->execute([$nudge, $nudge]);
+                $pdo->prepare("UPDATE stocks SET price = ROUND(price * (1+?), 2), fundamental = ROUND(fundamental * (1+?), 2) WHERE price > 1 AND $notHalted")->execute([$nudge, $nudge, $now]);
             }
         }
     }
@@ -1292,7 +1343,12 @@ final class Engine
                         LEFT JOIN (SELECT w.user_id AS uid, SUM((w.qty + w.qty_reserved) * s.price) AS v
                                    FROM wallets w JOIN stocks s ON s.id = w.stock_id GROUP BY w.user_id) ssv ON ssv.uid = su.id
                         GROUP BY cp.user_id) chr ON chr.uid = u.id
-             WHERE (u.is_bot = 0 AND u.role = 'player') OR u.role = 'challenger'"
+             -- konta-cienie tylko dla WYZWAŃ W TOKU: po finiszu subkonto jest wyzerowane i martwe,
+             -- więc bez tego filtra equity_history puchłoby o rzędy 0-equity dla nieżywych kont bez końca
+             WHERE (u.is_bot = 0 AND u.role = 'player')
+                OR (u.role = 'challenger' AND EXISTS (
+                     SELECT 1 FROM challenge_players cp JOIN challenges c ON c.id = cp.challenge_id
+                     WHERE cp.shadow_user_id = u.id AND c.status = 'running'))"
         )->execute([$t]);
         if ($t % 500 === 0) Db::pdo()->prepare("DELETE FROM equity_history WHERE t < ?")->execute([$t - 10000]);
     }
@@ -1435,17 +1491,21 @@ final class Engine
         Db::pdo()->exec("UPDATE stocks SET day_open_price = price");
         Db::pdo()->exec("UPDATE stocks SET halts_session = 0");   // nowa sesja = świeży limit zawieszeń (widełki)
 
+        // PRZEJMIJ każde zlecenie osobno (active -> expired atomowo) PRZED zwolnieniem escrow: jeśli gracz
+        // anulował je w tej samej chwili, przegramy wyścig (rowCount=0) i nie oddamy rezerwacji dwa razy.
         $expired = self::all("SELECT * FROM orders WHERE status='active' AND expires_session IS NOT NULL AND expires_session < ?", [$n]);
+        $claim = Db::pdo()->prepare("UPDATE orders SET status='expired' WHERE id=? AND status='active'");
+        $cnt = 0;
         foreach ($expired as $o) {
+            $claim->execute([(int) $o['id']]);
+            if ($claim->rowCount() !== 1) continue;
             self::release($o);
+            $cnt++;
             if (in_array((int) $o['user_id'], self::humanIds(), true)) {
                 self::notify((int) $o['user_id'], 'order', '⌛ Zlecenie #' . (int) $o['id'] . ' wygasło z końcem sesji — rezerwacja wróciła.', 'order.php?id=' . (int) $o['id']);
             }
         }
-        if ($expired) {
-            Db::pdo()->prepare("UPDATE orders SET status='expired' WHERE status='active' AND expires_session IS NOT NULL AND expires_session < ?")->execute([$n]);
-            Log::write('info', 'engine', 'orders.expired', 'wygasło zleceń sesyjnych: ' . count($expired), ['session' => $n]);
-        }
+        if ($cnt) Log::write('info', 'engine', 'orders.expired', 'wygasło zleceń sesyjnych: ' . $cnt, ['session' => $n]);
         // odznaki sesyjne: ±10% kapitału w zamkniętej właśnie sesji (z equity_history)
         try {
             [, , $tps2] = self::sessionInfo($tick);
@@ -1617,6 +1677,7 @@ final class Engine
             self::runBots();
             self::arbitrage();
             foreach (self::all("SELECT id FROM stocks") as $st) self::matchBook((int) $st['id']);
+            try { self::checkHalts($t); } catch (\Throwable $e) { Log::write('warn', 'engine', 'halt.check', $e->getMessage()); }
             // scal z bieżącą świecą REALNE transakcje od kursora (handel botów tej podrundy + zlecenia graczy między nimi)
             [$trades, $maxTx] = self::tradesSinceCandle();
             foreach ($trades as $sid => $tr) {
@@ -1695,7 +1756,7 @@ final class Engine
         $topic = (string) ($ev['topic'] ?? 'inne');
         if ($source === 'los' && !Newsroom::storyAllowed($newsScope, $newsTarget, $topic, $tick)) return '';
 
-        $head = str_replace('[T]', $label, $ev['head']);
+        $head = mb_substr(str_replace('[T]', $label, $ev['head']), 0, 250);   // headline VARCHAR(255) — utnij (MySQL w strict mode rzuca przy przepełnieniu)
         $body = str_replace('[T]', $label, $ev['body']);
         Db::pdo()->prepare("INSERT INTO news (template_id,headline,body,type,kind,scope,target_id,is_espi,impact_strength,publish_tick,expire_tick,published_at)
                             VALUES (?,?,?,?,?,?,?,0,?,?,?,?)")

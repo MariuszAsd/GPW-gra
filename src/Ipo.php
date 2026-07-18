@@ -295,7 +295,12 @@ final class Ipo
         $growth = self::rf(0, 0.04, 3);
         $payout = $growth >= 0.025 ? self::rf(0, 0.25) : self::rf(0.30, 0.65);
         if (mt_rand(1, 100) <= 15) $payout = 0;
-        $period = (int) (Engine::one("SELECT v FROM game_state WHERE k='ticks_per_month'") ?: 100);
+        // kadencja raportów jak u reszty rynku: report_sessions × tps (a NIE etykieta „ticks_per_month",
+        // która daje ~1 dzień) — inaczej świeży debiut raportuje wyniki już po ~300 tickach zamiast po miesiącu
+        [, , $tpsRep] = Engine::sessionInfo($tick);
+        $repSess = max(1, (int) (Engine::one("SELECT v FROM game_state WHERE k='report_sessions'") ?: 30));
+        $period  = max(50, $repSess * max(1, (int) $tpsRep));
+        $nextRep = $tick + mt_rand((int) round($period * 0.85), (int) round($period * 1.15));   // pierwszy raport ~miesiąc po debiucie (rozrzut ±15%)
 
         $mcapBefore = (float) Engine::one("SELECT COALESCE(SUM(price * total_shares), 0) FROM stocks");
 
@@ -309,7 +314,7 @@ final class Ipo
             self::rf((float) $sec['market_beta'] - 0.3, (float) $sec['market_beta'] + 0.3),
             self::rf((float) $sec['volatility'] * 0.7, (float) $sec['volatility'] * 1.3),
             self::rf(0.7, 1.5), self::rf(0.8, 1.8), self::rf(0.5, 2.0), self::rf(0.6, 1.4), $growth, self::rf(0.7, 2.0),
-            $pe, $base, $base, $eps, $period, $tick + $period, $payout, self::rf(0.15, 0.85),
+            $pe, $base, $base, $eps, $period, $nextRep, $payout, self::rf(0.15, 0.85),
         ]);
         $sid = (int) $pdo->lastInsertId();
 

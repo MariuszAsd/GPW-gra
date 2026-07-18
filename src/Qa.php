@@ -133,6 +133,7 @@ final class Qa
         $this->check(!str_contains($b, $fprobe . '-2'), 'forum.ratelimit', 'anty-spam forum nie zadziałał');
         $pdo->prepare("UPDATE stock_comments SET deleted=1 WHERE message LIKE 'qa-forum-%'")->execute();
         // moderacja słownictwa: cenzura działa, zwykłe słowa giełdowe nietknięte (czysty unit, bez wpisów)
+        if (!class_exists('Moderation')) require_once __DIR__ . '/Moderation.php';   // gdy QA odpalone bez pełnego bootstrapu
         [$cens, $hits] = Moderation::censor('ta spółka to jakaś kurwa mać');
         $this->check(!str_contains($cens, 'kurwa') && count($hits) === 1, 'mod.censor', 'wulgaryzm nie został wygwiazdkowany');
         [$cens2, $hits2] = Moderation::censor('kurs akcji spadek sukces analiza wskaźnik');
