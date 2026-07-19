@@ -286,11 +286,29 @@ final class Engine
                 if ($b['user_id'] == $s['user_id']) continue;      // brak handlu z samym sobą
                 if ($b['price'] < $s['price']) break;              // dalej już nie skrzyżuje
 
-                // cena transakcji = cena zlecenia OCZEKUJĄCEGO (starszego) — jak na prawdziwej
-                // giełdzie: kto czeka w arkuszu, handluje po swojej cenie; agresor bierze co jest
-                $p   = ((int) $b['id'] < (int) $s['id']) ? (float) $b['price'] : (float) $s['price'];
+                // cena transakcji = cena zlecenia OCZEKUJĄCEGO (starszego wg created_at, remis: id) —
+                // jak na prawdziwej giełdzie: kto czeka w arkuszu, handluje po swojej cenie; agresor
+                // bierze co jest. Spójne z priorytetem kolejki wyżej (edycja = świeży czas = agresor).
+                $bResting = [$b['created_at'], (int) $b['id']] < [$s['created_at'], (int) $s['id']];
+                $p   = $bResting ? (float) $b['price'] : (float) $s['price'];
                 $q   = (int) min($b['qty'], $s['qty']);
                 $val = round($q * $p, 2);
+
+                // PRZEJMIJ OBA zlecenia PRZED rozliczeniem (guard status+qty): jeśli w międzyczasie ktoś
+                // je anulował/zmienił (równoległy HTTP na MySQL), przegrywamy wyścig i NIE rozliczamy —
+                // bez podwójnego zwrotu escrow i bez handlu na anulowanym zleceniu. Nasz UPDATE trzyma
+                // lock wiersza do commita, więc dalsze rozliczenie jest bezpieczne.
+                $nbq = (int) $b['qty'] - $q; $nsq = (int) $s['qty'] - $q;
+                $clB = $pdo->prepare("UPDATE orders SET qty=?, status=? WHERE id=? AND status='active' AND qty=?");
+                $clB->execute([$nbq, $nbq <= 0 ? 'filled' : 'active', $b['id'], (int) $b['qty']]);
+                if ($clB->rowCount() !== 1) { $b['qty'] = 0; break; }   // kupno zniknęło spod nas — następne
+                $clS = $pdo->prepare("UPDATE orders SET qty=?, status=? WHERE id=? AND status='active' AND qty=?");
+                $clS->execute([$nsq, $nsq <= 0 ? 'filled' : 'active', $s['id'], (int) $s['qty']]);
+                if ($clS->rowCount() !== 1) {
+                    // sprzedaż zniknęła — cofnij przejęcie kupna (wiersz nasz, lock trzymamy) i szukaj dalej
+                    $pdo->prepare("UPDATE orders SET qty=?, status='active' WHERE id=?")->execute([(int) $b['qty'], $b['id']]);
+                    $s['qty'] = 0; continue;
+                }
 
                 // kupujący: zwolnij rezerwę po SWOIM limicie, zwróć nadpłatę (limit - p)
                 $refund = round($q * ($b['price'] - $p), 2);
@@ -308,10 +326,8 @@ final class Engine
                 $navg = $nq > 0 ? round((($bw['qty'] * $bw['avg_price']) + $val) / $nq, 4) : 0;
                 $pdo->prepare("UPDATE wallets SET qty=?, avg_price=? WHERE user_id=? AND stock_id=?")->execute([$nq, $navg, $b['user_id'], $stockId]);
 
-                // redukuj zlecenia
-                $b['qty'] -= $q; $s['qty'] -= $q;
-                $pdo->prepare("UPDATE orders SET qty=?, status=? WHERE id=?")->execute([$b['qty'], $b['qty'] <= 0 ? 'filled' : 'active', $b['id']]);
-                $pdo->prepare("UPDATE orders SET qty=?, status=? WHERE id=?")->execute([$s['qty'], $s['qty'] <= 0 ? 'filled' : 'active', $s['id']]);
+                // wiersze zleceń już zredukowane przy przejęciu wyżej — dociągnij stan w pamięci
+                $b['qty'] = $nbq; $s['qty'] = $nsq;
 
                 // powiadom człowieka, gdy jego CZEKAJĄCE zlecenie właśnie zrealizowało się w całości
                 // (tylko z crona; zlecenia z tej samej sekundy = natychmiastowe PKC/SL — te widać od razu)
@@ -380,14 +396,18 @@ final class Engine
         // które teraz przekwotują — zamiast setek pojedynczych cancelAllFor (mniej round-tripów do bazy).
         if ($activeUids) {
             $ph = implode(',', array_fill(0, count($activeUids), '?'));
+            // PRZEJMIJ najpierw (active -> cancelling), zwroty licz z PRZEJĘTYCH wierszy: zlecenie bota
+            // zrealizowane równolegle przez HTTP (MySQL) nie wchodzi do sumy — bez podwójnego zwrotu.
+            // Stan 'cancelling' żyje tylko wewnątrz tej transakcji (na końcu przechodzi w 'cancelled').
+            $pdo->prepare("UPDATE orders SET status='cancelling' WHERE status='active' AND user_id IN ($ph)")->execute($activeUids);
             $relCash = []; $relSh = [];
-            foreach (self::all("SELECT user_id, stock_id, side, qty, price FROM orders WHERE status='active' AND user_id IN ($ph)", $activeUids) as $o) {
+            foreach (self::all("SELECT user_id, stock_id, side, qty, price FROM orders WHERE status='cancelling' AND user_id IN ($ph)", $activeUids) as $o) {
                 if ($o['side'] === 'buy') $relCash[(int) $o['user_id']] = ($relCash[(int) $o['user_id']] ?? 0) + round((float) $o['qty'] * (float) $o['price'], 2);
                 else { $kk = $o['user_id'] . ':' . $o['stock_id']; $relSh[$kk] = ($relSh[$kk] ?? 0) + (int) $o['qty']; }
             }
             foreach ($relCash as $uidR => $c) if ($c > 0) $pdo->prepare("UPDATE users SET cash=cash+?, cash_reserved=cash_reserved-? WHERE id=?")->execute([$c, $c, $uidR]);
             foreach ($relSh as $kk => $q) if ($q > 0) { [$uR, $sR] = explode(':', $kk); $pdo->prepare("UPDATE wallets SET qty=qty+?, qty_reserved=qty_reserved-? WHERE user_id=? AND stock_id=?")->execute([$q, $q, $uR, $sR]); }
-            $pdo->prepare("UPDATE orders SET status='cancelled' WHERE status='active' AND user_id IN ($ph)")->execute($activeUids);
+            $pdo->prepare("UPDATE orders SET status='cancelled' WHERE status='cancelling' AND user_id IN ($ph)")->execute($activeUids);
         }
 
         // prefetch: portfele botów (PO anulowaniu — odzwierciedla zwolnione akcje) + gotówka
@@ -1487,7 +1507,7 @@ final class Engine
                 catch (\Throwable $e) { /* duplikat (powtórny roll) — pomiń */ }
             }
             if (($n % 50) === 0) $pdoD->prepare("DELETE FROM candles_daily WHERE session < ?")->execute([$n - 400]);  // ~rok+ historii
-        } catch (\Throwable $e) { Log::write('warn', 'engine', 'candles.daily', $e->getMessage()); }
+        } catch (\Throwable $e) { if (!Db::pdo()->inTransaction()) throw $e; Log::write('warn', 'engine', 'candles.daily', $e->getMessage()); }
         Db::pdo()->exec("UPDATE stocks SET day_open_price = price");
         Db::pdo()->exec("UPDATE stocks SET halts_session = 0");   // nowa sesja = świeży limit zawieszeń (widełki)
 
@@ -1499,7 +1519,10 @@ final class Engine
         foreach ($expired as $o) {
             $claim->execute([(int) $o['id']]);
             if ($claim->rowCount() !== 1) continue;
-            self::release($o);
+            // BIEŻĄCA reszta po przejęciu (jak w cancelRemainder) — nie zrzut sprzed przejęcia,
+            // bo równoległa częściowa realizacja (HTTP na MySQL) zdążyła już zwolnić swój kawałek
+            $cur = self::row("SELECT * FROM orders WHERE id=?", [(int) $o['id']]);
+            if ($cur) self::release($cur);
             $cnt++;
             if (in_array((int) $o['user_id'], self::humanIds(), true)) {
                 self::notify((int) $o['user_id'], 'order', '⌛ Zlecenie #' . (int) $o['id'] . ' wygasło z końcem sesji — rezerwacja wróciła.', 'order.php?id=' . (int) $o['id']);
@@ -1522,33 +1545,33 @@ final class Engine
                     }
                 }
             }
-        } catch (\Throwable $e) { /* odznaki nie psują sesji */ }
+        } catch (\Throwable $e) { if (!Db::pdo()->inTransaction()) throw $e; /* odznaki nie psują sesji */ }
         // wyzwania: start/rozstrzygnięcie/kolejna edycja na granicy sesji
         try {
             if (!class_exists('Challenges')) require_once __DIR__ . '/Challenges.php';
             Challenges::onRoll($n, $tick);
-        } catch (\Throwable $e) { Log::write('error', 'engine', 'challenge.roll', $e->getMessage()); }
+        } catch (\Throwable $e) { if (!Db::pdo()->inTransaction()) throw $e; Log::write('error', 'engine', 'challenge.roll', $e->getMessage()); }
         // debiuty giełdowe: nowa spółka co N sesji, aż rynek osiągnie cel
         try {
             if (!class_exists('Ipo')) require_once __DIR__ . '/Ipo.php';
             Ipo::onRoll($n, $tick);
-        } catch (\Throwable $e) { Log::write('error', 'engine', 'ipo.roll', $e->getMessage()); }
+        } catch (\Throwable $e) { if (!Db::pdo()->inTransaction()) throw $e; Log::write('error', 'engine', 'ipo.roll', $e->getMessage()); }
         // rekomendacje DM na otwarcie sesji (premium widzi od razu, reszta od jutra)
         try {
             if (!class_exists('Recommendations')) require_once __DIR__ . '/Recommendations.php';
             if (!class_exists('Tokens')) require_once __DIR__ . '/Tokens.php';
             Recommendations::onRoll($n, $tick);
-        } catch (\Throwable $e) { Log::write('error', 'engine', 'reco.roll', $e->getMessage()); }
+        } catch (\Throwable $e) { if (!Db::pdo()->inTransaction()) throw $e; Log::write('error', 'engine', 'reco.roll', $e->getMessage()); }
         // okres próbny premium: aktywni gracze dostają raz darmowe dni pełnego premium
         try {
             if (!class_exists('Tokens')) require_once __DIR__ . '/Tokens.php';
             Tokens::grantTrials($n);
-        } catch (\Throwable $e) { Log::write('error', 'engine', 'trial.roll', $e->getMessage()); }
+        } catch (\Throwable $e) { if (!Db::pdo()->inTransaction()) throw $e; Log::write('error', 'engine', 'trial.roll', $e->getMessage()); }
         // lokaty: wypłata zapadłych (kapitał + odsetki ze skarbca)
         try {
             if (!class_exists('Bank')) require_once __DIR__ . '/Bank.php';
             Bank::onRoll($n);
-        } catch (\Throwable $e) { Log::write('error', 'engine', 'bank.roll', $e->getMessage()); }
+        } catch (\Throwable $e) { if (!Db::pdo()->inTransaction()) throw $e; Log::write('error', 'engine', 'bank.roll', $e->getMessage()); }
         self::setState('session_start_tick', (string) $tick);
         self::setState('session', (string) $n);
     }
@@ -1639,19 +1662,22 @@ final class Engine
         self::arbitrage();   // boty domykają lukę kurs -> wartość fundamentalna (kurs podąża za sterowaniem)
 
         foreach (self::all("SELECT id FROM stocks") as $st) self::matchBook((int) $st['id']);
-        try { self::checkHalts($t); } catch (\Throwable $e) { Log::write('warn', 'engine', 'halt.check', $e->getMessage()); }
+        try { self::checkHalts($t); } catch (\Throwable $e) { if (!Db::pdo()->inTransaction()) throw $e; Log::write('warn', 'engine', 'halt.check', $e->getMessage()); }
         self::recordCandles($t);
         // cache sygnału AT per spółka (skaner na Rynku i rekomendacje czytają kolumnę)
         try {
             if (!class_exists('Technical')) require_once __DIR__ . '/Technical.php';
             $upTa = $pdo->prepare("UPDATE stocks SET ta_signal=? WHERE id=?");
             foreach (self::col("SELECT id FROM stocks") as $sidTa) $upTa->execute([Technical::composite((int) $sidTa), (int) $sidTa]);
-        } catch (\Throwable $e) { Log::write('warn', 'engine', 'ta.cache', $e->getMessage()); }
-        try { self::signalAlerts(); } catch (\Throwable $e) { Log::write('warn', 'engine', 'ta.alerts', $e->getMessage()); }
+        } catch (\Throwable $e) { if (!Db::pdo()->inTransaction()) throw $e; Log::write('warn', 'engine', 'ta.cache', $e->getMessage()); }
+        try { self::signalAlerts(); } catch (\Throwable $e) { if (!Db::pdo()->inTransaction()) throw $e; Log::write('warn', 'engine', 'ta.alerts', $e->getMessage()); }
         self::recordIndex($t);    // indeks giełdowy (historia pod wykres)
         self::recordEquity($t);   // kapitał graczy (wykres portfela)
         self::checkGoal($t);      // czy któryś gracz osiągnął cel gry
 
+        // bezpiecznik: gdyby transakcja przepadła po drodze (deadlock => implicit rollback), commit
+        // „pustej" transakcji ukryłby częściowo zastosowany tick — lepiej przerwać głośno (cron ponowi)
+        if (!$pdo->inTransaction()) throw new \RuntimeException('tick: transakcja przepadła w trakcie — tick przerwany bez zapisu');
         self::setState('tick', (string) $t);
         $pdo->commit();
         return $t;
@@ -1677,7 +1703,7 @@ final class Engine
             self::runBots();
             self::arbitrage();
             foreach (self::all("SELECT id FROM stocks") as $st) self::matchBook((int) $st['id']);
-            try { self::checkHalts($t); } catch (\Throwable $e) { Log::write('warn', 'engine', 'halt.check', $e->getMessage()); }
+            try { self::checkHalts($t); } catch (\Throwable $e) { if (!Db::pdo()->inTransaction()) throw $e; Log::write('warn', 'engine', 'halt.check', $e->getMessage()); }
             // scal z bieżącą świecą REALNE transakcje od kursora (handel botów tej podrundy + zlecenia graczy między nimi)
             [$trades, $maxTx] = self::tradesSinceCandle();
             foreach ($trades as $sid => $tr) {

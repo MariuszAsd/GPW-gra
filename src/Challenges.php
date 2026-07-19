@@ -152,7 +152,13 @@ final class Challenges
             $fn();
             $pdo->exec("RELEASE SAVEPOINT $sp");
         } catch (\Throwable $e) {
-            $pdo->exec("ROLLBACK TO SAVEPOINT $sp");
+            try {
+                $pdo->exec("ROLLBACK TO SAVEPOINT $sp");
+            } catch (\Throwable $e2) {
+                // savepoint przepadł (np. deadlock => InnoDB niejawnie cofnął CAŁĄ transakcję):
+                // nie wolno „kontynuować" ticka poza transakcją — wypuść oryginalny błąd wyżej
+                throw $e;
+            }
             Log::write('error', 'engine', 'challenge.guard', $tag . ': ' . $e->getMessage());
         }
     }
@@ -199,6 +205,12 @@ final class Challenges
         // gdyby świat przeskoczył kilka sesji — wyrównaj okno handlu do pełnej długości
         $dur = (int) $ch['end_session'] - (int) $ch['start_session'];
         $end = $session + $dur;
+        // PRZEJMIJ status NAJPIERW (signup -> running): przegrany wyścig (np. GM równolegle odwołał
+        // edycję) wychodzi ZANIM powstanie jakiekolwiek subkonto — bez osieroconych kont z gotówką.
+        // Przy wyjątku w dalszej części savepoint w onRoll cofa też to przejęcie (retry następnej sesji).
+        $flip = $pdo->prepare("UPDATE challenges SET status='running', start_session=?, end_session=? WHERE id=? AND status='signup'");
+        $flip->execute([$session, $end, $cid]);
+        if ($flip->rowCount() !== 1) return;   // ktoś już wystartował/odwołał tę edycję
         foreach ($players as $cp) {
             if (!empty($cp['shadow_user_id'])) continue;   // subkonto już istnieje (wznowienie po częściowym starcie) — nie dubluj
             $base = mb_substr((string) $cp['username'], 0, 40) . '~w' . $cid;
@@ -217,10 +229,6 @@ final class Challenges
             Engine::notify((int) $cp['user_id'], 'challenge', '⚔️ ' . $ch['name'] . ' WYSTARTOWAŁO! Handlujesz portfelem '
                 . number_format((float) $cp['buyin'], 0, ',', ' ') . ' PLN do końca sesji #' . $end . '. Powodzenia!', 'wyzwania.php');
         }
-        // przejmij status tylko jeśli WCIĄŻ signup (idempotencja: przy wznowieniu po crashu nie dubluj newsa/logu)
-        $flip = $pdo->prepare("UPDATE challenges SET status='running', start_session=?, end_session=? WHERE id=? AND status='signup'");
-        $flip->execute([$session, $end, $cid]);
-        if ($flip->rowCount() !== 1) return;   // ktoś już wystartował tę edycję
         $pot = (float) Engine::one("SELECT pot FROM challenges WHERE id=?", [$cid]);
         $pdo->prepare("INSERT INTO news (headline,body,type,scope,target_id,is_espi,impact_strength,publish_tick,expire_tick,published_at)
                        VALUES (?,?,'POS','MARKET',NULL,0,0,?,?,?)")
