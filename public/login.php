@@ -3,13 +3,23 @@ require __DIR__ . '/_boot.php';
 if (current_user()) redirect('pulpit.php');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Ochrona przed atakiem słownikowym: limit nieudanych prób z jednego IP w oknie 15 min.
+    // Liczymy z dziennika logów (bez nowej tabeli); bcrypt spowalnia pojedynczą próbę, throttle blokuje masę.
+    $ip = substr((string) ($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45);
+    $since = date('Y-m-d H:i:s', time() - 900);
+    $fails = (int) Engine::one("SELECT COUNT(*) FROM logs WHERE source='auth' AND event='login_fail' AND ts >= ? AND message LIKE ?", [$since, '%|ip=' . $ip . '|%']);
+    if ($ip !== '' && $fails >= 8) {
+        Log::write('warn', 'auth', 'login_block', 'zablokowano (za dużo prób) |ip=' . $ip . '|');
+        flash('Za dużo nieudanych prób logowania z tego adresu. Odczekaj kilka minut i spróbuj ponownie.', 'err');
+        redirect('login.php');
+    }
     $u = Engine::row("SELECT id, password_hash FROM users WHERE username=? AND is_bot=0", [$_POST['username'] ?? '']);
     if ($u && password_verify($_POST['password'] ?? '', $u['password_hash'])) {
         session_regenerate_id(true);
         $_SESSION['uid'] = (int) $u['id'];
         redirect('pulpit.php');
     }
-    Log::write('warn', 'auth', 'login_fail', 'nieudane logowanie: ' . mb_substr(trim($_POST['username'] ?? ''), 0, 30));
+    Log::write('warn', 'auth', 'login_fail', 'nieudane logowanie: ' . mb_substr(trim($_POST['username'] ?? ''), 0, 30) . ' |ip=' . $ip . '|');
     flash('Błędny login lub hasło.', 'err');
     redirect('login.php');
 }

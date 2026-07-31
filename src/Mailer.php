@@ -31,7 +31,11 @@ final class Mailer
         // ślad w logach: sukces z zamaskowanym adresem; porażka z treścią (odzyskiwalna ręcznie)
         $masked = preg_replace('/(?<=.).(?=[^@]*@)/', '*', $to);
         if ($ok) Log::write('info', 'auth', 'mail.sent', "$subject -> $masked");
-        else Log::write('warn', 'auth', 'mail.fallback', "$subject -> $masked (mail() zawiódł — treść w kontekście)", ['body' => $body]);
+        else {
+            // porażka: treść pomocna przy ręcznym odzysku, ale token resetu w linku ZAMASKOWANY
+            $safeBody = preg_replace('/([?&](?:token|t)=)[^\s&"\'<]+/i', '$1***', $body);
+            Log::write('warn', 'auth', 'mail.fallback', "$subject -> $masked (mail() zawiódł — treść w kontekście, token zamaskowany)", ['body' => $safeBody]);
+        }
         return $ok;
     }
 }

@@ -173,34 +173,61 @@ final class Engine
     public static function editOrder(int $orderId, int $userId, int $newQty, float $newPrice): array
     {
         $pdo = Db::pdo();
-        $o = self::row("SELECT * FROM orders WHERE id=? AND user_id=? AND status='active'", [$orderId, $userId]);
-        if (!$o)                                       return [false, 'Nie znaleziono aktywnego zlecenia do edycji.'];
-        if (!in_array($o['side'], ['buy', 'sell'], true)) return [false, 'Tego zlecenia nie można edytować.'];
-        $newQty = (int) $newQty; $newPrice = round((float) $newPrice, 2);
-        if ($newQty <= 0 || $newPrice <= 0)            return [false, 'Podaj poprawną ilość i cenę.'];
-        if (($m = self::haltMessage((int) $o['stock_id'])) !== null) return [false, $m];
+        $own = !$pdo->inTransaction();
+        if ($own) $pdo->beginTransaction();
+        try {
+            $o = self::row("SELECT * FROM orders WHERE id=? AND user_id=? AND status='active'", [$orderId, $userId]);
+            if (!$o)                                          { if ($own) $pdo->rollBack(); return [false, 'Nie znaleziono aktywnego zlecenia do edycji.']; }
+            if (!in_array($o['side'], ['buy', 'sell'], true)) { if ($own) $pdo->rollBack(); return [false, 'Tego zlecenia nie można edytować.']; }
+            $newQty = (int) $newQty; $newPrice = round((float) $newPrice, 2);
+            if ($newQty <= 0 || $newPrice <= 0)               { if ($own) $pdo->rollBack(); return [false, 'Podaj poprawną ilość i cenę.']; }
+            if (($m = self::haltMessage((int) $o['stock_id'])) !== null) { if ($own) $pdo->rollBack(); return [false, $m]; }
 
-        if ($o['side'] === 'buy') {
-            $oldCost = round((float) $o['qty'] * (float) $o['price'], 2);   // bieżąca rezerwacja tego zlecenia
-            $newCost = round($newQty * $newPrice, 2);
-            $cash = (float) self::one("SELECT cash FROM users WHERE id=?", [$userId]);
-            if ($cash + $oldCost + 1e-6 < $newCost)
-                return [false, 'Za mało gotówki na tę zmianę. Dostępne z tym zleceniem: ' . number_format($cash + $oldCost, 2, ',', ' ') . ' PLN, potrzeba ' . number_format($newCost, 2, ',', ' ') . ' PLN.'];
-            $delta = round($newCost - $oldCost, 2);   // >0 dokładamy rezerwację, <0 zwrot
-            $pdo->prepare("UPDATE users SET cash=cash-?, cash_reserved=cash_reserved+? WHERE id=?")->execute([$delta, $delta, $userId]);
-        } else {
-            $oldQ  = (int) $o['qty'];
-            $avail = (int) self::one("SELECT qty FROM wallets WHERE user_id=? AND stock_id=?", [$userId, $o['stock_id']]);
-            if ($avail + $oldQ < $newQty)
-                return [false, 'Nie masz tylu akcji (dostępne z tym zleceniem: ' . ($avail + $oldQ) . ').'];
-            $dq = $newQty - $oldQ;   // >0 rezerwujemy więcej, <0 zwrot do portfela
-            $pdo->prepare("UPDATE wallets SET qty=qty-?, qty_reserved=qty_reserved+? WHERE user_id=? AND stock_id=?")->execute([$dq, $dq, $userId, $o['stock_id']]);
+            $oldQ = (int) $o['qty']; $oldP = round((float) $o['price'], 2);
+            // PRZEJMIJ zlecenie atomowo DOKŁADNIE w stanie, jaki widzieliśmy (cena+ilość+active).
+            // Jeśli tick w międzyczasie je zrealizował/zmienił — przegrywamy wyścig i NIE ruszamy escrow.
+            $claim = $pdo->prepare("UPDATE orders SET qty=?, qty_init=?, price=?, created_at=? WHERE id=? AND user_id=? AND status='active' AND qty=? AND price=?");
+            $claim->execute([$newQty, $newQty, $newPrice, Db::now(), $orderId, $userId, $oldQ, $oldP]);
+            if ($claim->rowCount() !== 1) { if ($own) $pdo->rollBack(); return [false, 'Zlecenie właśnie się zmieniło lub zrealizowało — odśwież i spróbuj ponownie.']; }
+
+            if ($o['side'] === 'buy') {
+                $oldCost = round($oldQ * $oldP, 2);   // rezerwacja przejętego zlecenia
+                $newCost = round($newQty * $newPrice, 2);
+                $delta = round($newCost - $oldCost, 2);   // >0 dokładamy rezerwację, <0 zwrot
+                if ($delta > 0) {   // dołóż rezerwację ATOMOWO (tylko gdy starczy wolnej gotówki)
+                    $up = $pdo->prepare("UPDATE users SET cash=cash-?, cash_reserved=cash_reserved+? WHERE id=? AND cash >= ?");
+                    $up->execute([$delta, $delta, $userId, $delta - 0.000001]);
+                    if ($up->rowCount() === 0) {
+                        if ($own) $pdo->rollBack();
+                        $cash = (float) self::one("SELECT cash FROM users WHERE id=?", [$userId]);
+                        return [false, 'Za mało gotówki na tę zmianę. Dostępne z tym zleceniem: ' . number_format($cash + $oldCost, 2, ',', ' ') . ' PLN, potrzeba ' . number_format($newCost, 2, ',', ' ') . ' PLN.'];
+                    }
+                } elseif ($delta < 0) {
+                    $back = -$delta;
+                    $pdo->prepare("UPDATE users SET cash=cash+?, cash_reserved=cash_reserved-? WHERE id=?")->execute([$back, $back, $userId]);
+                }
+            } else {
+                $dq = $newQty - $oldQ;   // >0 rezerwujemy więcej, <0 zwrot do portfela
+                if ($dq > 0) {   // dołóż rezerwację akcji ATOMOWO (guard qty>=)
+                    $up = $pdo->prepare("UPDATE wallets SET qty=qty-?, qty_reserved=qty_reserved+? WHERE user_id=? AND stock_id=? AND qty >= ?");
+                    $up->execute([$dq, $dq, $userId, $o['stock_id'], $dq]);
+                    if ($up->rowCount() === 0) {
+                        if ($own) $pdo->rollBack();
+                        $avail = (int) self::one("SELECT qty FROM wallets WHERE user_id=? AND stock_id=?", [$userId, $o['stock_id']]);
+                        return [false, 'Nie masz tylu akcji (dostępne z tym zleceniem: ' . ($avail + $oldQ) . ').'];
+                    }
+                } elseif ($dq < 0) {
+                    $rq = -$dq;
+                    $pdo->prepare("UPDATE wallets SET qty=qty+?, qty_reserved=qty_reserved-? WHERE user_id=? AND stock_id=?")->execute([$rq, $rq, $userId, $o['stock_id']]);
+                }
+            }
+            self::matchBook((int) $o['stock_id']);   // skojarz od razu (już w naszej transakcji)
+            if ($own) $pdo->commit();
+            return [true, "Zlecenie #$orderId zmienione: $newQty szt. po " . number_format($newPrice, 2, ',', ' ') . ' PLN.', $orderId];
+        } catch (\Throwable $e) {
+            if ($own && $pdo->inTransaction()) $pdo->rollBack();
+            throw $e;
         }
-        // świeży czas = utrata priorytetu w arkuszu; qty_init=newQty (edytowana reszta staje się nowym pakietem)
-        $pdo->prepare("UPDATE orders SET qty=?, qty_init=?, price=?, created_at=? WHERE id=?")
-            ->execute([$newQty, $newQty, $newPrice, Db::now(), $orderId]);
-        self::matchBook((int) $o['stock_id']);   // spróbuj skojarzyć od razu po zmianie
-        return [true, "Zlecenie #$orderId zmienione: $newQty szt. po " . number_format($newPrice, 2, ',', ' ') . ' PLN.', $orderId];
     }
 
     /**
@@ -223,18 +250,32 @@ final class Engine
         if ($sl !== null && ($sl <= 0 || $sl >= $price)) return [false, 'Stop-Loss musi być PONIŻEJ bieżącego kursu (' . number_format($price, 2, ',', ' ') . ').'];
         if ($tp !== null && $tp <= $price)               return [false, 'Take-Profit musi być POWYŻEJ bieżącego kursu (' . number_format($price, 2, ',', ' ') . ').'];
 
-        self::ensureWallet($userId, $stockId);
-        $avail = (int) self::one("SELECT qty FROM wallets WHERE user_id=? AND stock_id=?", [$userId, $stockId]);
-        if ($avail < $qty) return [false, "Nie masz tylu wolnych akcji (dostępne: $avail)."];
-
         $pdo = Db::pdo();
-        $pdo->prepare("UPDATE wallets SET qty=qty-?, qty_reserved=qty_reserved+? WHERE user_id=? AND stock_id=?")->execute([$qty, $qty, $userId, $stockId]);
-        $pdo->prepare("INSERT INTO orders (user_id, stock_id, side, qty, qty_init, price, status, sl_price, tp_price, trail_pct, created_at) VALUES (?,?, 'sell', ?, ?, 0, 'pending', ?, ?, ?, ?)")
-            ->execute([$userId, $stockId, $qty, $qty, $sl, $tp, $trail, Db::now()]);
+        $own = !$pdo->inTransaction();
+        if ($own) $pdo->beginTransaction();
+        try {
+            self::ensureWallet($userId, $stockId);
+            // rezerwacja akcji ATOMOWO (guard qty>=): dwa równoległe submity (dwie karty / podwójny klik)
+            // nie zejdą poniżej zera i nie zawiążą dwa razy tych samych akcji.
+            $up = $pdo->prepare("UPDATE wallets SET qty=qty-?, qty_reserved=qty_reserved+? WHERE user_id=? AND stock_id=? AND qty >= ?");
+            $up->execute([$qty, $qty, $userId, $stockId, $qty]);
+            if ($up->rowCount() === 0) {
+                if ($own) $pdo->rollBack();
+                $avail = (int) self::one("SELECT qty FROM wallets WHERE user_id=? AND stock_id=?", [$userId, $stockId]);
+                return [false, "Nie masz tylu wolnych akcji (dostępne: $avail)."];
+            }
+            $pdo->prepare("INSERT INTO orders (user_id, stock_id, side, qty, qty_init, price, status, sl_price, tp_price, trail_pct, created_at) VALUES (?,?, 'sell', ?, ?, 0, 'pending', ?, ?, ?, ?)")
+                ->execute([$userId, $stockId, $qty, $qty, $sl, $tp, $trail, Db::now()]);
+            $oid = (int) $pdo->lastInsertId();
+            if ($own) $pdo->commit();
+        } catch (\Throwable $e) {
+            if ($own && $pdo->inTransaction()) $pdo->rollBack();
+            throw $e;
+        }
         $trailLbl = $trail !== null ? rtrim(rtrim(number_format($trail, 1, ',', ''), '0'), ',') : '';
         $lbl = ($sl !== null ? ($trail !== null ? "SL kroczący $trailLbl% (start " : 'SL ') . number_format($sl, 2, ',', ' ') . ($trail !== null ? ')' : '') : '')
              . ($sl !== null && $tp !== null ? ' / ' : '') . ($tp !== null ? 'TP ' . number_format($tp, 2, ',', ' ') : '');
-        return [true, "Zlecenie obronne ($lbl) na $qty szt. przyjęte.", (int) $pdo->lastInsertId()];
+        return [true, "Zlecenie obronne ($lbl) na $qty szt. przyjęte.", $oid];
     }
 
     /** zwolnij rezerwację pozostałej części zlecenia */
@@ -272,6 +313,13 @@ final class Engine
     public static function matchBook(int $stockId, array &$tickTrades = []): int
     {
         $pdo = Db::pdo();
+        // ZAWSZE w transakcji: guardy przejęcia zleceń i względne UPDATE-y są bezpieczne tylko,
+        // gdy blokady wierszy trzymają się do commita. Z HTTP (place_order/editOrder) matchBook
+        // bywał wołany w autocommit — każdy UPDATE osobno — więc równoległy tick mógł wejść między
+        // nasze kroki (wskrzeszenie zrealizowanego zlecenia / lost update portfela).
+        $own = !$pdo->inTransaction();
+        if ($own) $pdo->beginTransaction();
+        try {
         $feeRate = self::feeRate();
         // priorytet: cena, potem CZAS (created_at) — edycja zlecenia odświeża created_at, więc realnie traci
         // priorytet (wcześniej sort po id nie zmieniał się przy edycji, więc „utrata priorytetu" była pozorna); id = rozstrzygnięcie remisu w tej samej sekundzie
@@ -305,8 +353,10 @@ final class Engine
                 $clS = $pdo->prepare("UPDATE orders SET qty=?, status=? WHERE id=? AND status='active' AND qty=?");
                 $clS->execute([$nsq, $nsq <= 0 ? 'filled' : 'active', $s['id'], (int) $s['qty']]);
                 if ($clS->rowCount() !== 1) {
-                    // sprzedaż zniknęła — cofnij przejęcie kupna (wiersz nasz, lock trzymamy) i szukaj dalej
-                    $pdo->prepare("UPDATE orders SET qty=?, status='active' WHERE id=?")->execute([(int) $b['qty'], $b['id']]);
+                    // sprzedaż zniknęła — cofnij DOKŁADNIE nasze przejęcie kupna (guard po id + stanie,
+                    // który sami ustawiliśmy), żeby nigdy nie nadpisać zmiany innego procesu; szukaj dalej
+                    $pdo->prepare("UPDATE orders SET qty=?, status='active' WHERE id=? AND qty=? AND status=?")
+                        ->execute([(int) $b['qty'], $b['id'], $nbq, $nbq <= 0 ? 'filled' : 'active']);
                     $s['qty'] = 0; continue;
                 }
 
@@ -319,12 +369,13 @@ final class Engine
                 $pdo->prepare("UPDATE users SET cash=cash+? WHERE id=?")->execute([$val - $fee, $s['user_id']]);
                 if ($fee > 0) self::addTreasury($fee);
                 $pdo->prepare("UPDATE wallets SET qty_reserved=qty_reserved-? WHERE user_id=? AND stock_id=?")->execute([$q, $s['user_id'], $stockId]);
-                // kupujący: dopisz akcje + poprawna średnia cena
+                // kupujący: dopisz akcje + poprawna średnia cena — WZGLĘDNIE po stronie SQL (bez
+                // odczytu-a-potem-zapisu), żeby dwie równoległe realizacje tego samego kupującego się
+                // nie zgubiły. avg liczone ze STAREGO qty: przypisujemy avg_price PRZED qty, więc i na
+                // MySQL (RHS bierze wartość sprzed tej kolumny), i na SQLite (RHS zawsze sprzed UPDATE) wychodzi tak samo.
                 self::ensureWallet($b['user_id'], $stockId);
-                $bw = self::row("SELECT qty, avg_price FROM wallets WHERE user_id=? AND stock_id=?", [$b['user_id'], $stockId]);
-                $nq = $bw['qty'] + $q;
-                $navg = $nq > 0 ? round((($bw['qty'] * $bw['avg_price']) + $val) / $nq, 4) : 0;
-                $pdo->prepare("UPDATE wallets SET qty=?, avg_price=? WHERE user_id=? AND stock_id=?")->execute([$nq, $navg, $b['user_id'], $stockId]);
+                $pdo->prepare("UPDATE wallets SET avg_price = CASE WHEN qty + ? > 0 THEN ROUND((qty*avg_price + ?)/(qty + ?), 4) ELSE avg_price END, qty = qty + ? WHERE user_id=? AND stock_id=?")
+                    ->execute([$q, $val, $q, $q, $b['user_id'], $stockId]);
 
                 // wiersze zleceń już zredukowane przy przejęciu wyżej — dociągnij stan w pamięci
                 $b['qty'] = $nbq; $s['qty'] = $nsq;
@@ -345,7 +396,7 @@ final class Engine
 
                 // kurs = ostatnia cena transakcji + log
                 $pdo->prepare("UPDATE stocks SET price=? WHERE id=?")->execute([$p, $stockId]);
-                $pdo->prepare("INSERT INTO transactions (stock_id, buyer_id, seller_id, buy_order_id, sell_order_id, qty, price, created_at) VALUES (?,?,?,?,?,?,?,?)")
+                $pdo->prepare("INSERT INTO transactions (stock_id, buyer_id, seller_id, buy_order_id, sell_order_id, qty, price, created_at, candled) VALUES (?,?,?,?,?,?,?,?,0)")
                     ->execute([$stockId, $b['user_id'], $s['user_id'], $b['id'], $s['id'], $q, $p, Db::now()]);
                 foreach ([(int) $b['user_id'], (int) $s['user_id']] as $huid) {   // odznaki: zbierz, sprawdź RAZ po pętli
                     if (in_array($huid, self::humanIds(), true)) $achUids[$huid] = true;
@@ -356,7 +407,12 @@ final class Engine
             }
         }
         foreach (array_keys($achUids) as $huid) self::checkTradeAchievements($huid);
+        if ($own) $pdo->commit();
         return $trades;
+        } catch (\Throwable $e) {
+            if ($own && $pdo->inTransaction()) $pdo->rollBack();
+            throw $e;
+        }
     }
 
     /* ---------- Boty (strategie wg DNA z tabeli bots) ---------- */
@@ -849,17 +905,22 @@ final class Engine
             self::release($o);
             $txFrom = (int) (self::one("SELECT MAX(id) FROM transactions") ?: 0);
             [$ok, $msg] = self::marketOrder((int) $o['user_id'], (int) $o['stock_id'], 'sell', (int) $o['qty']);
-            $txTo = (int) (self::one("SELECT MAX(id) FROM transactions") ?: 0);
-            if (!$ok && $txTo === $txFrom) {
-                // pusta księga (np. tuż po wznowieniu notowań, zanim boty ją odbudują):
-                // NIE konsumuj ochrony — przywróć zlecenie i spróbuj w kolejnym ticku
-                $free = (int) (self::one("SELECT qty FROM wallets WHERE user_id=? AND stock_id=?", [$o['user_id'], $o['stock_id']]) ?: 0);
-                if ($free >= (int) $o['qty']) {
-                    $pdo->prepare("UPDATE wallets SET qty=qty-?, qty_reserved=qty_reserved+? WHERE user_id=? AND stock_id=?")
-                        ->execute([(int) $o['qty'], (int) $o['qty'], $o['user_id'], $o['stock_id']]);
-                    $pdo->prepare("UPDATE orders SET status='pending' WHERE id=?")->execute([$o['id']]);
-                    Log::write('info', 'engine', 'stops.retry', ($hitSL ? 'SL' : 'TP') . " {$o['ticker']}: pusta księga — zlecenie obronne wraca do oczekujących", ['order_id' => (int) $o['id']]);
-                    continue;
+            // ile REALNIE zeszło z tego wyzwolenia (płytki arkusz może sprzedać tylko część)
+            $sold = (int) (self::one("SELECT COALESCE(SUM(qty),0) FROM transactions WHERE seller_id=? AND stock_id=? AND id>?", [$o['user_id'], $o['stock_id'], $txFrom]) ?: 0);
+            $remaining = (int) $o['qty'] - $sold;
+            if ($remaining > 0) {
+                // NIE konsumuj ochrony reszty pakietu: re-rezerwuj niesprzedane akcje i przywróć stopa na
+                // resztę (płytki arkusz — typowo tuż po wznowieniu z haltu / w krachu, gdy stop najbardziej
+                // potrzebny). Bez tego reszta wracała bez ochrony, a zlecenie kończyło jako 'triggered'.
+                $rr = $pdo->prepare("UPDATE wallets SET qty=qty-?, qty_reserved=qty_reserved+? WHERE user_id=? AND stock_id=? AND qty >= ?");
+                $rr->execute([$remaining, $remaining, $o['user_id'], $o['stock_id'], $remaining]);
+                if ($rr->rowCount() === 1) {
+                    $pdo->prepare("UPDATE orders SET status='pending', qty=? WHERE id=?")->execute([$remaining, $o['id']]);
+                    if ($sold <= 0) {
+                        Log::write('info', 'engine', 'stops.retry', ($hitSL ? 'SL' : 'TP') . " {$o['ticker']}: brak realizacji (płytki arkusz) — zlecenie obronne wraca do oczekujących ($remaining szt.)", ['order_id' => (int) $o['id']]);
+                        continue;   // nic nie sprzedano — bez powiadomienia o wyzwoleniu
+                    }
+                    $msg .= " (sprzedano $sold z " . (int) $o['qty'] . " szt.; stop nadal chroni pozostałe $remaining)";
                 }
             }
             Log::write($ok ? 'info' : 'warn', 'engine', $hitSL ? 'stops.sl' : 'stops.tp',
@@ -976,7 +1037,7 @@ final class Engine
         // Świece z REALNYCH transakcji (boty + GRACZE, także te złożone przez HTTP MIĘDZY tickami crona),
         // a nie tylko z handlu botów w tym ticku — inaczej ruch z zlecenia gracza nie pokazywał się na wykresie
         // (kurs skakał w bazie, ale świeca była płaska). Znacznik last_candle_tx to kursor ostatniej ujętej transakcji.
-        [$trades, $maxTx] = self::tradesSinceCandle();
+        [$trades, $candIds] = self::tradesSinceCandle();
         // spółki, które MAJĄ już świecę na tym ticku = świeże debiuty IPO (Ipo::debut wstawia świecę-kotwicę
         // na ticku debiutu). Nie dublujemy jej drugą świecą — zamiast tego DOKŁADAMY do niej ewentualny
         // obrót z tego samego ticka (zachowując open = cena debiutu). Bez tego były DWIE świece na (spółka,t).
@@ -1000,7 +1061,7 @@ final class Engine
                 $ins->execute([$sid, $t, $o, $h, $l, $c, $v]);
             }
         }
-        self::setState('last_candle_tx', (string) $maxTx);   // kursor = dokładnie granica użyta wyżej (bez wyścigu z transakcją HTTP)
+        self::markCandled($candIds);   // oznacz ujęte transakcje po id (bez wyścigu kursora na MySQL)
         // retencja: świece rosną 50/tick — trzymaj ~20k ticków wstecz (wystarcza na wykres sesyjny 80×200)
         if ($t % 500 === 0) $pdo->prepare("DELETE FROM candles WHERE t < ?")->execute([$t - 20000]);
     }
@@ -1012,16 +1073,27 @@ final class Engine
      */
     private static function tradesSinceCandle(): array
     {
-        $lw = self::one("SELECT v FROM game_state WHERE k='last_candle_tx'");
-        $maxTx = (int) (self::one("SELECT COALESCE(MAX(id),0) FROM transactions") ?: 0);
-        $lastTx = ($lw === false || $lw === null || $lw === '') ? $maxTx : (int) $lw;
-        $out = [];
-        if ($maxTx > $lastTx) {
-            foreach (self::all("SELECT stock_id, price, qty FROM transactions WHERE id > ? AND id <= ? ORDER BY id ASC", [$lastTx, $maxTx]) as $tx) {
-                $out[(int) $tx['stock_id']][] = ['p' => (float) $tx['price'], 'q' => (int) $tx['qty']];
-            }
+        // Nieujęte jeszcze w świecy transakcje WIDOCZNE w tej transakcji (snapshot). Zwraca [trades, ids].
+        // Zamiast kursora po MAX(id): flaga candled — transakcje HTTP zacommitowane PO naszym snapshot
+        // zostają candled=0 i trafią do NASTĘPNEJ świecy (nic nie ginie, wolumen == suma transakcji).
+        $out = []; $ids = [];
+        foreach (self::all("SELECT id, stock_id, price, qty FROM transactions WHERE candled=0 ORDER BY id ASC") as $tx) {
+            $out[(int) $tx['stock_id']][] = ['p' => (float) $tx['price'], 'q' => (int) $tx['qty']];
+            $ids[] = (int) $tx['id'];
         }
-        return [$out, $maxTx];
+        return [$out, $ids];
+    }
+
+    /** Oznacz DOKŁADNIE przetworzone transakcje jako ujęte w świecy — po id, nie „<= max", żeby
+     *  current-read UPDATE nie zaznaczył transakcji HTTP zacommitowanej już po naszym snapshot. */
+    private static function markCandled(array $ids): void
+    {
+        if (!$ids) return;
+        $pdo = Db::pdo();
+        foreach (array_chunk($ids, 500) as $chunk) {
+            $ph = implode(',', array_fill(0, count($chunk), '?'));
+            $pdo->prepare("UPDATE transactions SET candled=1 WHERE id IN ($ph)")->execute($chunk);
+        }
     }
 
     /* ---------- Raporty finansowe (miesięczne) ---------- */
@@ -1126,7 +1198,7 @@ final class Engine
             $rev = round($profit / ($marza / 100), 2); $cost = round($rev - $profit, 2);
             $pdo->prepare("INSERT INTO financial_reports (stock_id,tick,period,report_date,revenue,costs,net_profit,eps,expected_eps,surprise_pct,dividend)
                            VALUES (?,?,?,?,?,?,?,?,?,?,?)")
-                ->execute([$sid, $tick, $period, Db::now(), $rev, $cost, $profit, $eps, round((float) $s['last_eps'], 4), round($surprise, 2), $dps]);
+                ->execute([$sid, $tick, $period, Db::now(), $rev, $cost, $profit, $eps, round($expected * 12.0 / $shares, 4), round($surprise, 2), $dps]);
 
             // powiadom ludzkich akcjonariuszy o raporcie ich spółki
             foreach (self::all("SELECT w.user_id FROM wallets w JOIN users u ON u.id=w.user_id
@@ -1178,6 +1250,13 @@ final class Engine
     private static function payDividend(int $sid, string $ticker, float $dps, int $tick): void
     {
         $pdo = Db::pdo();
+        // NEUTRALNOŚĆ MAJĄTKOWA: akcjonariusz dostaje dps/akcję, a kurs spada o dps — więc dps nie może być
+        // większy, niż da się odciąć od kursu do podłogi 1 PLN. Bez tego dla spółki ~1 PLN (po krachu) kurs
+        // floorował się na 1, a pełna dywidenda i tak schodziła na konta = drukowanie pieniądza.
+        $st = self::row("SELECT price, fundamental, day_open_price FROM stocks WHERE id=?", [$sid]);
+        if (!$st) return;
+        $dps = min($dps, max(0.0, round((float) $st['price'] - 1.0, 2)));
+        if ($dps <= 0) return;   // spółka zbyt tania, by wypłacić dywidendę bez kreowania majątku
         $holders = self::all("SELECT w.user_id, (w.qty + w.qty_reserved) AS n, u.is_bot
                               FROM wallets w JOIN users u ON u.id = w.user_id
                               WHERE w.stock_id = ? AND (w.qty + w.qty_reserved) > 0", [$sid]);
@@ -1296,23 +1375,28 @@ final class Engine
      */
     public static function applyMarketMoves(int $tick): void
     {
-        $moves = self::all("SELECT * FROM market_moves WHERE status='active' AND start_tick <= ? AND end_tick >= ?", [$tick, $tick - 1]);
+        // Aplikuj DOKŁADNIE na tickach start..end-1 = dur razy (nie start..end = dur+1 razy) — inaczej
+        // składany współczynnik przestrzeliwał zaplanowany procent (np. +10% na 1 tick wychodziło +21%).
+        $moves = self::all("SELECT * FROM market_moves WHERE status='active' AND start_tick <= ? AND end_tick > ?", [$tick, $tick]);
         if (!$moves) return;
         $pdo = Db::pdo();
+        $now = Db::now();
+        // spółki zawieszone (widełki) NIE reagują na ruch GM — spójnie z applyNewsImpact (bezpiecznik chłodzi)
+        $nh = "(halted_until IS NULL OR halted_until = '' OR halted_until <= ?)";
         foreach ($moves as $m) {
             $start = (int) $m['start_tick'];
             $end   = max($start + 1, (int) $m['end_tick']);
             $dur   = max(1, $end - $start);
             $pct   = (float) $m['pct'];
-            $f     = pow(1.0 + max(-0.95, min(5.0, $pct / 100.0)), 1.0 / $dur) - 1.0;   // składany współczynnik na tick
+            $f     = pow(1.0 + max(-0.95, min(5.0, $pct / 100.0)), 1.0 / $dur) - 1.0;   // składany współczynnik na tick (dur aplikacji = dokładnie pct)
             if ($m['scope'] === 'SECTOR' && $m['target_id'] !== null) {
-                $pdo->prepare("UPDATE stocks SET price = ROUND(price * (1+?), 2), fundamental = ROUND(fundamental * (1+?), 2) WHERE sector_id=? AND price > 1")->execute([$f, $f, (int) $m['target_id']]);
+                $pdo->prepare("UPDATE stocks SET price = ROUND(price * (1+?), 2), fundamental = ROUND(fundamental * (1+?), 2) WHERE sector_id=? AND price > 1 AND $nh")->execute([$f, $f, (int) $m['target_id'], $now]);
             } elseif ($m['scope'] === 'COMPANY' && $m['target_id'] !== null) {
-                $pdo->prepare("UPDATE stocks SET price = ROUND(price * (1+?), 2), fundamental = ROUND(fundamental * (1+?), 2) WHERE id=? AND price > 1")->execute([$f, $f, (int) $m['target_id']]);
+                $pdo->prepare("UPDATE stocks SET price = ROUND(price * (1+?), 2), fundamental = ROUND(fundamental * (1+?), 2) WHERE id=? AND price > 1 AND $nh")->execute([$f, $f, (int) $m['target_id'], $now]);
             } else {
-                $pdo->prepare("UPDATE stocks SET price = ROUND(price * (1+?), 2), fundamental = ROUND(fundamental * (1+?), 2) WHERE price > 1")->execute([$f, $f]);
+                $pdo->prepare("UPDATE stocks SET price = ROUND(price * (1+?), 2), fundamental = ROUND(fundamental * (1+?), 2) WHERE price > 1 AND $nh")->execute([$f, $f, $now]);
             }
-            if ($tick >= $end) $pdo->prepare("UPDATE market_moves SET status='done' WHERE id=?")->execute([(int) $m['id']]);
+            if ($tick >= $end - 1) $pdo->prepare("UPDATE market_moves SET status='done' WHERE id=?")->execute([(int) $m['id']]);
         }
     }
 
@@ -1493,7 +1577,7 @@ final class Engine
             $sst = (int) (self::one("SELECT v FROM game_state WHERE k='session_start_tick'") ?: 0);
             $pdoD = Db::pdo();
             $hl = [];
-            foreach (self::all("SELECT stock_id, MAX(h) h, MIN(l) l, SUM(v) v FROM candles WHERE t > ? GROUP BY stock_id", [$sst]) as $r) {
+            foreach (self::all("SELECT stock_id, MAX(h) h, MIN(l) l, SUM(v) v FROM candles WHERE t >= ? GROUP BY stock_id", [$sst]) as $r) {
                 $hl[(int) $r['stock_id']] = $r;
             }
             $ins = $pdoD->prepare("INSERT INTO candles_daily (stock_id, session, o, h, l, c, v) VALUES (?,?,?,?,?,?,?)");
@@ -1704,8 +1788,8 @@ final class Engine
             self::arbitrage();
             foreach (self::all("SELECT id FROM stocks") as $st) self::matchBook((int) $st['id']);
             try { self::checkHalts($t); } catch (\Throwable $e) { if (!Db::pdo()->inTransaction()) throw $e; Log::write('warn', 'engine', 'halt.check', $e->getMessage()); }
-            // scal z bieżącą świecą REALNE transakcje od kursora (handel botów tej podrundy + zlecenia graczy między nimi)
-            [$trades, $maxTx] = self::tradesSinceCandle();
+            // scal z bieżącą świecą REALNE transakcje jeszcze nieujęte (handel botów tej podrundy + zlecenia graczy między nimi)
+            [$trades, $candIds] = self::tradesSinceCandle();
             foreach ($trades as $sid => $tr) {
                 $c = self::row("SELECT h, l FROM candles WHERE stock_id=? AND t=?", [$sid, $t]);
                 if (!$c) continue;
@@ -1714,7 +1798,7 @@ final class Engine
                 $pdo->prepare("UPDATE candles SET h=?, l=?, c=?, v=v+? WHERE stock_id=? AND t=?")
                     ->execute([max((float) $c['h'], max($ps), $cur), min((float) $c['l'], min($ps), $cur), $cur, array_sum(array_column($tr, 'q')), $sid, $t]);
             }
-            self::setState('last_candle_tx', (string) $maxTx);   // kursor = granica użyta wyżej
+            self::markCandled($candIds);   // oznacz ujęte transakcje po id (bez wyścigu kursora na MySQL)
             $pdo->commit();
         } catch (\Throwable $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();

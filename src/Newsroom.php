@@ -314,7 +314,9 @@ final class Newsroom
         $lv = Engine::one("SELECT v FROM game_state WHERE k=?", ['macro_last_' . $secId]);
         $last = ($lv === false || $lv === null || $lv === '') ? -1000 : (int) $lv;
         if ($tick - $last < 40) return;
-        self::insert($tick, $kind, $type, 'SECTOR', $secId, 0, (float) $impact, (int) $dur, $head, $body, self::topicHash('makro:' . $topic));
+        // template_id = NULL: puls makro to wpis STRUKTURALNY (ma własną anty-powtórkę macro_last_$secId),
+        // więc NIE zajmuje okna STORY_COOLDOWN — inaczej blokował prawie wszystkie narracyjne newsy sektorowe.
+        self::insert($tick, $kind, $type, 'SECTOR', $secId, 0, (float) $impact, (int) $dur, $head, $body, null);
         Engine::setState('macro_last_' . $secId, (string) $tick);
     }
 

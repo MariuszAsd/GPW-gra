@@ -19,7 +19,12 @@ require_once __DIR__ . '/../src/Daily.php';
 require_once __DIR__ . '/../src/Moderation.php';
 require_once __DIR__ . '/../src/Bank.php';
 
-session_set_cookie_params(['samesite' => 'Lax', 'httponly' => true]);
+// Secure gdy połączenie po HTTPS (produkcja) — ciasteczko sesji nie wycieknie przy przypadkowym HTTP.
+// Lokalnie (HTTP) zostaje bez Secure, żeby logowanie działało bez certyfikatu.
+$cookieSecure = (!empty($_SERVER['HTTPS']) && strtolower((string) $_SERVER['HTTPS']) !== 'off')
+    || (($_SERVER['SERVER_PORT'] ?? '') == 443)
+    || (strtolower((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https');
+session_set_cookie_params(['samesite' => 'Lax', 'httponly' => true, 'secure' => $cookieSecure]);
 session_start();
 
 // Auto-migracja: po deployu baza sama dołoży nowe kolumny/tabele (bez utraty danych).

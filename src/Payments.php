@@ -134,36 +134,71 @@ final class Payments
         if (!preg_match('/^MAK-(\d+)-/', $extId, $m)) return [400, 'unknown extOrderId'];
         $oid = (int) $m[1];
 
-        if ($status === 'COMPLETED') self::complete($oid);
-        elseif ($status === 'CANCELED') {
+        if ($status === 'COMPLETED') {
+            // WERYFIKACJA KWOTY I WALUTY: realizujemy tylko, gdy PayU potwierdza dokładnie tę kwotę,
+            // na jaką wystawiliśmy zamówienie (inaczej rozbieżność u operatora dałaby pełny pakiet za mniej).
+            $po = Engine::row("SELECT amount_grosz FROM payment_orders WHERE id=?", [$oid]);
+            if (!$po) return [200, '{"status":"OK"}'];   // nieznane u nas — potwierdź odbiór, nie ponawiaj
+            $amt = (int) round((float) ($order['totalAmount'] ?? 0));
+            $cur = (string) ($order['currencyCode'] ?? '');
+            if ($cur !== 'PLN' || $amt !== (int) $po['amount_grosz']) {
+                Log::write('warn', 'engine', 'pay.amount_mismatch', "zamówienie #$oid: PayU $amt $cur vs oczekiwane {$po['amount_grosz']} gr PLN — NIE realizuję", ['order' => $oid]);
+                return [200, '{"status":"OK"}'];   // potwierdź odbiór, ale nie przyznawaj (nie ponawiaj złej kwoty)
+            }
+            try {
+                self::complete($oid);
+            } catch (\Throwable $e) {
+                // przyznanie tokenów się nie powiodło -> zamówienie NIE jest 'completed' (rollback) ->
+                // zwróć kod != 200, żeby PayU ponowiło notyfikację (klient nie zostaje bez tokenów)
+                Log::write('error', 'engine', 'pay.complete_fail', $e->getMessage(), ['order' => $oid]);
+                return [500, 'retry'];
+            }
+        } elseif ($status === 'CANCELED') {
             Db::pdo()->prepare("UPDATE payment_orders SET status='cancelled' WHERE id=? AND status IN ('new','pending')")->execute([$oid]);
         }
         return [200, '{"status":"OK"}'];   // PENDING/WAITING_FOR_CONFIRMATION: tylko potwierdzamy odbiór
     }
 
-    /** Podpis OpenPayu-Signature: signature=<md5(body + drugi klucz)>;algorithm=MD5;... */
+    /** Podpis OpenPayu-Signature: signature=<hash(body + drugi klucz)>;algorithm=MD5|SHA-256;... */
     public static function verifySignature(string $rawBody, string $header): bool
     {
         if (!preg_match('/signature=([a-f0-9]+)/i', $header, $m)) return false;
-        $expected = md5($rawBody . (string) (self::config()['md5'] ?? ''));
+        // Uwzględnij pole algorithm z nagłówka (PayU może być skonfigurowany na SHA-256), nie zakładaj MD5.
+        $algo = 'md5';
+        if (preg_match('/algorithm=([A-Za-z0-9_-]+)/i', $header, $a)) {
+            $map = ['MD5' => 'md5', 'SHA-256' => 'sha256', 'SHA256' => 'sha256', 'SHA-1' => 'sha1', 'SHA1' => 'sha1'];
+            $algo = $map[strtoupper($a[1])] ?? 'md5';
+        }
+        $expected = hash($algo, $rawBody . (string) (self::config()['md5'] ?? ''));
         return hash_equals($expected, strtolower($m[1]));
     }
 
-    /** Realizacja opłaconego zamówienia (ATOMOWO idempotentna). Zwraca true przy pierwszym przyznaniu. */
+    /** Realizacja opłaconego zamówienia (ATOMOWO idempotentna). Zwraca true przy pierwszym przyznaniu,
+     *  false gdy już zrealizowane/nieznane. RZUCA, gdy przyznanie tokenów zawiedzie (transakcja się cofa,
+     *  zamówienie zostaje 'pending' — wołający zwróci PayU kod do ponowienia). */
     public static function complete(int $orderId): bool
     {
         $pdo = Db::pdo();
-        $st = $pdo->prepare("UPDATE payment_orders SET status='completed', paid_at=? WHERE id=? AND status IN ('new','pending')");
-        $st->execute([Db::now(), $orderId]);
-        if ($st->rowCount() === 0) return false;   // już zrealizowane albo nieznane — nic nie przyznajemy
-        $o = Engine::row("SELECT * FROM payment_orders WHERE id=?", [$orderId]);
-        if (!$o) return false;
-        [, , $name] = self::PACKAGES[$o['package']] ?? [0, 0, $o['package']];
-        if (!class_exists('Tokens')) require_once __DIR__ . '/Tokens.php';
-        Tokens::grant((int) $o['user_id'], (int) $o['tokens'], 'purchase', "zakup: $name");
-        Engine::journal((int) $o['user_id'], 'token', "🪙 Opłacono $name — +" . (int) $o['tokens'] . " Tokenów inwestora. Dziękujemy!", 'sklep.php');
-        Log::write('info', 'engine', 'pay.complete', "zamówienie #$orderId opłacone: $name", ['user_id' => $o['user_id'], 'grosz' => $o['amount_grosz']]);
-        return true;
+        $own = !$pdo->inTransaction();
+        if ($own) $pdo->beginTransaction();
+        try {
+            $st = $pdo->prepare("UPDATE payment_orders SET status='completed', paid_at=? WHERE id=? AND status IN ('new','pending')");
+            $st->execute([Db::now(), $orderId]);
+            if ($st->rowCount() === 0) { if ($own) $pdo->rollBack(); return false; }   // już zrealizowane albo nieznane
+            $o = Engine::row("SELECT * FROM payment_orders WHERE id=?", [$orderId]);
+            if (!$o) { if ($own) $pdo->rollBack(); return false; }
+            [, , $name] = self::PACKAGES[$o['package']] ?? [0, 0, $o['package']];
+            if (!class_exists('Tokens')) require_once __DIR__ . '/Tokens.php';
+            // grant W TEJ SAMEJ transakcji, w wersji RZUCAJĄCEJ — błąd cofnie też oznaczenie 'completed'
+            Tokens::grant((int) $o['user_id'], (int) $o['tokens'], 'purchase', "zakup: $name", true);
+            Engine::journal((int) $o['user_id'], 'token', "🪙 Opłacono $name — +" . (int) $o['tokens'] . " Tokenów inwestora. Dziękujemy!", 'sklep.php');
+            Log::write('info', 'engine', 'pay.complete', "zamówienie #$orderId opłacone: $name", ['user_id' => $o['user_id'], 'grosz' => $o['amount_grosz']]);
+            if ($own) $pdo->commit();
+            return true;
+        } catch (\Throwable $e) {
+            if ($own && $pdo->inTransaction()) $pdo->rollBack();
+            throw $e;
+        }
     }
 
     private static function http(string $method, string $url, string $body, array $headers, bool $followRedirects = true): string

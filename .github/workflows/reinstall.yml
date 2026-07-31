@@ -33,8 +33,11 @@ jobs:
           curl -sS -m 60 "$APP_URL/install.php" | sed 's/<[^>]*>//g' | grep -v '^\s*$' | head -15 || true
 
       - name: Przeinstaluj świat od zera
+        env:
+          SETUP_TOKEN: ${{ secrets.SETUP_TOKEN }}
         run: |
-          RESP=$(curl -sS -m 180 "$APP_URL/install.php?run=1&force=1")
+          if [ -z "$SETUP_TOKEN" ]; then echo "::error::Brak sekretu SETUP_TOKEN — reinstalacja jest celowo zablokowana (fail-closed). Dodaj sekret SETUP_TOKEN w Settings → Secrets."; exit 1; fi
+          RESP=$(curl -sS -m 180 "$APP_URL/install.php?run=1&force=1&token=$SETUP_TOKEN")
           CLEAN=$(echo "$RESP" | sed 's/<[^>]*>//g' | grep -v '^\s*$')
           echo "$CLEAN" | head -40
           echo "$CLEAN" | grep -q "Gotowe" || { echo "::error::Instalacja nie zwróciła 'Gotowe' — sprawdź config bazy (sekrety DB_*) i logi."; exit 1; }

@@ -18,6 +18,8 @@ $price = (float) str_replace(',', '.', $_POST['price'] ?? '0');
 $sl    = ($_POST['sl_price'] ?? '') !== '' ? (float) str_replace(',', '.', $_POST['sl_price']) : null;
 $tp    = ($_POST['tp_price'] ?? '') !== '' ? (float) str_replace(',', '.', $_POST['tp_price']) : null;
 
+// wolne akcje PRZED zleceniem — do policzenia, ile REALNIE dokupił ten pakiet (auto-SL/TP)
+$freeBefore = (int) (Engine::one("SELECT qty FROM wallets WHERE user_id=? AND stock_id=?", [$user['id'], $sid]) ?: 0);
 $filledAny = false;
 if ($type === 'market') {
     [$ok, $msg] = Engine::marketOrder((int) $user['id'], $sid, $side, $qty);
@@ -48,9 +50,11 @@ Engine::journal((int) $user['id'], 'order',
     . ($ok ? '.' : ' — ' . $msg),
     $ok && !empty($oid) ? 'order.php?id=' . (int) $oid : 'stock.php?id=' . $sid);
 if ($ok && $side === 'buy' && ($sl !== null || $tp !== null)) {
-    // zlecenie obronne NA KUPIONY PAKIET (nie na całą pozycję) — tyle, ile realnie weszło do portfela
+    // zlecenie obronne NA KUPIONY PAKIET (nie na całą pozycję): tyle, ile REALNIE dokupiło to
+    // zlecenie (przyrost wolnych akcji), a nie cały wolny stan portfela (który obejmuje stare akcje)
     $free = (int) (Engine::one("SELECT qty FROM wallets WHERE user_id=? AND stock_id=?", [$user['id'], $sid]) ?: 0);
-    $stopQty = min($qty, $free);
+    $bought = max(0, $free - $freeBefore);
+    $stopQty = min($bought, $free);
     if ($stopQty > 0) {
         [$ok2, $msg2] = Engine::placeStop((int) $user['id'], $sid, $stopQty, $sl, $tp);
         Log::write($ok2 ? 'info' : 'warn', 'player', 'order.stop', ($ok2 ? 'przyjęte' : 'odrzucone') . ": SL/TP {$stopQty}szt (spółka #$sid)",

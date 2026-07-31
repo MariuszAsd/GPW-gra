@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 34;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 36;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -130,7 +130,8 @@ final class Schema
                 sell_order_id INT NULL,
                 qty   INT NOT NULL,
                 price $money NOT NULL,
-                created_at VARCHAR(19) NOT NULL
+                created_at VARCHAR(19) NOT NULL,
+                candled TINYINT NOT NULL DEFAULT 0   -- 0=jeszcze nie ujęta w świecy; builder świec zaznacza po id (bez wyścigu kursora na MySQL)
             )",
 
             "candles" => "CREATE TABLE candles (
@@ -573,6 +574,7 @@ final class Schema
             "CREATE INDEX ix_chp_shadow ON challenge_players (shadow_user_id)",
             "CREATE INDEX ix_journal ON player_journal (user_id, id)",
             "CREATE INDEX ix_cashledger ON cash_ledger (user_id, id)",
+            "CREATE INDEX ix_tx_candled ON transactions (candled)",
             "CREATE INDEX ix_cd ON candles_daily (stock_id, session)",
             "CREATE INDEX ix_ledger ON token_ledger (user_id, id)",
             "CREATE INDEX ix_reco ON recommendations (session)",

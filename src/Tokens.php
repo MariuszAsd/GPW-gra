@@ -28,7 +28,7 @@ final class Tokens
     }
 
     /** Przyznaj tokeny (nagrody, GM, przyszłe zakupy). */
-    public static function grant(int $uid, int $n, string $reason, string $note = ''): void
+    public static function grant(int $uid, int $n, string $reason, string $note = '', bool $throwOnError = false): void
     {
         if ($n <= 0) return;
         try {
@@ -39,7 +39,12 @@ final class Tokens
             $pdo->prepare("INSERT INTO token_ledger (user_id, delta, balance, reason, note, created_at) VALUES (?,?,?,?,?,?)")
                 ->execute([$uid, $n, $bal, mb_substr($reason, 0, 40), $note !== '' ? mb_substr($note, 0, 160) : null, Db::now()]);
             Engine::notify($uid, 'token', "🪙 +$n Tokenów inwestora" . ($note !== '' ? " — $note" : '') . " (saldo: $bal).", 'sklep.php');
-        } catch (\Throwable $e) { Log::write('warn', 'engine', 'tokens.grant', $e->getMessage()); }
+        } catch (\Throwable $e) {
+            Log::write('warn', 'engine', 'tokens.grant', $e->getMessage());
+            // przy PŁATNOŚCIACH wołający musi wiedzieć o błędzie — nie wolno oznaczyć zamówienia jako
+            // opłacone bez tokenów. Propaguj, żeby transakcja się cofnęła i PayU ponowiło notyfikację.
+            if ($throwOnError) throw $e;
+        }
     }
 
     /** Wydaj tokeny ATOMOWO (odmowa przy braku środków). Zwraca [ok, komunikat]. */

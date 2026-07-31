@@ -95,13 +95,22 @@ final class Challenges
         $st->execute([$total, $userId, $total]);
         if ($st->rowCount() === 0) return [false, 'Za mało gotówki: potrzeba ' . number_format($total, 2, ',', ' ') . ' PLN (buy-in + wpisowe).'];
         try {
-            $pdo->prepare("INSERT INTO challenge_players (challenge_id, user_id, buyin, fee, joined_at) VALUES (?,?,?,?,?)")
-                ->execute([$challengeId, $userId, $buyin, $fee, Db::now()]);
+            // INSERT WARUNKOWY: edycja musi być NADAL w 'signup' (wyścig z rollem sesji — start()/cancel()
+            // w transakcji ticka mógł ją właśnie przełączyć). Bez tego powstawał sierocy zapis bez subkonta,
+            // z equity 0 = utracony buy-in. Pas i szelki: onRoll zamiata ewentualne sieroty (pełny zwrot).
+            $ins = $pdo->prepare("INSERT INTO challenge_players (challenge_id, user_id, buyin, fee, joined_at)
+                                  SELECT ?,?,?,?,? FROM challenges WHERE id=? AND status='signup'");
+            $ins->execute([$challengeId, $userId, $buyin, $fee, Db::now(), $challengeId]);
+            if ($ins->rowCount() === 0) {
+                $pdo->prepare("UPDATE users SET cash = cash + ? WHERE id = ?")->execute([$total, $userId]);
+                return [false, 'Zapisy właśnie się zamknęły — środki wróciły na konto.'];
+            }
         } catch (Throwable $e) {
             $pdo->prepare("UPDATE users SET cash = cash + ? WHERE id = ?")->execute([$total, $userId]);  // zwrot przy duplikacie
             return [false, 'Już jesteś zapisany na to wyzwanie.'];
         }
-        $pdo->prepare("UPDATE challenges SET pot = pot + ? WHERE id = ?")->execute([$fee, $challengeId]);
+        $pdo->prepare("UPDATE challenges SET pot = pot + ? WHERE id = ? AND status='signup'")->execute([$fee, $challengeId]);
+        Engine::ledger($userId, -$total, 'wyzwanie', 'Wpisowe na wyzwanie „' . $ch['name'] . '” (buy-in ' . number_format($buyin, 0, ',', ' ') . ' + wpisowe ' . number_format($fee, 0, ',', ' ') . ')', 'wyzwania.php');
         Log::write('info', 'player', 'challenge.join', "zapis do wyzwania #$challengeId", ['user_id' => $userId, 'buyin' => $buyin, 'fee' => $fee]);
         Engine::notify($userId, 'challenge', '⚔️ Zapisano do: ' . $ch['name'] . '. Zablokowano ' . number_format($total, 2, ',', ' ')
             . ' PLN (buy-in ' . number_format($buyin, 0, ',', ' ') . ' + wpisowe ' . number_format($fee, 0, ',', ' ') . ').', 'wyzwania.php');
@@ -130,6 +139,7 @@ final class Challenges
                     $refund = round((float) $cp['buyin'] + (float) $cp['fee'], 2);      // przed startem: pełny zwrot
                 }
                 $pdo->prepare("UPDATE users SET cash = cash + ? WHERE id = ?")->execute([$refund, $cp['user_id']]);
+                Engine::ledger((int) $cp['user_id'], $refund, 'wyzwanie', 'Zwrot za odwołane wyzwanie „' . $ch['name'] . '”', 'wyzwania.php');
                 Engine::notify((int) $cp['user_id'], 'challenge', '⚔️ Wyzwanie „' . $ch['name'] . "” odwołane ($why). Środki wróciły na konto.", 'wyzwania.php');
             }
             Log::write('warn', 'engine', 'challenge.cancel', $ch['name'] . " odwołane: $why", []);
@@ -166,6 +176,19 @@ final class Challenges
     /** Hak wołany przy zmianie sesji (z Engine::rollSession). */
     public static function onRoll(int $session, int $tick): void
     {
+        // pas i szelki: zapis, który wpadł PO starcie/odwołaniu edycji (wyścig HTTP z rollem) — subkonto
+        // nigdy nie powstało (shadow_user_id NULL), a edycja nie jest już w 'signup'. Pełny zwrot buy-in + wpisowe.
+        foreach (Engine::all("SELECT cp.* FROM challenge_players cp JOIN challenges c ON c.id=cp.challenge_id
+                              WHERE cp.shadow_user_id IS NULL AND c.status IN ('running','finished')") as $orphan) {
+            $del = Db::pdo()->prepare("DELETE FROM challenge_players WHERE id=? AND shadow_user_id IS NULL");
+            $del->execute([(int) $orphan['id']]);
+            if ($del->rowCount() === 0) continue;   // ktoś już rozliczył — nie zwracaj dwa razy
+            $refund = round((float) $orphan['buyin'] + (float) $orphan['fee'], 2);
+            Db::pdo()->prepare("UPDATE users SET cash = cash + ? WHERE id = ?")->execute([$refund, (int) $orphan['user_id']]);
+            Db::pdo()->prepare("UPDATE challenges SET pot = pot - ? WHERE id = ?")->execute([round((float) $orphan['fee'], 2), (int) $orphan['challenge_id']]);
+            Engine::notify((int) $orphan['user_id'], 'challenge', '⚔️ Twój zapis wpadł już po starcie edycji — pełny zwrot ' . number_format($refund, 2, ',', ' ') . ' PLN.', 'wyzwania.php');
+            Log::write('warn', 'engine', 'challenge.orphan', 'sierocy zapis #' . $orphan['id'] . ' zwrócony', []);
+        }
         foreach (Engine::all("SELECT * FROM challenges WHERE status='signup' AND start_session <= ?", [$session]) as $ch) {
             $players = Engine::all("SELECT cp.*, u.username FROM challenge_players cp JOIN users u ON u.id=cp.user_id WHERE cp.challenge_id=?", [$ch['id']]);
             if (count($players) >= (int) $ch['min_players']) self::guarded('start' . (int) $ch['id'], fn() => self::start($ch, $players, $session, $tick));
@@ -276,6 +299,9 @@ final class Challenges
         $pdo->prepare("DELETE FROM wallets WHERE user_id=?")->execute([$sid]);
         $pdo->prepare("UPDATE users SET cash=cash+? WHERE id=?")->execute([round($cash, 2), $uid]);
         $pdo->prepare("UPDATE users SET cash=0, cash_reserved=0 WHERE id=?")->execute([$sid]);
+        if (round($cash, 2) != 0.0) {
+            Engine::ledger($uid, round($cash, 2), 'wyzwanie', 'Wyzwanie „' . ($ch['name'] ?? '') . '”: gotówka z subkonta wróciła na konto (akcje przeniesione osobno)', 'wyzwania.php');
+        }
         return round($cash + $stockVal, 2);
     }
 
@@ -313,7 +339,10 @@ final class Challenges
             }
             $pdo->prepare("UPDATE challenge_players SET final_equity=?, final_rank=?, prize=? WHERE id=?")
                 ->execute([$r['equity'], $rank, $prize, $cp['id']]);
-            if ($prize > 0) $pdo->prepare("UPDATE users SET cash=cash+? WHERE id=?")->execute([$prize, $cp['user_id']]);
+            if ($prize > 0) {
+                $pdo->prepare("UPDATE users SET cash=cash+? WHERE id=?")->execute([$prize, $cp['user_id']]);
+                Engine::ledger((int) $cp['user_id'], $prize, 'wyzwanie', 'Nagroda w wyzwaniu „' . $ch['name'] . '” (miejsce ' . $rank . ')', 'wyzwania.php');
+            }
             $ret = (float) $cp['buyin'] > 0 ? ($r['equity'] / (float) $cp['buyin'] - 1) * 100 : 0;
             $msg = '⚔️ ' . $ch['name'] . ' zakończone! Miejsce ' . $rank . '/' . count($results)
                  . ', wynik ' . number_format($ret, 1, ',', ' ') . '%'

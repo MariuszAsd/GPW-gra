@@ -499,6 +499,25 @@ final class Migrator
                 "CREATE INDEX ix_orders_active ON orders (status, side, stock_id, price)",
                 "CREATE INDEX ix_candles_t ON candles (t)",
             ],
+            35 => [
+                // ŚWIECE bez wyścigu kursora na MySQL: zamiast „last_candle_tx = MAX(id)" (snapshot ticka
+                // nie widzi transakcji HTTP zacommitowanych w trakcie ticka i kursor je przeskakiwał —
+                // wolumen świec < wolumen transakcji) oznaczamy transakcje flagą po id. Istniejące =
+                // już ujęte (1); ogon powyżej dotychczasowego kursora zostaje do ujęcia (0).
+                "ALTER TABLE transactions ADD COLUMN candled TINYINT NOT NULL DEFAULT 1",
+                "UPDATE transactions SET candled=0 WHERE id > COALESCE((SELECT CAST(v AS " . (Db::driver() === 'mysql' ? 'UNSIGNED' : 'INTEGER') . ") FROM game_state WHERE k='last_candle_tx'), 0)",
+                "CREATE INDEX ix_tx_candled ON transactions (candled)",
+            ],
+            36 => [
+                // Spójność księgi tokenów: konta sprzed wprowadzenia token_ledger dostały tokeny powitalne
+                // bezpośrednim UPDATE bez wpisu — suma delt nie zgadzała się z users.tokens (fałszywy niedobór
+                // przy audycie reklamacji). Dopisujemy JEDEN korygujący wpis 'welcome' tam, gdzie jest różnica.
+                "INSERT INTO token_ledger (user_id, delta, balance, reason, note, created_at)
+                 SELECT u.id, (u.tokens - COALESCE(l.s, 0)), u.tokens, 'welcome', 'wyrównanie księgi (tokeny powitalne)', '" . Db::now() . "'
+                 FROM users u
+                 LEFT JOIN (SELECT user_id, SUM(delta) s FROM token_ledger GROUP BY user_id) l ON l.user_id = u.id
+                 WHERE u.is_bot = 0 AND (u.tokens - COALESCE(l.s, 0)) <> 0",
+            ],
         ];
     }
 

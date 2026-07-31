@@ -24,6 +24,10 @@ $config = [
 
     // publiczny adres gry — używany przez QA-bota (testy przez HTTP jak prawdziwy gracz)
     'app_url' => getenv('APP_URL') ?: 'https://gra.mppp.com.pl/public',
+
+    // sekretny token do DESTRUKCYJNEJ reinstalacji świata (install.php?force=1).
+    // Pusty = reinstalacja przez WWW zablokowana (fail-closed). Ustaw sekret SETUP_TOKEN.
+    'setup_token' => getenv('SETUP_TOKEN') ?: '',
 ];
 
 // Nadpisz sekretami z pliku serwerowego (poza repo), jeśli istnieje.

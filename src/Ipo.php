@@ -65,10 +65,24 @@ final class Ipo
     /** Hak na granicy sesji: rozlicz zamknięte oferty, potem ewentualnie ogłoś nową. */
     public static function onRoll(int $session, int $tick): void
     {
-        // 1) oferty z zamkniętym oknem zapisów: redukcja, przydział, zwroty, debiut
+        // 1) oferty z zamkniętym oknem zapisów: redukcja, przydział, zwroty, debiut.
+        //    Każde rozliczenie w SAVEPOINCIE: błąd (np. deadlock) cofa TYLKO tę ofertę (status wraca do
+        //    'open' -> retry następnej sesji), nie zostawia częściowego przydziału ani nie psuje reszty ticka.
         foreach (Engine::all("SELECT * FROM ipo_offers WHERE status='open' AND close_session <= ?", [$session]) as $o) {
-            try { self::settleOffer($o, $tick); }
-            catch (\Throwable $e) { Log::write('error', 'engine', 'ipo.settle', $e->getMessage(), ['offer' => $o['id']]); }
+            $pdo = Db::pdo();
+            $inTx = $pdo->inTransaction();
+            $sp = 'iposp' . (int) $o['id'];
+            if ($inTx) $pdo->exec("SAVEPOINT $sp");
+            try {
+                self::settleOffer($o, $tick);
+                if ($inTx) $pdo->exec("RELEASE SAVEPOINT $sp");
+            } catch (\Throwable $e) {
+                if ($inTx) {
+                    try { $pdo->exec("ROLLBACK TO SAVEPOINT $sp"); }
+                    catch (\Throwable $e2) { throw $e; }   // savepoint przepadł (deadlock => cała transakcja cofnięta) — nie kontynuuj ticka po cichu
+                }
+                Log::write('error', 'engine', 'ipo.settle', $e->getMessage(), ['offer' => $o['id']]);
+            }
         }
         // pas i szelki: sierocy zapis (wyścig z rozliczeniem) dostaje pełny zwrot
         foreach (Engine::all("SELECT s.* FROM ipo_subs s JOIN ipo_offers o ON o.id = s.offer_id
@@ -93,7 +107,14 @@ final class Ipo
         if (Engine::one("SELECT id FROM ipo_offers WHERE status='open'")) return;
         $last = (int) (Engine::one("SELECT v FROM game_state WHERE k='ipo_last_session'") ?: 0);
         if ($session - $last < $every) return;
-        Engine::setState('ipo_last_session', (string) $session);
+        // ATOMOWY claim rytmu: tylko zwycięzca (rowCount=1) ogłasza — dwa równoległe rolle (ręczny tick GM
+        // + cron) nie ogłoszą dwóch ofert naraz. Upewnij się, że wiersz istnieje, potem warunkowy UPDATE.
+        if (Engine::one("SELECT 1 FROM game_state WHERE k='ipo_last_session'") === false) {
+            try { Db::pdo()->prepare("INSERT INTO game_state (k, v) VALUES ('ipo_last_session', '0')")->execute(); } catch (\Throwable $e) {}
+        }
+        $claim = Db::pdo()->prepare("UPDATE game_state SET v=? WHERE k='ipo_last_session' AND v=?");
+        $claim->execute([(string) $session, (string) $last]);
+        if ($claim->rowCount() !== 1) return;   // inny roll właśnie ogłosił ofertę w tym rytmie
         self::createOffer($session, $tick);
     }
 

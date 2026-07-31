@@ -24,6 +24,7 @@ $KAT = [
     'ipo'         => '📈 IPO (zapis/zwrot)',
     'lokata'      => '🏦 Lokaty',
     'dywidenda'   => '💰 Dywidendy',
+    'wyzwanie'    => '⚔️ Wyzwania',
 ];
 $fil = array_key_exists($_GET['f'] ?? '', $KAT) ? ($_GET['f'] ?? '') : '';
 
@@ -42,11 +43,16 @@ $add = function (string $ts, float $amount, string $cat, string $label, string $
     $mov[] = ['ts' => $ts, 'amount' => round($amount, 2), 'cat' => $cat, 'label' => $label, 'note' => $note, 'link' => $link];
 };
 
-// 1) KUPNO / SPRZEDAŻ z arkusza (konto główne gracza)
-foreach (Engine::all("SELECT t.created_at ts, t.qty, t.price, t.buyer_id, t.seller_id, s.ticker, s.id sid
-                      FROM transactions t JOIN stocks s ON s.id = t.stock_id
-                      WHERE t.buyer_id = ? OR t.seller_id = ?
-                      ORDER BY t.id DESC LIMIT $LIMIT", [$pid, $pid]) as $t) {
+// 1) KUPNO / SPRZEDAŻ z arkusza (konto główne gracza).
+// UNION po dwóch indeksach (ix_tx_buyer / ix_tx_seller) zamiast OR na dwóch kolumnach — OR z JOIN/ORDER
+// nie używa index_merge na MySQL i skanowałby całą (rosnącą) tabelę transakcji przy każdym otwarciu.
+foreach (Engine::all("SELECT * FROM (
+                          SELECT t.id, t.created_at ts, t.qty, t.price, t.buyer_id, t.seller_id, s.ticker, s.id sid
+                          FROM transactions t JOIN stocks s ON s.id = t.stock_id WHERE t.buyer_id = ?
+                          UNION ALL
+                          SELECT t.id, t.created_at ts, t.qty, t.price, t.buyer_id, t.seller_id, s.ticker, s.id sid
+                          FROM transactions t JOIN stocks s ON s.id = t.stock_id WHERE t.seller_id = ?
+                      ) x ORDER BY id DESC LIMIT $LIMIT", [$pid, $pid]) as $t) {
     $val = round((int) $t['qty'] * (float) $t['price'], 2);
     $lnk = 'stock.php?id=' . (int) $t['sid'];
     if ((int) $t['buyer_id'] === $pid)
@@ -84,16 +90,16 @@ foreach (Engine::all("SELECT amount, rate_pct, end_session, status, created_at F
         $payout = round($amt * (1 + (float) $d['rate_pct'] / 100), 2);
         $add($dateOfSession((int) $d['end_session'], $d['created_at']), $payout, 'lokata', '🏦 Lokata — wypłata',
              'Wypłata lokaty (w tym odsetki +' . money($payout - $amt) . ' PLN)');
-    } elseif ($d['status'] === 'broken') {
-        $add($d['created_at'], $amt, 'lokata', '🏦 Lokata — zerwana', 'Zerwano lokatę — zwrot kapitału (bez odsetek)');
     }
+    // uwaga: zerwane lokaty ('broken') NIE są tu wyliczane — ich zwrot trafia do księgi cash_ledger
+    // z FAKTYCZNĄ datą zerwania (poniżej), a nie z datą założenia (którą jedyną ma tabela deposits).
 }
 
 // 4) KSIĘGA GOTÓWKI (dywidendy itd. — od wdrożenia strony)
 foreach (Engine::all("SELECT ts, amount, category, note, link FROM cash_ledger
                       WHERE user_id = ? ORDER BY id DESC LIMIT $LIMIT", [$pid]) as $c) {
-    $cat = $c['category'] === 'dividend' ? 'dywidenda' : $c['category'];
-    $lbl = $c['category'] === 'dividend' ? '💰 Dywidenda' : 'ℹ️ ' . $c['category'];
+    $map = ['dividend' => ['dywidenda', '💰 Dywidenda'], 'wyzwanie' => ['wyzwanie', '⚔️ Wyzwanie'], 'lokata' => ['lokata', '🏦 Lokata']];
+    [$cat, $lbl] = $map[$c['category']] ?? [$c['category'], 'ℹ️ ' . $c['category']];
     $add($c['ts'], (float) $c['amount'], $cat, $lbl, (string) $c['note'], (string) ($c['link'] ?? ''));
 }
 
@@ -127,8 +133,8 @@ layout_header('Historia konta', $user, 'portfolio');
 <div class="grid3" style="margin-bottom:14px">
   <div class="panel"><div class="muted sm">Wolna gotówka</div><div style="font-size:1.35rem;font-weight:700"><?= money($cash) ?> PLN</div>
     <?php if ($reserved > 0.005): ?><div class="muted sm">+ zamrożone w zleceniach: <?= money($reserved) ?> PLN</div><?php endif; ?></div>
-  <div class="panel"><div class="muted sm">Wpłynęło (widoczny okres)</div><div style="font-size:1.35rem;font-weight:700;color:#16a34a">+<?= money($sumIn) ?> PLN</div></div>
-  <div class="panel"><div class="muted sm">Wypłynęło (widoczny okres)</div><div style="font-size:1.35rem;font-weight:700;color:#dc2626">−<?= money($sumOut) ?> PLN</div></div>
+  <div class="panel"><div class="muted sm">Wpłynęło (widoczne zdarzenia)</div><div style="font-size:1.35rem;font-weight:700;color:#16a34a">+<?= money($sumIn) ?> PLN</div></div>
+  <div class="panel"><div class="muted sm">Wypłynęło (widoczne zdarzenia)</div><div style="font-size:1.35rem;font-weight:700;color:#dc2626">−<?= money($sumOut) ?> PLN</div></div>
 </div>
 
 <div class="panel" style="margin-bottom:14px">
@@ -167,7 +173,8 @@ layout_header('Historia konta', $user, 'portfolio');
 <?php endforeach; endif; ?>
 
 <p class="muted sm" style="margin-top:10px">
-  Pokazuję ostatnie zdarzenia (do ~800). Sprzedaż liczona po potrąceniu prowizji od obrotu.
+  Pokazuję ostatnie zdarzenia (do ~800), więc sumy dotyczą TYLKO widocznych pozycji, nie całej historii.
+  Sprzedaż liczona po potrąceniu prowizji od obrotu wg bieżącej stawki. Wpisowe/nagrody wyzwań i dywidendy księgują się od wdrożenia.
   Zwroty z IPO i wypłaty lokat datowane są dniem rozliczenia sesji. Dywidendy zapisują się od wdrożenia tej strony.
 </p>
 <?php layout_footer();

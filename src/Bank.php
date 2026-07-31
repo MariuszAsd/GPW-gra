@@ -70,6 +70,9 @@ final class Bank
         $amount = (float) Engine::one("SELECT amount FROM deposits WHERE id=?", [$depositId]);
         try {
             $pdo->prepare("UPDATE users SET cash = cash + ? WHERE id = ?")->execute([$amount, $userId]);
+            // księga gotówki: zerwanie datowane FAKTYCZNYM momentem (Historia konta pokazuje je we właściwym dniu,
+            // nie w dniu założenia). Wypłaty w terminie zostają wyprowadzane z tabeli deposits (mają datę sesji).
+            Engine::ledger($userId, $amount, 'lokata', 'Zerwana lokata — zwrot kapitału (bez odsetek)', 'portfolio.php?tab=lok');
         } catch (\Throwable $e) {   // zwrot padł — cofnij oznaczenie, żeby lokata nie zginęła
             $pdo->prepare("UPDATE deposits SET status='active' WHERE id=?")->execute([$depositId]);
             Log::write('error', 'engine', 'bank.break', $e->getMessage(), ['deposit' => $depositId]);

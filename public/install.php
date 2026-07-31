@@ -29,6 +29,25 @@ try {
 $installed = false;
 try { $installed = ((int) Engine::one("SELECT COUNT(*) FROM stocks")) > 0; } catch (Throwable $e) { $installed = false; }
 $force = ($_GET['force'] ?? '') === '1';
+
+// GATE BEZPIECZEŃSTWA: destrukcyjna reinstalacja (force=1 kasuje WSZYSTKIE dane) wymaga
+// sekretnego tokenu. Bez tego dowolny gość z internetu mógłby jednym GET-em skasować grę.
+// Token z config.local.php (sekret SETUP_TOKEN, budowany w deploy). Fail-closed: brak lub
+// niezgodny token => odmowa. Legalny reset idzie wyłącznie przez workflow „Reinstall world",
+// który podaje &token=… . Confirm() w JS to NIE jest zabezpieczenie.
+if ($force) {
+    $cfg = require __DIR__ . '/../config.php';
+    $expected = trim((string) ($cfg['setup_token'] ?? ''));
+    $given = (string) ($_GET['token'] ?? '');
+    if ($expected === '' || !hash_equals($expected, $given)) {
+        http_response_code(403);
+        echo "<p style='color:#b02a24'><b>⛔ Reinstalacja zablokowana.</b> Ta operacja kasuje wszystkie dane gry "
+           . "i wymaga sekretnego tokenu — ręczne wywołanie z przeglądarki jest celowo niemożliwe.</p>";
+        echo "<p>Ustaw sekret <code>SETUP_TOKEN</code> (GitHub → Settings → Secrets), zrób deploy, "
+           . "a reset uruchamiaj przez Actions → <b>Reinstall world</b> (workflow sam podaje token).</p>";
+        exit;
+    }
+}
 if ($installed && !$force) {
     echo "<p style='color:#1c7a4e'><b>✔ Baza jest już założona.</b> Instalator nic nie robi (nie skasuje danych).</p>";
     echo "<p><a href='market.php'>Wejdź do gry →</a> &nbsp;·&nbsp; potem usuń <code>public/install.php</code>.</p>";

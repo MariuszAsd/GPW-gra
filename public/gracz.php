@@ -15,7 +15,7 @@ if (!$p || (int) $p['is_bot'] === 1 || ($p['role'] !== 'player' && !$isMe && !$v
 $stockVal = (float) (Engine::one("SELECT COALESCE(SUM((w.qty + w.qty_reserved) * s.price), 0) FROM wallets w JOIN stocks s ON s.id=w.stock_id WHERE w.user_id=?", [$pid]) ?: 0);
 $equity = (float) $p['cash'] + (float) $p['cash_reserved'] + $stockVal + Engine::lockedFunds($pid);
 $ret = (float) $p['start_equity'] > 0 ? ($equity / (float) $p['start_equity'] - 1) * 100 : 0;
-$txCount = (int) Engine::one("SELECT COUNT(*) FROM transactions WHERE buyer_id=? OR seller_id=?", [$pid, $pid]);
+$txCount = (int) Engine::one("SELECT (SELECT COUNT(*) FROM transactions WHERE buyer_id=?) + (SELECT COUNT(*) FROM transactions WHERE seller_id=?)", [$pid, $pid]);
 $posCount = (int) Engine::one("SELECT COUNT(*) FROM wallets WHERE user_id=? AND (qty + qty_reserved) > 0", [$pid]);
 
 // wykres kapitału
@@ -43,8 +43,11 @@ foreach (Engine::all("SELECT code, earned_at FROM achievements WHERE user_id=? O
 $catalog = Achievements::all();
 
 // zamknięte pozycje (top wg wyniku, metoda średniego kosztu — jak w Portfelu)
-$allTx = Engine::all("SELECT t.stock_id, t.qty, t.price, t.buyer_id, s.ticker FROM transactions t JOIN stocks s ON s.id=t.stock_id
-                      WHERE t.buyer_id=? OR t.seller_id=? ORDER BY t.id", [$pid, $pid]);
+$allTx = Engine::all("SELECT stock_id, qty, price, buyer_id, ticker FROM (
+                          SELECT t.id, t.stock_id, t.qty, t.price, t.buyer_id, s.ticker FROM transactions t JOIN stocks s ON s.id=t.stock_id WHERE t.buyer_id=?
+                          UNION ALL
+                          SELECT t.id, t.stock_id, t.qty, t.price, t.buyer_id, s.ticker FROM transactions t JOIN stocks s ON s.id=t.stock_id WHERE t.seller_id=?
+                      ) x ORDER BY id ASC", [$pid, $pid]);
 $feeRate = Engine::feeRate();
 $closed = []; $lots = [];
 foreach ($allTx as $t) {
