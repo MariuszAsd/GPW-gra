@@ -1,0 +1,124 @@
+name: Raport stanu gry (żywy serwer)
+
+# Migawka „co się dzieje w grze" z produkcji — bez ingerencji w dane (same GET-y):
+# rynek i indeks (top wzrosty/spadki, obroty), wiadomości, IPO, wyzwania, ranking,
+# rekomendacje, zdrowie gry (QA), ostatnie wpisy silnika, błędy i aktywność graczy z 24 h.
+# Uruchamiane aktualizacją pliku .raport (zdalnie) lub ręcznie z Actions.
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths: ['.raport']
+
+jobs:
+  raport:
+    runs-on: ubuntu-latest
+    env:
+      APP_URL: ${{ secrets.APP_URL || 'https://gra.mppp.com.pl/public' }}
+      ADMIN_PASS: ${{ secrets.ADMIN_PASS || 'admin123' }}
+    steps:
+      - name: Logowanie jako admin (tylko odczyt)
+        run: |
+          JAR=$(mktemp)
+          echo "JAR=$JAR" >> "$GITHUB_ENV"
+          curl -sS -c "$JAR" -d "username=admin&password=$ADMIN_PASS" "$APP_URL/login.php" -o /dev/null
+          CODE=$(curl -sS -b "$JAR" -o /dev/null -w '%{http_code}' -m 60 "$APP_URL/gm.php")
+          echo "gm.php: HTTP $CODE"
+          [ "$CODE" = "200" ] || { echo "::error::Logowanie admina nie działa (gm.php: $CODE)."; exit 1; }
+          cat > /tmp/strip.py <<'PY'
+          import re, sys, html
+          path, limit = sys.argv[1], int(sys.argv[2])
+          raw = open(path, encoding='utf-8', errors='replace').read()
+          raw = re.sub(r'<(script|style|nav|header)[^>]*>.*?</\1>', ' ', raw, flags=re.S | re.I)
+          raw = re.sub(r'</(tr|li|p|h[1-6]|div|section|article)>', '\n', raw, flags=re.I)
+          raw = re.sub(r'<br\s*/?>', '\n', raw, flags=re.I)
+          raw = re.sub(r'</t[dh]>', ' | ', raw, flags=re.I)
+          txt = html.unescape(re.sub(r'<[^>]+>', ' ', raw))
+          lines = [re.sub(r'[ \t]+', ' ', l).strip(' |') for l in txt.splitlines()]
+          lines = [l for l in lines if l and len(l) > 2]
+          out = '\n'.join(lines)
+          print(out[:limit])
+          if len(out) > limit: print(f'... (ucięto, łącznie {len(out)} znaków)')
+          PY
+
+      - name: Rynek i indeks (API)
+        run: |
+          curl -sS -m 60 "$APP_URL/api_market.php" -o /tmp/market.json
+          python3 - <<'PY'
+          import json, re
+          j = json.load(open('/tmp/market.json'))
+          assert j.get('ok') is True, 'api_market: ok != true'
+          d = j['data']; idx = j.get('index') or {}
+          print(f"SESJA #{j.get('session')}  |  indeks {idx.get('value')} pkt ({idx.get('chg'):+.2f}% w sesji)  |  spółek: {len(d)}")
+          ser = [float(x) for x in idx.get('series') or []]
+          if len(ser) > 2:
+              print(f"indeks: min {min(ser):.2f} / max {max(ser):.2f} w ostatnich {len(ser)} zapisach; start serii {ser[0]:.2f} -> teraz {ser[-1]:.2f} ({(ser[-1]-ser[0])/ser[0]*100:+.2f}%)")
+          rows = sorted(((sid, float(v['chg']), v['price'], v['vol']) for sid, v in d.items()), key=lambda r: r[1])
+          zero = sum(1 for r in rows if r[1] == 0.0)
+          novol = sum(1 for r in rows if str(r[3]) in ('0', '0,00', '0 PLN', '', 'None'))
+          print(f"spółek bez zmiany kursu w sesji: {zero}/{len(rows)}; bez obrotu: {novol}/{len(rows)}")
+          print('--- TOP 5 SPADKI ---')
+          for sid, chg, p, vol in rows[:5]: print(f"  #{sid}: {chg:+.2f}%  kurs {p}  obrót {vol}")
+          print('--- TOP 5 WZROSTY ---')
+          for sid, chg, p, vol in rows[-5:][::-1]: print(f"  #{sid}: {chg:+.2f}%  kurs {p}  obrót {vol}")
+          PY
+
+      - name: Rynek — tabela spółek (nazwy, sektory)
+        run: |
+          curl -sS -b "$JAR" -m 60 "$APP_URL/market.php" -o /tmp/p.html
+          python3 /tmp/strip.py /tmp/p.html 6000
+
+      - name: Wiadomości (newsy, ESPI, wydarzenia)
+        run: |
+          curl -sS -b "$JAR" -m 60 "$APP_URL/wiadomosci.php" -o /tmp/p.html
+          python3 /tmp/strip.py /tmp/p.html 7000
+
+      - name: IPO (debiuty)
+        run: |
+          curl -sS -b "$JAR" -m 60 "$APP_URL/ipo.php" -o /tmp/p.html
+          python3 /tmp/strip.py /tmp/p.html 3500
+
+      - name: Wyzwania i sezon
+        run: |
+          curl -sS -b "$JAR" -m 60 "$APP_URL/wyzwania.php" -o /tmp/p.html
+          python3 /tmp/strip.py /tmp/p.html 3500
+          echo "=============== SEZON ==============="
+          curl -sS -b "$JAR" -m 60 "$APP_URL/sezon.php" -o /tmp/p.html
+          python3 /tmp/strip.py /tmp/p.html 2500
+
+      - name: Ranking graczy
+        run: |
+          curl -sS -b "$JAR" -m 60 "$APP_URL/ranking.php" -o /tmp/p.html
+          python3 /tmp/strip.py /tmp/p.html 3500
+
+      - name: Rekomendacje i branże
+        run: |
+          curl -sS -b "$JAR" -m 60 "$APP_URL/rekomendacje.php" -o /tmp/p.html
+          python3 /tmp/strip.py /tmp/p.html 2500
+          echo "=============== BRANŻE ==============="
+          curl -sS -b "$JAR" -m 60 "$APP_URL/branze.php" -o /tmp/p.html
+          python3 /tmp/strip.py /tmp/p.html 2500
+
+      - name: Zdrowie gry (panel GM)
+        run: |
+          curl -sS -b "$JAR" -m 60 "$APP_URL/gm.php" -o /tmp/p.html
+          python3 /tmp/strip.py /tmp/p.html 5000
+
+      - name: Dziennik silnika (ostatnie wpisy)
+        run: |
+          curl -sS -b "$JAR" -m 60 "$APP_URL/gm_logs.php?source=engine" -o /tmp/p.html
+          python3 /tmp/strip.py /tmp/p.html 6000
+
+      - name: Błędy z 24 h
+        run: |
+          curl -sS -b "$JAR" -m 60 "$APP_URL/gm_logs.php?level=error&h24=1" -o /tmp/p.html
+          python3 /tmp/strip.py /tmp/p.html 4000
+
+      - name: Aktywność graczy z 24 h
+        run: |
+          curl -sS -b "$JAR" -m 60 "$APP_URL/gm_logs.php?source=player&h24=1" -o /tmp/p.html
+          python3 /tmp/strip.py /tmp/p.html 5000
+          echo "=============== LOGOWANIA 24 h ==============="
+          curl -sS -b "$JAR" -m 60 "$APP_URL/gm_logs.php?source=auth&h24=1" -o /tmp/p.html
+          python3 /tmp/strip.py /tmp/p.html 2500
