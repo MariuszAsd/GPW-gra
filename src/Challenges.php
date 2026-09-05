@@ -14,13 +14,15 @@
  */
 final class Challenges
 {
-    /** Domyślne parametry edycji (GM może nadpisać przy tworzeniu). */
+    /** Domyślne parametry edycji (GM może nadpisać przy tworzeniu).
+     *  Stawki celowo niskie: przy kapitale startowym 100k buy-in 5k + wpisowe 500 to próg,
+     *  który przekracza każdy — edycje mają STARTOWAĆ, nie odstraszać (por. min_players=2 + fundusze). */
     public const DEFAULTS = [
-        'buyin'       => 20000.0,
+        'buyin'       => 5000.0,
         'fee_pct'     => 10.0,
         'signup_sess' => 2,     // ile sesji trwają zapisy
         'duration'    => 14,    // ile sesji trwa handel
-        'min_players' => 3,
+        'min_players' => 2,     // docelowa obsada — brakujących uzupełniają fundusze gry (boty)
     ];
 
     /**
@@ -131,7 +133,7 @@ final class Challenges
             $claim = $pdo->prepare("UPDATE challenges SET status='cancelled', pot=0 WHERE id=? AND status IN ('signup','running')");
             $claim->execute([$challengeId]);
             if ($claim->rowCount() !== 1) { if ($own) $pdo->rollBack(); return; }
-            foreach (Engine::all("SELECT * FROM challenge_players WHERE challenge_id=?", [$challengeId]) as $cp) {
+            foreach (Engine::all("SELECT cp.*, u.is_bot FROM challenge_players cp JOIN users u ON u.id=cp.user_id WHERE cp.challenge_id=?", [$challengeId]) as $cp) {
                 if (!empty($cp['shadow_user_id'])) {
                     self::settlePlayer($ch, $cp);                                       // subkonto (buy-in w obecnej formie) wraca w całości
                     $refund = round((float) $cp['fee'], 2);                             // do zwrotu zostaje samo wpisowe
@@ -139,9 +141,13 @@ final class Challenges
                     $refund = round((float) $cp['buyin'] + (float) $cp['fee'], 2);      // przed startem: pełny zwrot
                 }
                 $pdo->prepare("UPDATE users SET cash = cash + ? WHERE id = ?")->execute([$refund, $cp['user_id']]);
-                Engine::ledger((int) $cp['user_id'], $refund, 'wyzwanie', 'Zwrot za odwołane wyzwanie „' . $ch['name'] . '”', 'wyzwania.php');
-                Engine::notify((int) $cp['user_id'], 'challenge', '⚔️ Wyzwanie „' . $ch['name'] . "” odwołane ($why). Środki wróciły na konto.", 'wyzwania.php');
+                if (empty($cp['is_bot'])) {   // fundusz gry: sam zwrot gotówki, bez wpisów do historii/powiadomień
+                    Engine::ledger((int) $cp['user_id'], $refund, 'wyzwanie', 'Zwrot za odwołane wyzwanie „' . $ch['name'] . '”', 'wyzwania.php');
+                    Engine::notify((int) $cp['user_id'], 'challenge', '⚔️ Wyzwanie „' . $ch['name'] . "” odwołane ($why). Środki wróciły na konto.", 'wyzwania.php');
+                }
             }
+            // subkonta funduszy przestają handlować (wpis DNA w bots tylko na czas edycji)
+            $pdo->prepare("DELETE FROM bots WHERE user_id IN (SELECT shadow_user_id FROM challenge_players WHERE challenge_id=? AND shadow_user_id IS NOT NULL)")->execute([$challengeId]);
             Log::write('warn', 'engine', 'challenge.cancel', $ch['name'] . " odwołane: $why", []);
             if ($own) $pdo->commit();
         } catch (\Throwable $e) {
@@ -190,9 +196,11 @@ final class Challenges
             Log::write('warn', 'engine', 'challenge.orphan', 'sierocy zapis #' . $orphan['id'] . ' zwrócony', []);
         }
         foreach (Engine::all("SELECT * FROM challenges WHERE status='signup' AND start_session <= ?", [$session]) as $ch) {
-            $players = Engine::all("SELECT cp.*, u.username FROM challenge_players cp JOIN users u ON u.id=cp.user_id WHERE cp.challenge_id=?", [$ch['id']]);
-            if (count($players) >= (int) $ch['min_players']) self::guarded('start' . (int) $ch['id'], fn() => self::start($ch, $players, $session, $tick));
-            else self::guarded('cancel' . (int) $ch['id'], fn() => self::cancel((int) $ch['id'], 'za mało uczestników — minimum ' . (int) $ch['min_players']));
+            $players = Engine::all("SELECT cp.*, u.username, u.is_bot FROM challenge_players cp JOIN users u ON u.id=cp.user_id WHERE cp.challenge_id=?", [$ch['id']]);
+            // wyzwanie startuje przy KAŻDYM zapisanym graczu — brakujący skład (do min_players)
+            // dopełniają fundusze gry (boty) w start(). Odwołanie tylko przy zerze chętnych.
+            if (count($players) >= 1) self::guarded('start' . (int) $ch['id'], fn() => self::start($ch, $players, $session, $tick));
+            else self::guarded('cancel' . (int) $ch['id'], fn() => self::cancel((int) $ch['id'], 'nikt się nie zapisał'));
         }
         foreach (Engine::all("SELECT * FROM challenges WHERE status='running' AND end_session < ?", [$session]) as $ch) {
             self::guarded('finish' . (int) $ch['id'], fn() => self::finish($ch, $tick));
@@ -234,6 +242,8 @@ final class Challenges
         $flip = $pdo->prepare("UPDATE challenges SET status='running', start_session=?, end_session=? WHERE id=? AND status='signup'");
         $flip->execute([$session, $end, $cid]);
         if ($flip->rowCount() !== 1) return;   // ktoś już wystartował/odwołał tę edycję
+        // skład dopełniają fundusze gry (boty) do min_players — samotny gracz zawsze ma rywali
+        $players = array_merge($players, self::recruitFunds($ch, max(0, (int) $ch['min_players'] - count($players))));
         foreach ($players as $cp) {
             if (!empty($cp['shadow_user_id'])) continue;   // subkonto już istnieje (wznowienie po częściowym starcie) — nie dubluj
             $base = mb_substr((string) $cp['username'], 0, 40) . '~w' . $cid;
@@ -249,8 +259,16 @@ final class Challenges
             }
             $sid = (int) $pdo->lastInsertId();
             $pdo->prepare("UPDATE challenge_players SET shadow_user_id=? WHERE id=?")->execute([$sid, $cp['id']]);
-            Engine::notify((int) $cp['user_id'], 'challenge', '⚔️ ' . $ch['name'] . ' WYSTARTOWAŁO! Handlujesz portfelem '
-                . number_format((float) $cp['buyin'], 0, ',', ' ') . ' PLN do końca sesji #' . $end . '. Powodzenia!', 'wyzwania.php');
+            if (!empty($cp['is_bot'])) {
+                // subkonto FUNDUSZU handluje samo: kopia DNA właściciela w tabeli bots (silnik botów je podejmie);
+                // wpis znika przy rozliczeniu edycji (finish/cancel), by martwe subkonto nie kręciło się w runBots
+                $dna = Engine::row("SELECT strategy, news_reactivity, technical_sensitivity, risk_appetite, horizon FROM bots WHERE user_id=?", [(int) $cp['user_id']]);
+                if ($dna) $pdo->prepare("INSERT INTO bots (user_id, strategy, news_reactivity, technical_sensitivity, risk_appetite, horizon) VALUES (?,?,?,?,?,?)")
+                    ->execute([$sid, $dna['strategy'], $dna['news_reactivity'], $dna['technical_sensitivity'], $dna['risk_appetite'], $dna['horizon']]);
+            } else {
+                Engine::notify((int) $cp['user_id'], 'challenge', '⚔️ ' . $ch['name'] . ' WYSTARTOWAŁO! Handlujesz portfelem '
+                    . number_format((float) $cp['buyin'], 0, ',', ' ') . ' PLN do końca sesji #' . $end . '. Powodzenia!', 'wyzwania.php');
+            }
         }
         $pot = (float) Engine::one("SELECT pot FROM challenges WHERE id=?", [$cid]);
         $pdo->prepare("INSERT INTO news (headline,body,type,scope,target_id,is_espi,impact_strength,publish_tick,expire_tick,published_at)
@@ -259,6 +277,43 @@ final class Challenges
                        'Konkurs trwa do końca sesji #' . $end . '. Tabela wyników na żywo w zakładce Wyzwania.',
                        $tick, $tick + 30, Db::now()]);
         Log::write('info', 'engine', 'challenge.start', $ch['name'] . ': ' . count($players) . ' graczy, pula ' . $pot, []);
+    }
+
+    /** Fundusze gry (boty) dopełniają skład edycji do min_players — samotny gracz zawsze ma rywali,
+     *  a edycje realnie startują. Fundusz płaci buy-in + wpisowe z WŁASNEJ gotówki (ekonomia zamknięta:
+     *  buy-in wraca mu przy rozliczeniu, wpisowe zasila pulę jak u każdego). Jego subkontem handluje
+     *  silnik botów — patrz kopia DNA w start(). Woływane wyłącznie z start(), w transakcji ticka. */
+    private static function recruitFunds(array $ch, int $need): array
+    {
+        if ($need <= 0) return [];
+        $pdo = Db::pdo();
+        $cid   = (int) $ch['id'];
+        $buyin = round((float) $ch['buyin'], 2);
+        $fee   = round($buyin * (float) $ch['fee_pct'] / 100, 2);
+        $total = round($buyin + $fee, 2);
+        // kandydaci: prawdziwe boty rynkowe (nie subkonta!) z zapasem gotówki, spoza tej edycji
+        $cand = Engine::all(
+            "SELECT u.id, u.username FROM users u JOIN bots b ON b.user_id = u.id
+             WHERE u.is_bot = 1 AND u.role <> 'challenger' AND u.cash >= ?
+               AND u.id NOT IN (SELECT user_id FROM challenge_players WHERE challenge_id = ?)",
+            [$total * 2, $cid]);
+        shuffle($cand);
+        $out = [];
+        foreach ($cand as $b) {
+            if (count($out) >= $need) break;
+            $st = $pdo->prepare("UPDATE users SET cash = cash - ? WHERE id = ? AND cash >= ?");
+            $st->execute([$total, (int) $b['id'], $total]);
+            if ($st->rowCount() !== 1) continue;   // w międzyczasie zbiedniał — następny kandydat
+            $pdo->prepare("INSERT INTO challenge_players (challenge_id, user_id, buyin, fee, joined_at) VALUES (?,?,?,?,?)")
+                ->execute([$cid, (int) $b['id'], $buyin, $fee, Db::now()]);
+            $cpId = (int) $pdo->lastInsertId();
+            $pdo->prepare("UPDATE challenges SET pot = pot + ? WHERE id = ?")->execute([$fee, $cid]);
+            $out[] = ['id' => $cpId, 'challenge_id' => $cid, 'user_id' => (int) $b['id'], 'buyin' => $buyin,
+                      'fee' => $fee, 'shadow_user_id' => null, 'username' => (string) $b['username'], 'is_bot' => 1];
+        }
+        if ($out) Log::write('info', 'engine', 'challenge.funds',
+            $ch['name'] . ': skład dopełniły fundusze gry — ' . implode(', ', array_column($out, 'username')), []);
+        return $out;
     }
 
     /** Bieżąca tabela wyników trwającego wyzwania (equity subkont, malejąco). */
@@ -299,7 +354,8 @@ final class Challenges
         $pdo->prepare("DELETE FROM wallets WHERE user_id=?")->execute([$sid]);
         $pdo->prepare("UPDATE users SET cash=cash+? WHERE id=?")->execute([round($cash, 2), $uid]);
         $pdo->prepare("UPDATE users SET cash=0, cash_reserved=0 WHERE id=?")->execute([$sid]);
-        if (round($cash, 2) != 0.0) {
+        $isBotOwner = (int) (Engine::one("SELECT is_bot FROM users WHERE id=?", [$uid]) ?: 0) === 1;
+        if (!$isBotOwner && round($cash, 2) != 0.0) {
             Engine::ledger($uid, round($cash, 2), 'wyzwanie', 'Wyzwanie „' . ($ch['name'] ?? '') . '”: gotówka z subkonta wróciła na konto (akcje przeniesione osobno)', 'wyzwania.php');
         }
         return round($cash + $stockVal, 2);
@@ -315,7 +371,7 @@ final class Challenges
         $claim = $pdo->prepare("UPDATE challenges SET status='finished' WHERE id=? AND status='running'");
         $claim->execute([$cid]);
         if ($claim->rowCount() !== 1) return;   // już rozstrzygnięte przez inny przebieg
-        $rows = Engine::all("SELECT cp.*, u.username FROM challenge_players cp JOIN users u ON u.id=cp.user_id WHERE cp.challenge_id=?", [$cid]);
+        $rows = Engine::all("SELECT cp.*, u.username, u.is_bot FROM challenge_players cp JOIN users u ON u.id=cp.user_id WHERE cp.challenge_id=?", [$cid]);
         $results = [];
         foreach ($rows as $cp) {
             $eq = !empty($cp['shadow_user_id']) ? self::settlePlayer($ch, $cp) : 0.0;
@@ -341,15 +397,18 @@ final class Challenges
                 ->execute([$r['equity'], $rank, $prize, $cp['id']]);
             if ($prize > 0) {
                 $pdo->prepare("UPDATE users SET cash=cash+? WHERE id=?")->execute([$prize, $cp['user_id']]);
-                Engine::ledger((int) $cp['user_id'], $prize, 'wyzwanie', 'Nagroda w wyzwaniu „' . $ch['name'] . '” (miejsce ' . $rank . ')', 'wyzwania.php');
+                if (empty($cp['is_bot'])) Engine::ledger((int) $cp['user_id'], $prize, 'wyzwanie', 'Nagroda w wyzwaniu „' . $ch['name'] . '” (miejsce ' . $rank . ')', 'wyzwania.php');
             }
             $ret = (float) $cp['buyin'] > 0 ? ($r['equity'] / (float) $cp['buyin'] - 1) * 100 : 0;
+            if ($rank <= 3) $podium[] = $rank . '. ' . $cp['username'] . ' (' . number_format($ret, 1, ',', ' ') . '%)';
+            // powiadomienia, odznaki, tokeny i punkty sezonu — tylko dla LUDZI (fundusz gry dostaje
+            // wyłącznie gotówkę: zwrot subkonta + ewentualną nagrodę; ekonomia zamknięta bez śmieciowych wpisów)
+            if (!empty($cp['is_bot'])) continue;
             $msg = '⚔️ ' . $ch['name'] . ' zakończone! Miejsce ' . $rank . '/' . count($results)
                  . ', wynik ' . number_format($ret, 1, ',', ' ') . '%'
                  . ($prize > 0 ? ', nagroda ' . number_format($prize, 2, ',', ' ') . ' PLN 🏆' : '')
                  . '. Akcje i gotówka wróciły na konto główne.';
             Engine::notify((int) $cp['user_id'], 'challenge', $msg, 'wyzwania.php');
-            if ($rank <= 3) $podium[] = $rank . '. ' . $cp['username'] . ' (' . number_format($ret, 1, ',', ' ') . '%)';
             if ($rank === 1) Engine::award((int) $cp['user_id'], 'zwyciezca_wyzwania');
             // Tokeny inwestora za podium (monetyzacja zdobywalna grą, nie tylko portfelem)
             if (!class_exists('Tokens')) require_once __DIR__ . '/Tokens.php';
@@ -363,6 +422,8 @@ final class Challenges
                     Seasons::pointsFor($rank, count($results)), 'miejsce ' . $rank . ' w ' . $ch['name']);
             }
         }
+        // subkonta funduszy przestają handlować (wpis DNA w bots tylko na czas edycji)
+        $pdo->prepare("DELETE FROM bots WHERE user_id IN (SELECT shadow_user_id FROM challenge_players WHERE challenge_id=? AND shadow_user_id IS NOT NULL)")->execute([$cid]);
         $pdo->prepare("UPDATE challenges SET pot=0 WHERE id=?")->execute([$cid]);   // status='finished' już ustawiony przy przejęciu
         $pdo->prepare("INSERT INTO news (headline,body,type,scope,target_id,is_espi,impact_strength,publish_tick,expire_tick,published_at)
                        VALUES (?,?,'POS','MARKET',NULL,0,0,?,?,?)")

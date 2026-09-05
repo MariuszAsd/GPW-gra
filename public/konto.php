@@ -45,6 +45,24 @@ layout_header('Ustawienia konta', $user, 'more');
   <a class="btn sm ghost" style="margin-left:auto" href="menu.php">← Konto</a>
 </div>
 
+<?php
+$cfgK = require __DIR__ . '/../config.php';
+$refLink = rtrim((string) ($cfgK['app_url'] ?? ''), '/') . '/register.php?ref=' . rawurlencode(Tokens::refCode($uid));
+$refCnt = (int) Engine::one("SELECT COUNT(*) FROM users WHERE referred_by=?", [$uid]);
+$refAct = (int) Engine::one("SELECT COUNT(*) FROM users WHERE referred_by=? AND ref_reward_at IS NOT NULL", [$uid]);
+?>
+<section class="panel" style="max-width:520px;margin-bottom:14px">
+  <h2>🤝 Poleć grę znajomym</h2>
+  <p class="muted" style="margin:6px 0 10px">Znajomy rejestruje się z Twojego linku i dostaje na start
+    +<?= Tokens::REF_BONUS ?> Tokenów. Gdy zacznie realnie handlować (min. 5 transakcji),
+    Ty dostajesz <b>+<?= Tokens::REF_REWARD ?> Tokenów inwestora</b> — za każdego poleconego.</p>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <input id="reflink" readonly value="<?= h($refLink) ?>" style="flex:1;min-width:220px;font-size:12.5px" onclick="this.select()">
+    <button class="btn sm ghost" type="button" onclick="navigator.clipboard&&navigator.clipboard.writeText(document.getElementById('reflink').value).then(()=>{this.textContent='✓ Skopiowano'})">Kopiuj link</button>
+  </div>
+  <p class="muted" style="margin:10px 0 0;font-size:12.5px">Poleconych: <b><?= $refCnt ?></b> · aktywnych (nagroda wypłacona): <b><?= $refAct ?></b></p>
+</section>
+
 <section class="panel" style="max-width:520px;margin-bottom:14px">
   <h2>E-mail do odzyskiwania hasła</h2>
   <?php if ($email === ''): ?>

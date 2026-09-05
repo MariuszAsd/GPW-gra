@@ -2,6 +2,20 @@
 require __DIR__ . '/_boot.php';
 $user = require_login();
 
+// obserwowanie graczy (znajomi): gwiazdka przy wierszu — obserwowani lądują w widżecie na Pulpicie
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['follow_id']) || isset($_POST['unfollow_id']))) {
+    $tid = (int) ($_POST['follow_id'] ?? $_POST['unfollow_id']);
+    $t = Engine::row("SELECT id FROM users WHERE id=? AND is_bot=0 AND role='player'", [$tid]);
+    if ($t && $tid !== (int) $user['id']) {
+        if (isset($_POST['follow_id'])) {
+            try { Db::pdo()->prepare("INSERT INTO user_follows (user_id, target_id, created_at) VALUES (?,?,?)")->execute([(int) $user['id'], $tid, Db::now()]); } catch (Throwable $e) { /* już obserwuje */ }
+        } else {
+            Db::pdo()->prepare("DELETE FROM user_follows WHERE user_id=? AND target_id=?")->execute([(int) $user['id'], $tid]);
+        }
+    }
+    redirect('ranking.php');
+}
+
 $goalTarget = (float) (Engine::one("SELECT v FROM game_state WHERE k='goal_target'") ?: 0);
 $goalSessions = (int) (Engine::one("SELECT v FROM game_state WHERE k='goal_sessions'") ?: 0);
 [$sessionNo] = Engine::sessionInfo();
@@ -9,6 +23,7 @@ $goalSessions = (int) (Engine::one("SELECT v FROM game_state WHERE k='goal_sessi
 // gracze + wartość akcji jednym zapytaniem (podzapytanie zamiast GROUP BY — spójne SQLite/MySQL)
 $players = Engine::all(
     "SELECT u.id, u.username, u.title, u.cash, u.cash_reserved, u.joined_session, u.goal_session, u.start_equity,
+            u.goal_started_session, u.goal_attempts,
             (SELECT COALESCE(SUM((w.qty + w.qty_reserved) * s.price), 0)
              FROM wallets w JOIN stocks s ON s.id = w.stock_id WHERE w.user_id = u.id) AS stock_val,
             (SELECT COALESCE(SUM(d.amount), 0) FROM deposits d WHERE d.user_id = u.id AND d.status = 'active') AS dep_val,
@@ -23,7 +38,9 @@ foreach ($players as &$p) {
                  + Engine::challengeLocked((int) $p['id']);
     $p['ret'] = (float) $p['start_equity'] > 0 ? ($p['equity'] - $p['start_equity']) / $p['start_equity'] * 100 : null;
     $p['won'] = $p['goal_session'] !== null;
-    $p['speed'] = $p['won'] ? max(1, (int) $p['goal_session'] - (int) $p['joined_session'] + 1) : null;
+    // tempo od startu BIEŻĄCEJ próby (po restarcie „nowa próba" zegar biegnie od goal_started_session)
+    $gs0 = $p['goal_started_session'] !== null ? (int) $p['goal_started_session'] : (int) $p['joined_session'];
+    $p['speed'] = $p['won'] ? max(1, (int) $p['goal_session'] - $gs0 + 1) : null;
 }
 unset($p);
 // kolejność rywalizacji: zwycięzcy wg tempa (najmniej sesji do celu), potem reszta wg kapitału
@@ -32,6 +49,8 @@ usort($players, function ($a, $b) {
     if ($a['won'] && $a['speed'] !== $b['speed']) return $a['speed'] <=> $b['speed'];
     return $b['equity'] <=> $a['equity'];
 });
+
+$following = array_map('intval', Engine::col("SELECT target_id FROM user_follows WHERE user_id=?", [(int) $user['id']]));
 
 layout_header('Ranking', $user, 'ranking');
 $medals = ['🥇', '🥈', '🥉'];
@@ -53,11 +72,14 @@ $medals = ['🥇', '🥈', '🥉'];
       <thead><tr><th style="width:52px">#</th><th>Gracz</th><th class="num">Kapitał</th><th class="num">Wynik</th><th>Cel</th><th class="num">Dołączył</th></tr></thead>
       <tbody>
       <?php foreach ($players as $i => $p):
-          $deadline = (int) $p['joined_session'] + $goalSessions - 1;
-          $left = $deadline - $sessionNo; ?>
+          $gStart = $p['goal_started_session'] !== null ? (int) $p['goal_started_session'] : (int) $p['joined_session'];
+          $deadline = $gStart + $goalSessions - 1;
+          $left = $deadline - $sessionNo;
+          $isMeRow = (int) $p['id'] === (int) $user['id']; ?>
         <tr <?= (int) $p['id'] === (int) $user['id'] ? 'style="background:var(--info-bg)"' : '' ?>>
           <td class="mono" style="font-size:16px"><?= $medals[$i] ?? ($i + 1) ?></td>
-          <td><a href="gracz.php?id=<?= (int) $p['id'] ?>" style="font-weight:700;color:var(--accent)"><?= h($p['username']) ?></a><?= trim((string) $p['title']) !== '' ? ' <span class="tag" style="color:var(--gold);border-color:var(--gold-border)">' . h($p['title']) . '</span>' : '' ?><?php $bn = (int) Engine::one("SELECT COUNT(*) FROM achievements WHERE user_id=?", [$p['id']]); ?><?= $bn > 0 ? " <span class='tag' title='zdobyte odznaki: $bn z " . count(Achievements::all()) . "'>🎖️$bn</span>" : '' ?><?= (int) $p['id'] === (int) $user['id'] ? ' <span class="tag" style="color:var(--accent);border-color:var(--accent)">Ty</span>' : '' ?></td>
+          <td><a href="gracz.php?id=<?= (int) $p['id'] ?>" style="font-weight:700;color:var(--accent)"><?= h($p['username']) ?></a><?= trim((string) $p['title']) !== '' ? ' <span class="tag" style="color:var(--gold);border-color:var(--gold-border)">' . h($p['title']) . '</span>' : '' ?><?php $bn = (int) Engine::one("SELECT COUNT(*) FROM achievements WHERE user_id=?", [$p['id']]); ?><?= $bn > 0 ? " <span class='tag' title='zdobyte odznaki: $bn z " . count(Achievements::all()) . "'>🎖️$bn</span>" : '' ?><?= (int) $p['id'] === (int) $user['id'] ? ' <span class="tag" style="color:var(--accent);border-color:var(--accent)">Ty</span>' : '' ?><?= (int) $p['goal_attempts'] > 1 ? ' <span class="tag" title="Która próba dojścia do celu (restart zegara po upływie czasu)">' . (int) $p['goal_attempts'] . '. próba</span>' : '' ?><?php if (!$isMeRow): $isFollowed = in_array((int) $p['id'], $following, true); ?>
+            <form method="post" style="display:inline;margin-left:4px"><input type="hidden" name="<?= $isFollowed ? 'unfollow_id' : 'follow_id' ?>" value="<?= (int) $p['id'] ?>"><button class="linklike" title="<?= $isFollowed ? 'Przestań obserwować — zniknie z widżetu Znajomi na Pulpicie' : 'Obserwuj gracza — jego wynik zobaczysz w widżecie Znajomi na Pulpicie' ?>" style="background:none;border:0;cursor:pointer;font-size:14px;padding:0;vertical-align:middle"><?= $isFollowed ? '★' : '☆' ?></button></form><?php endif; ?></td>
           <td class="num mono"><?= money($p['equity']) ?></td>
           <td class="num"><?php if ($p['ret'] === null): ?><span class="muted">—</span>
             <?php else: ?><span class="chg <?= $p['ret'] >= 0 ? 'p' : 'n' ?>"><span class="ar"><?= $p['ret'] >= 0 ? '▲' : '▼' ?></span><?= number_format(abs($p['ret']), 1, ',', ' ') ?>%</span><?php endif; ?></td>
@@ -65,7 +87,7 @@ $medals = ['🥇', '🥈', '🥉'];
             <?php if ($p['won']): ?><span class="up" title="Zwycięzca — tyle sesji zajęło mu dojście do celu (mniej = szybciej)">🏆 cel w <?= $p['speed'] ?> sesji</span>
             <?php elseif ($goalTarget <= 0): ?><span class="muted">—</span>
             <?php elseif ($left >= 0): ?><span class="soft" title="Ile sesji ZOSTAŁO temu graczowi na osiągnięcie celu (milion) — limit <?= $goalSessions ?> sesji od dołączenia">w grze · do celu: <?= $left ?> sesji</span>
-            <?php else: ?><span class="muted">czas minął</span><?php endif; ?>
+            <?php else: ?><span class="muted">czas minął</span><?= $isMeRow ? ' · <a href="portfolio.php" style="color:var(--accent)" title="Wystartuj nową próbę: świeży zegar i wynik % od bieżącego kapitału">nowa próba →</a>' : '' ?><?php endif; ?>
           </td>
           <td class="num muted">#<?= (int) $p['joined_session'] ?></td>
         </tr>

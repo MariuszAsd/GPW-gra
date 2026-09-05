@@ -518,6 +518,21 @@ final class Migrator
                  LEFT JOIN (SELECT user_id, SUM(delta) s FROM token_ledger GROUP BY user_id) l ON l.user_id = u.id
                  WHERE u.is_bot = 0 AND (u.tokens - COALESCE(l.s, 0)) <> 0",
             ],
+            37 => [
+                // NOWA PRÓBA celu gry (restart zegara po „czas minął") + POLECENIA (osobisty link,
+                // nagroda w tokenach po aktywacji poleconego) + OBSERWOWANI GRACZE (znajomi).
+                "ALTER TABLE users ADD COLUMN goal_started_session INT NULL",
+                "ALTER TABLE users ADD COLUMN goal_attempts INT NOT NULL DEFAULT 1",
+                "ALTER TABLE users ADD COLUMN ref_code VARCHAR(20) NULL",
+                "ALTER TABLE users ADD COLUMN referred_by INT NULL",
+                "ALTER TABLE users ADD COLUMN ref_reward_at VARCHAR(19) NULL",
+                "CREATE TABLE user_follows (
+                    user_id   INT NOT NULL,
+                    target_id INT NOT NULL,
+                    created_at VARCHAR(19) NOT NULL,
+                    PRIMARY KEY (user_id, target_id)
+                )",
+            ],
         ];
     }
 

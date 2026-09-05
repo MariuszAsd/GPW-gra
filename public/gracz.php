@@ -12,6 +12,18 @@ if (!$p || (int) $p['is_bot'] === 1 || ($p['role'] !== 'player' && !$isMe && !$v
     redirect('ranking.php');
 }
 
+// obserwowanie gracza (znajomi) — wynik ląduje w widżecie Znajomi na Pulpicie
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$isMe && (isset($_POST['follow']) || isset($_POST['unfollow']))) {
+    if (isset($_POST['follow'])) {
+        try { Db::pdo()->prepare("INSERT INTO user_follows (user_id, target_id, created_at) VALUES (?,?,?)")->execute([(int) $user['id'], $pid, Db::now()]); } catch (Throwable $e) { /* już obserwuje */ }
+        flash('Obserwujesz gracza ' . $p['username'] . ' — znajdziesz go w widżecie Znajomi na Pulpicie.');
+    } else {
+        Db::pdo()->prepare("DELETE FROM user_follows WHERE user_id=? AND target_id=?")->execute([(int) $user['id'], $pid]);
+        flash('Już nie obserwujesz gracza ' . $p['username'] . '.');
+    }
+    redirect('gracz.php?id=' . $pid);
+}
+
 $stockVal = (float) (Engine::one("SELECT COALESCE(SUM((w.qty + w.qty_reserved) * s.price), 0) FROM wallets w JOIN stocks s ON s.id=w.stock_id WHERE w.user_id=?", [$pid]) ?: 0);
 $equity = (float) $p['cash'] + (float) $p['cash_reserved'] + $stockVal + Engine::lockedFunds($pid);
 $ret = (float) $p['start_equity'] > 0 ? ($equity / (float) $p['start_equity'] - 1) * 100 : 0;
@@ -77,7 +89,16 @@ layout_header('Profil: ' . $p['username'], $user, 'ranking');
   <span class="muted">w grze od sesji #<?= (int) $p['joined_session'] ?></span>
   <?php if ($isMe || $viewerAdmin): ?><a class="btn sm ghost" style="margin-left:auto" href="dziennik.php<?= $isMe ? '' : '?id=' . $pid ?>">Dziennik</a>
   <a class="btn sm ghost" href="ranking.php">← Ranking</a>
-  <?php else: ?><a class="btn sm ghost" style="margin-left:auto" href="ranking.php">← Ranking</a><?php endif; ?>
+  <?php else: ?>
+    <?php if (!$p['is_bot'] && $p['role'] === 'player'):
+        $followed = (bool) Engine::one("SELECT 1 FROM user_follows WHERE user_id=? AND target_id=?", [(int) $user['id'], $pid]); ?>
+      <form method="post" style="margin-left:auto">
+        <input type="hidden" name="<?= $followed ? 'unfollow' : 'follow' ?>" value="1">
+        <button class="btn sm ghost" title="<?= $followed ? 'Przestań obserwować tego gracza' : 'Obserwuj — jego wynik zobaczysz w widżecie Znajomi na Pulpicie' ?>"><?= $followed ? '★ Obserwujesz' : '☆ Obserwuj' ?></button>
+      </form>
+      <a class="btn sm ghost" href="ranking.php">← Ranking</a>
+    <?php else: ?><a class="btn sm ghost" style="margin-left:auto" href="ranking.php">← Ranking</a><?php endif; ?>
+  <?php endif; ?>
 </div>
 
 <div class="stats">

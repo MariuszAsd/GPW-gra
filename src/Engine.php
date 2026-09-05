@@ -1008,6 +1008,17 @@ final class Engine
         return round($d + $i + self::challengeLocked($uid), 2);
     }
 
+    /** Pełny kapitał gracza (jak w Rankingu): gotówka + zamrożone + akcje po kursie + lokaty/IPO/wyzwania. */
+    public static function playerEquity(int $uid): float
+    {
+        $u = self::row("SELECT cash, cash_reserved FROM users WHERE id=?", [$uid]);
+        if (!$u) return 0.0;
+        $stockVal = (float) (self::one(
+            "SELECT COALESCE(SUM((w.qty + w.qty_reserved) * s.price), 0)
+             FROM wallets w JOIN stocks s ON s.id = w.stock_id WHERE w.user_id = ?", [$uid]) ?: 0);
+        return round((float) $u['cash'] + (float) $u['cash_reserved'] + $stockVal + self::lockedFunds($uid), 2);
+    }
+
     /** Wartość ZABLOKOWANA w wyzwaniach — wciąż majątek gracza (jak lokata), nie strata.
      *  Zapisy przed startem: buy-in + wpisowe (przed startem pełny zwrot). Wyzwania w toku:
      *  bieżąca wartość portfela-cienia (gotówka + zamrożone + akcje po kursie). Dzięki temu
@@ -1651,6 +1662,11 @@ final class Engine
             if (!class_exists('Tokens')) require_once __DIR__ . '/Tokens.php';
             Tokens::grantTrials($n);
         } catch (\Throwable $e) { if (!Db::pdo()->inTransaction()) throw $e; Log::write('error', 'engine', 'trial.roll', $e->getMessage()); }
+        // polecenia: nagroda dla polecającego, gdy polecony zaczął realnie handlować
+        try {
+            if (!class_exists('Tokens')) require_once __DIR__ . '/Tokens.php';
+            Tokens::grantReferrals();
+        } catch (\Throwable $e) { if (!Db::pdo()->inTransaction()) throw $e; Log::write('error', 'engine', 'referral.roll', $e->getMessage()); }
         // lokaty: wypłata zapadłych (kapitał + odsetki ze skarbca)
         try {
             if (!class_exists('Bank')) require_once __DIR__ . '/Bank.php';

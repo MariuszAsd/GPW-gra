@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 36;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 37;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -34,6 +34,11 @@ final class Schema
                 tokens INT NOT NULL DEFAULT 0,             -- Tokeny inwestora (waluta premium; księga w token_ledger)
                 email VARCHAR(120) NULL,                   -- do odzyskiwania hasła (opcjonalny; unikalny gdy podany)
                 goal_target DECIMAL(15,2) NULL,            -- osobisty cel gry (NULL = domyślny z panelu GM)
+                goal_started_session INT NULL,             -- start bieżącej próby celu (NULL = od joined_session)
+                goal_attempts INT NOT NULL DEFAULT 1,      -- która to próba celu (restart po upływie czasu)
+                ref_code    VARCHAR(20) NULL,              -- osobisty kod polecający (generowany przy 1. wejściu w Konto)
+                referred_by INT NULL,                      -- kto polecił to konto (users.id)
+                ref_reward_at VARCHAR(19) NULL,            -- kiedy polecający dostał nagrodę (NULL = polecony jeszcze nieaktywny)
                 -- kosmetyka (założone przedmioty; katalog w src/Cosmetics.php):
                 title      VARCHAR(40) NOT NULL DEFAULT '',  -- tytuł przy nicku (ranking/profil)
                 chat_color VARCHAR(7)  NOT NULL DEFAULT '',  -- kolor nicka na czacie (#rrggbb)
@@ -393,6 +398,14 @@ final class Schema
                 alert_session INT NOT NULL DEFAULT 0,         -- sesja ostatniego alertu (max 1/spółkę/sesję)
                 created_at VARCHAR(19) NOT NULL,
                 UNIQUE (user_id, stock_id)
+            )",
+
+            // --- OBSERWOWANI GRACZE (znajomi: gwiazdka w Rankingu/profilu, widżet na Pulpicie) ---
+            "user_follows" => "CREATE TABLE user_follows (
+                user_id   INT NOT NULL,   -- kto obserwuje
+                target_id INT NOT NULL,   -- kogo obserwuje
+                created_at VARCHAR(19) NOT NULL,
+                PRIMARY KEY (user_id, target_id)
             )",
 
             // --- KOSMETYKA: posiadane przedmioty (tytuły, kolory nicka, ramki; katalog w src/Cosmetics.php) ---

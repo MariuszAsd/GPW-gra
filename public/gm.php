@@ -148,11 +148,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         [$sess] = Engine::sessionInfo();
         Challenges::create([
             'name'        => trim($_POST['ch_name'] ?? ''),
-            'buyin'       => max(1000, (float) str_replace(',', '.', $_POST['ch_buyin'] ?? '20000')),
+            'buyin'       => max(1000, (float) str_replace(',', '.', $_POST['ch_buyin'] ?? '5000')),
             'fee_pct'     => max(0, min(50, (float) str_replace(',', '.', $_POST['ch_fee'] ?? '10'))),
             'signup_sess' => max(1, (int) ($_POST['ch_signup'] ?? 2)),
             'duration'    => max(1, (int) ($_POST['ch_dur'] ?? 14)),
-            'min_players' => max(2, (int) ($_POST['ch_min'] ?? 3)),
+            'min_players' => max(2, (int) ($_POST['ch_min'] ?? 2)),
         ], $sess);
         flash('Utworzono wyzwanie — zapisy otwarte.');
     } elseif ($a === 'challenge_cancel') {
@@ -166,7 +166,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->prepare("INSERT INTO challenge_series (name, buyin, fee_pct, signup_sess, duration, min_players, every_sessions, editions, next_session, enabled, created_at)
                        VALUES (?,?,?,?,?,?,?,0,?,1,?)")->execute([
             mb_substr(trim($_POST['s_name'] ?? '') ?: 'Liga', 0, 55),
-            max(1000, (float) str_replace(',', '.', $_POST['s_buyin'] ?? '20000')),
+            max(1000, (float) str_replace(',', '.', $_POST['s_buyin'] ?? '5000')),
             max(0, min(50, (float) str_replace(',', '.', $_POST['s_fee'] ?? '10'))),
             max(1, (int) ($_POST['s_signup'] ?? 2)),
             max(1, (int) ($_POST['s_dur'] ?? 14)),
@@ -267,11 +267,11 @@ layout_header('Panel GM', $user, 'gm');
   <form method="post" class="row" style="align-items:flex-end">
     <input type="hidden" name="action" value="challenge_create">
     <div><label>Nazwa <span class="muted">(puste = automatyczna)</span></label><input name="ch_name" style="width:160px"></div>
-    <div><label>Buy-in (PLN)</label><input type="number" min="1000" step="1000" name="ch_buyin" value="20000" style="width:110px"></div>
+    <div><label>Buy-in (PLN)</label><input type="number" min="1000" step="1000" name="ch_buyin" value="5000" style="width:110px"></div>
     <div><label>Wpisowe (%)</label><input type="number" min="0" max="50" step="1" name="ch_fee" value="10" style="width:90px"></div>
     <div><label>Zapisy (sesje)</label><input type="number" min="1" name="ch_signup" value="2" style="width:90px"></div>
     <div><label>Czas trwania (sesje)</label><input type="number" min="1" name="ch_dur" value="14" style="width:90px"></div>
-    <div><label>Min. graczy</label><input type="number" min="2" name="ch_min" value="3" style="width:80px"></div>
+    <div><label>Min. graczy</label><input type="number" min="2" name="ch_min" value="2" style="width:80px"></div>
     <button class="btn sm">Utwórz wyzwanie</button>
   </form>
   <form method="post" class="inline" style="margin-top:8px">
@@ -302,12 +302,12 @@ layout_header('Panel GM', $user, 'gm');
   <form method="post" class="row" style="align-items:flex-end">
     <input type="hidden" name="action" value="series_add">
     <div><label>Nazwa serii</label><input name="s_name" value="Liga" style="width:140px"></div>
-    <div><label>Buy-in (PLN)</label><input type="number" min="1000" step="1000" name="s_buyin" value="20000" style="width:110px"></div>
+    <div><label>Buy-in (PLN)</label><input type="number" min="1000" step="1000" name="s_buyin" value="5000" style="width:110px"></div>
     <div><label>Wpisowe (%)</label><input type="number" min="0" max="50" step="1" name="s_fee" value="10" style="width:80px"></div>
     <div><label>Co ile sesji</label><input type="number" min="1" name="s_every" value="20" style="width:80px"></div>
     <div><label>Zapisy (sesje)</label><input type="number" min="1" name="s_signup" value="2" style="width:80px"></div>
     <div><label>Czas trwania</label><input type="number" min="1" name="s_dur" value="14" style="width:80px"></div>
-    <div><label>Min. graczy</label><input type="number" min="2" name="s_min" value="3" style="width:70px"></div>
+    <div><label>Min. graczy</label><input type="number" min="2" name="s_min" value="2" style="width:70px"></div>
     <button class="btn sm">Utwórz serię</button>
   </form>
 

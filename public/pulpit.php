@@ -150,6 +150,29 @@ function stock_row(array $w, bool $premium, bool $withPl): void {
   <?php endif; ?>
 </section>
 
+<?php /* ---------- 2b. ZNAJOMI (obserwowani gracze — gwiazdka w Rankingu/na profilu) ---------- */
+$friends = Engine::all(
+    "SELECT u.id, u.username, u.title, u.goal_session FROM user_follows f JOIN users u ON u.id = f.target_id
+     WHERE f.user_id = ? AND u.is_bot = 0 AND u.role = 'player' ORDER BY u.username", [(int) $user['id']]);
+if ($friends): ?>
+<section class="panel" style="margin-bottom:16px">
+  <h2>Znajomi <span class="muted" style="font-weight:400;font-size:12px">· obserwujesz z Rankingu</span></h2>
+  <table><tbody>
+  <?php foreach ($friends as $f):
+      $feq = Engine::playerEquity((int) $f['id']);
+      $fse = (float) Engine::one("SELECT start_equity FROM users WHERE id=?", [(int) $f['id']]);
+      $fret = $fse > 0 ? ($feq - $fse) / $fse * 100 : null; ?>
+    <tr>
+      <td><a href="gracz.php?id=<?= (int) $f['id'] ?>" style="font-weight:700;color:var(--accent)"><?= h($f['username']) ?></a>
+        <?= $f['goal_session'] !== null ? ' <span title="cel gry osiągnięty">🏆</span>' : '' ?></td>
+      <td class="num mono"><?= money($feq) ?></td>
+      <td class="num"><?php if ($fret === null): ?><span class="muted">—</span><?php else: ?><span class="chg <?= $fret >= 0 ? 'p' : 'n' ?>"><span class="ar"><?= $fret >= 0 ? '▲' : '▼' ?></span><?= number_format(abs($fret), 1, ',', ' ') ?>%</span><?php endif; ?></td>
+    </tr>
+  <?php endforeach; ?>
+  </tbody></table>
+</section>
+<?php endif; ?>
+
 <?php /* ---------- 3. MISJE DNIA ---------- */ ?>
 <section class="panel" style="margin-bottom:16px">
   <h2>Misje dnia (<?= $missionsDone ?>/<?= count($missions) ?>)

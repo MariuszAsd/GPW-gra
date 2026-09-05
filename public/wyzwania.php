@@ -247,6 +247,8 @@ layout_header('Wyzwania', $user, 'challenges');
       <div class="ch-stat"><small>Zapisani (min <?= (int) $active['min_players'] ?>)</small><b><?= count($entrants) ?></b></div>
     </div>
     <p class="muted" style="margin:10px 0">
+      Wystarczy, że zapiszesz się Ty — brakujący skład na starcie dopełniają <b>fundusze gry</b>
+      (wpłacają wpisowe do puli jak każdy, handlują własnymi subkontami). Edycja bez ani jednego gracza jest odwoływana.
       Z konta schodzi <b><?= money((float) $active['buyin'] + $fee) ?> PLN</b>. Buy-in wraca po wyzwaniu w takiej formie,
       w jakiej go doprowadzisz (gotówka + akcje po kursie). Pulę dzieli czołówka:
       <b><?= split_label(max(count($entrants), (int) $active['min_players'])) ?></b> (podział przelicza się z liczbą zapisanych).

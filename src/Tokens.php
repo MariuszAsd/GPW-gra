@@ -125,6 +125,45 @@ final class Tokens
         }
     }
 
+    /** Osobisty kod polecający gracza (generowany leniwie przy pierwszym użyciu).
+     *  Format R<id><4 losowe znaki> — id w środku gwarantuje unikalność bez UNIQUE w bazie. */
+    public static function refCode(int $uid): string
+    {
+        $code = (string) (Engine::one("SELECT ref_code FROM users WHERE id=?", [$uid]) ?: '');
+        if ($code !== '') return $code;
+        $code = 'R' . $uid . substr(strtoupper(bin2hex(random_bytes(3))), 0, 4);
+        Db::pdo()->prepare("UPDATE users SET ref_code=? WHERE id=? AND ref_code IS NULL")->execute([$code, $uid]);
+        return (string) (Engine::one("SELECT ref_code FROM users WHERE id=?", [$uid]) ?: $code);
+    }
+
+    /** Nagrody za polecenia: gdy POLECONY stanie się aktywny (>= 5 transakcji na rynku),
+     *  polecający dostaje 25 Tokenów — raz na poleconego. Warunek aktywności blokuje farmę
+     *  martwych kont (samo założenie konta nie wypłaca nic polecającemu). Wołane raz na
+     *  sesję z Engine::rollSession (jak grantTrials). */
+    public const REF_REWARD = 25;   // tokeny dla polecającego za AKTYWNEGO poleconego
+    public const REF_BONUS  = 10;   // dodatkowe tokeny powitalne dla poleconego (przy rejestracji)
+
+    public static function grantReferrals(): void
+    {
+        $due = Engine::all(
+            "SELECT u.id, u.username, u.referred_by FROM users u
+             WHERE u.referred_by IS NOT NULL AND u.ref_reward_at IS NULL AND u.is_bot = 0
+               AND (SELECT COUNT(*) FROM transactions t WHERE t.buyer_id = u.id OR t.seller_id = u.id) >= 5");
+        $pdo = Db::pdo();
+        foreach ($due as $u) {
+            // przejmij atomowo (raz na poleconego) — ponowny przebieg/wyścig nie zdubluje nagrody
+            $st = $pdo->prepare("UPDATE users SET ref_reward_at=? WHERE id=? AND ref_reward_at IS NULL");
+            $st->execute([Db::now(), (int) $u['id']]);
+            if ($st->rowCount() !== 1) continue;
+            $ref = (int) $u['referred_by'];
+            self::grant($ref, self::REF_REWARD, 'referral', 'polecony gracz ' . $u['username'] . ' zaczął handlować');
+            Engine::notify($ref, 'token', '🤝 Twój polecony ' . $u['username'] . ' rozkręcił się na rynku — masz +' . self::REF_REWARD
+                . ' Tokenów inwestora! Polecaj dalej: link znajdziesz w zakładce Konto.', 'konto.php');
+            Engine::notify((int) $u['id'], 'token', '🤝 Handlujesz pełną parą — Twój polecający właśnie dostał nagrodę. Dzięki, że graliście razem!', 'ranking.php');
+            Log::write('info', 'engine', 'referral.reward', "nagroda za polecenie: {$u['username']} aktywny", ['referrer' => $ref]);
+        }
+    }
+
     /** Kup/przedłuż pakiet za tokeny. Zwraca [ok, komunikat]. */
     public static function buyPass(int $uid, string $kind): array
     {
