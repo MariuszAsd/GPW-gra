@@ -1,4 +1,10 @@
-# Tycoon.pl — rdzeń MVP (czysty PHP 8)
+# Makleria (Tycoon.pl) — gra giełdowa w czystym PHP 8
+
+> **Pracujesz z Claude nad tym projektem?** Zacznij od [`CLAUDE.md`](CLAUDE.md) — instrukcja projektu
+> (architektura, żelazne zasady, testy, wdrożenie, stan na dziś). Claude wczytuje ją automatycznie.
+> Przenosisz prace na nowe konto Claude? [`docs/NOWY-CZAT-START.md`](docs/NOWY-CZAT-START.md).
+> Wdrożenie na hosting od zera: [`DEPLOY.md`](DEPLOY.md).
+
 
 Działająca podstawa gry giełdowej: **jeden** schemat, **jeden** silnik, **jeden** dialekt,
 realne logowanie, poprawny escrow (nic się nie drukuje), boty tworzące pływający kurs,
