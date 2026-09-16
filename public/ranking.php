@@ -23,7 +23,7 @@ $goalSessions = (int) (Engine::one("SELECT v FROM game_state WHERE k='goal_sessi
 // gracze + wartość akcji jednym zapytaniem (podzapytanie zamiast GROUP BY — spójne SQLite/MySQL)
 $players = Engine::all(
     "SELECT u.id, u.username, u.title, u.cash, u.cash_reserved, u.joined_session, u.goal_session, u.start_equity,
-            u.goal_started_session, u.goal_attempts,
+            u.goal_started_session, u.goal_attempts, u.goal_target,
             (SELECT COALESCE(SUM((w.qty + w.qty_reserved) * s.price), 0)
              FROM wallets w JOIN stocks s ON s.id = w.stock_id WHERE w.user_id = u.id) AS stock_val,
             (SELECT COALESCE(SUM(d.amount), 0) FROM deposits d WHERE d.user_id = u.id AND d.status = 'active') AS dep_val,
@@ -31,13 +31,18 @@ $players = Engine::all(
              WHERE i.user_id = u.id) AS ipo_val
      FROM users u WHERE u.is_bot = 0 AND u.role = 'player'"
 );
+$defaultGoal = (float) (Engine::one("SELECT v FROM game_state WHERE k='goal_target'") ?: 1000000);
 foreach ($players as &$p) {
     // kapitał = całość majątku: gotówka + zamrożone + akcje + lokaty/IPO + ZABLOKOWANE w wyzwaniu
     // (buy-in wyzwania to nie strata — dalej Twój majątek, jak lokata)
     $p['equity'] = (float) $p['cash'] + (float) $p['cash_reserved'] + (float) $p['stock_val'] + (float) $p['dep_val'] + (float) $p['ipo_val']
                  + Engine::challengeLocked((int) $p['id']);
     $p['ret'] = (float) $p['start_equity'] > 0 ? ($p['equity'] - $p['start_equity']) / $p['start_equity'] * 100 : null;
-    $p['won'] = $p['goal_session'] !== null;
+    // Medal należy się za CEL GRY, nie za dowolnie zaniżony cel własny: gracz, który ustawił sobie
+    // próg niższy niż obowiązujący w grze, ma swoją odznakę i wpis w dzienniku, ale nie wskakuje
+    // w rankingu przed wszystkich z „celem w 1 sesji".
+    $p['won'] = $p['goal_session'] !== null
+        && ($p['goal_target'] === null || (float) $p['goal_target'] >= $defaultGoal - 0.01);
     // tempo od startu BIEŻĄCEJ próby (po restarcie „nowa próba" zegar biegnie od goal_started_session)
     $gs0 = $p['goal_started_session'] !== null ? (int) $p['goal_started_session'] : (int) $p['joined_session'];
     $p['speed'] = $p['won'] ? max(1, (int) $p['goal_session'] - $gs0 + 1) : null;

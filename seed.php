@@ -19,8 +19,11 @@ $pdo->beginTransaction();
 // --- konta ---
 $pdo->prepare("INSERT INTO users (username, password_hash, is_bot, role, cash, start_equity, tokens) VALUES (?,?,0,'player',?,?,10)")
     ->execute(['gracz', password_hash('haslo123', PASSWORD_DEFAULT), $cfg['starting_cash'], $cfg['starting_cash']]);
+// Hasło admina losowane przy każdym zasiewie i wypisywane TYLKO tutaj. Stałe „admin123" w repozytorium
+// oznaczało, że każdy, kto zna adres gry, mógł wejść do panelu GM świeżo postawionej instalacji.
+$adminPass = bin2hex(random_bytes(6));
 $pdo->prepare("INSERT INTO users (username, password_hash, is_bot, role, cash) VALUES (?,?,0,'admin',0)")
-    ->execute(['admin', password_hash('admin123', PASSWORD_DEFAULT)]);
+    ->execute(['admin', password_hash($adminPass, PASSWORD_DEFAULT)]);
 Engine::setState('tick', '0');
 Engine::setState('sentiment', '0');
 Engine::setState('session', '1');
@@ -40,7 +43,8 @@ Engine::setState('minor_event_cooldown', '20'); // min. odstęp mniejszych wydar
 Engine::setState('market_hours_enabled', '1');  // giełda otwarta jak prawdziwa: sesja = dzień giełdowy
 Engine::setState('market_open_time', '07:50');
 Engine::setState('market_close_time', '22:00');
-$log("✔ konta: gracz/haslo123, admin/admin123 · cel gry: 1M PLN w 60 sesji");
+$log("✔ konta: gracz/haslo123 · ADMIN: admin/$adminPass  (zapisz teraz — nie da się go odczytać później)");
+$log("✔ cel gry: 1M PLN w 60 sesji");
 
 // --- SEKTORY (8 branż) ---
 // symbol, nazwa, market_beta, volatility, growth, news_sensitivity + [liczba spółek, C/Z min-max]

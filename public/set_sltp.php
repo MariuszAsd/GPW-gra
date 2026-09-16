@@ -2,6 +2,7 @@
 require __DIR__ . '/_boot.php';
 $user = acting_user(require_login());
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') redirect('portfolio.php');
+require_market_open($user, 'stock.php?id=' . (int) ($_POST['stock_id'] ?? 0));
 
 $sid = (int) ($_POST['stock_id'] ?? 0);
 $qty = (int) ($_POST['qty'] ?? 0);

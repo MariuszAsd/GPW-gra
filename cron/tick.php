@@ -8,8 +8,15 @@
  * się co kilkanaście sekund zamiast raz na minutę, a czas świata gry (sesje,
  * raporty, wydarzenia) wciąż płynie w tempie 1 tick/min. Liczba rund:
  * game_state.sub_rounds (0-3, domyślnie 2, sterowane w GM).
- * Blokada pliku zapobiega nakładaniu się cykli.
+ * Wspólna blokada świata (Engine::worldLock) zapobiega nakładaniu się cykli —
+ * obejmuje też ręczne ticki z panelu GM.
  */
+// TYLKO Z KONSOLI. Bez tej bramki dowolny gość z internetu mógłby kręcić zegarem gry jednym
+// żądaniem GET: przewinąć sesje i przepalić wszystkim limit celu, wypłacić lokaty z odsetkami,
+// zakończyć wyzwania albo dokręcać ticki, aż zrealizuje się jego własne zlecenie.
+// Taką samą bramkę mają migrate.php, seed.php i cron/qa_probe.php.
+if (php_sapi_name() !== 'cli') { http_response_code(403); exit('Forbidden'); }
+
 require __DIR__ . '/../src/Db.php';
 require __DIR__ . '/../src/Schema.php';
 require __DIR__ . '/../src/Migrator.php';
@@ -18,19 +25,19 @@ require __DIR__ . '/../src/Log.php';
 
 try { Migrator::ensure(); } catch (Throwable $e) { error_log('Migracja(cron): ' . $e->getMessage()); }
 
-$lock = __DIR__ . '/tick.lock';
-if (is_file($lock) && time() - filemtime($lock) < 120) { fwrite(STDERR, "Poprzedni cykl trwa.\n"); exit(1); }
-touch($lock);
-register_shutdown_function(fn() => @unlink($lock));
-
 $count = (int) ($argv[1] ?? 1);
 
 // GODZINY HANDLU: poza sesją (np. 22:00-7:50) świat gry stoi — cron wychodzi bez ticka.
-// Ręczne ticki z panelu GM działają zawsze (nie przechodzą przez ten skrypt).
 if ($count === 1 && !Engine::marketIsOpen()) {
-    if (php_sapi_name() === 'cli') echo "giełda zamknięta — bez ticka\n";
+    echo "giełda zamknięta — bez ticka\n";
     exit(0);
 }
+
+// JEDNA PĘTLA ŚWIATA NARAZ — ta sama blokada, której używa ręczny tick w panelu GM.
+// Stara blokada po dacie pliku puszczała drugi cykl po 120 s i kasowała cudzy plik przy wyjściu;
+// dwie pętle naraz rozjeżdżały escrow botów i mogły wypłacić dywidendę dwa razy.
+if (!Engine::worldLock()) { fwrite(STDERR, "Poprzedni cykl trwa.\n"); exit(1); }
+register_shutdown_function(fn() => Engine::worldUnlock());
 $t = 0;
 for ($i = 0; $i < $count; $i++) {
     try {
@@ -62,7 +69,6 @@ if (php_sapi_name() === 'cli' && $count === 1 && $t > 0 && !$qaRan) {
     for ($i = 0; $i < $sub; $i++) {
         sleep(18);
         if (!Engine::marketIsOpen()) break;   // zamknięcie w trakcie minuty — koniec pulsu
-        touch($lock);   // odśwież blokadę (kolejny cron ma widzieć, że żyjemy)
         try {
             Engine::subRound();
             echo "puls handlu +1\n";

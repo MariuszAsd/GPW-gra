@@ -4,11 +4,7 @@ $user = acting_user(require_login());
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') redirect('market.php');
 
 // poza godzinami handlu giełda nie przyjmuje zleceń (QA i admin testują zawsze)
-if (!Engine::marketIsOpen() && !in_array($user['role'] ?? '', ['admin', 'qa'], true)) {
-    [, $mo, $mc] = Engine::marketHours();
-    flash("🌙 Giełda jest zamknięta — handel trwa {$mo}–{$mc}. Zlecenie nie zostało przyjęte.", 'err');
-    redirect('stock.php?id=' . (int) ($_POST['stock_id'] ?? 0));
-}
+require_market_open($user, 'stock.php?id=' . (int) ($_POST['stock_id'] ?? 0));
 
 $sid   = (int) ($_POST['stock_id'] ?? 0);
 $side  = $_POST['side'] ?? 'buy';

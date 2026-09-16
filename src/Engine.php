@@ -25,7 +25,12 @@ final class Engine
         // Wcześniej rezerwacja liczyła się z surowej ceny (np. 1,009), a zlecenie/zwrot z zaokrąglonej
         // (1,01) — różnica „drukowała" gotówkę i dawała ujemne cash_reserved przy anulacji/realizacji.
         if ($qty <= 0 || $price <= 0)               return [false, 'Nieprawidłowa ilość lub cena.'];
+        // Spółka musi istnieć, ZANIM ruszymy pieniądze. Wcześniej spreparowany formularz z nieistniejącym
+        // stock_id przechodził dalej: rezerwacja gotówki się wykonywała, a INSERT zlecenia padał na typie
+        // kolumny — gotówka zostawała zamrożona bez zlecenia, którego gracz nie miał jak anulować.
+        if (!self::one("SELECT id FROM stocks WHERE id=?", [$stockId])) return [false, 'Nie ma takiej spółki.'];
         if (($m = self::haltMessage($stockId)) !== null) return [false, $m];   // widełki: zawieszone = brak nowych zleceń
+        if (($m = self::priceBandMessage($stockId, $side, $price)) !== null) return [false, $m];
         $pdo = Db::pdo();
 
         if ($side === 'buy') {
@@ -182,6 +187,7 @@ final class Engine
             $newQty = (int) $newQty; $newPrice = round((float) $newPrice, 2);
             if ($newQty <= 0 || $newPrice <= 0)               { if ($own) $pdo->rollBack(); return [false, 'Podaj poprawną ilość i cenę.']; }
             if (($m = self::haltMessage((int) $o['stock_id'])) !== null) { if ($own) $pdo->rollBack(); return [false, $m]; }
+            if (($m = self::priceBandMessage((int) $o['stock_id'], (string) $o['side'], $newPrice)) !== null) { if ($own) $pdo->rollBack(); return [false, $m]; }
 
             $oldQ = (int) $o['qty']; $oldP = round((float) $o['price'], 2);
             // PRZEJMIJ zlecenie atomowo DOKŁADNIE w stanie, jaki widzieliśmy (cena+ilość+active).
@@ -306,6 +312,52 @@ final class Engine
         $st = $pdo->prepare("UPDATE game_state SET v = ROUND(v + ?, 2) WHERE k='treasury'");
         $st->execute([$amount]);
         if ($st->rowCount() === 0) $pdo->prepare("INSERT INTO game_state (k, v) VALUES ('treasury', ?)")->execute([(string) round($amount, 2)]);
+    }
+
+    /* ---------- Blokada świata (jedna pętla naraz) ---------- */
+
+    /** Uchwyt trzymanej blokady: 'mysql' albo zasób pliku. Null = nie trzymamy. */
+    private static $worldLock = null;
+
+    /**
+     * Przejmuje wyłączność na pracę silnika. Cron, puls handlu i ręczny tick z panelu GM
+     * muszą przechodzić przez tę bramkę — dwie pętle świata naraz rozjeżdżały escrow botów
+     * (rezerwacje liczone ze zrzutu, którego druga pętla nie widziała) i potrafiły wypłacić
+     * dywidendę dwa razy. Na MySQL blokada wisi na połączeniu i zwalnia się sama przy jego
+     * zerwaniu; lokalnie (SQLite) wystarcza flock, bo zapisy i tak są serializowane.
+     */
+    public static function worldLock(int $waitSec = 0): bool
+    {
+        if (self::$worldLock !== null) return true;   // już trzymamy w tym procesie
+        if (Db::driver() === 'mysql') {
+            if ((int) self::one("SELECT GET_LOCK('makleria_world', ?)", [max(0, $waitSec)]) !== 1) return false;
+            self::$worldLock = 'mysql';
+            return true;
+        }
+        $path = __DIR__ . '/../cron/tick.lock';
+        @mkdir(dirname($path), 0777, true);
+        $fh = @fopen($path, 'c');
+        if (!$fh) return true;   // lokalny SQLite bez prawa zapisu — nie blokujemy gry z tego powodu
+        $until = microtime(true) + max(0, $waitSec);
+        do {
+            if (flock($fh, LOCK_EX | LOCK_NB)) { self::$worldLock = $fh; return true; }
+            if ($waitSec > 0) usleep(200000);
+        } while (microtime(true) < $until);
+        fclose($fh);
+        return false;
+    }
+
+    /** Zwalnia blokadę świata (wołane też automatycznie na koniec procesu). */
+    public static function worldUnlock(): void
+    {
+        if (self::$worldLock === null) return;
+        if (self::$worldLock === 'mysql') {
+            try { self::one("SELECT RELEASE_LOCK('makleria_world')"); } catch (\Throwable $e) { /* połączenie już zamknięte */ }
+        } else {
+            @flock(self::$worldLock, LOCK_UN);
+            @fclose(self::$worldLock);
+        }
+        self::$worldLock = null;
     }
 
     /* ---------- Kojarzenie zleceń (pełne rozliczenie księgi) ---------- */
@@ -655,8 +707,33 @@ final class Engine
         }
 
         // === FLUSH: zapis zebranych zleceń ZBIORCZO (bulk rezerwacja + bulk INSERT) ===
-        foreach ($resCash as $uidF => $c) if ($c > 0) $pdo->prepare("UPDATE users SET cash=cash-?, cash_reserved=cash_reserved+? WHERE id=?")->execute([round($c, 2), round($c, 2), $uidF]);
-        foreach ($resSh as $kk => $q) if ($q > 0) { [$uR, $sR] = explode(':', $kk); $pdo->prepare("UPDATE wallets SET qty=qty-?, qty_reserved=qty_reserved+? WHERE user_id=? AND stock_id=?")->execute([$q, $q, $uR, $sR]); }
+        // Rezerwacja Z GUARDEM — dokładnie tak, jak u gracza w place(). Bez guarda równoległa pętla
+        // świata (ręczny tick z panelu GM w trakcie crona) potrafiła zbić botom ilość akcji poniżej
+        // zera: decyzje zapadają na zrzucie z pamięci, którego druga pętla nie widzi. Ujemne portfele
+        // botów to dokładnie ta sytuacja — bot sprzedawał akcje, których już nie miał.
+        // Zlecenie trafia do arkusza WYŁĄCZNIE wtedy, gdy jego pokrycie realnie się zarezerwowało.
+        $okCash = []; $okSh = []; $dropped = 0;
+        foreach ($resCash as $uidF => $c) {
+            if ($c <= 0) continue;
+            $amt = round($c, 2);
+            $st = $pdo->prepare("UPDATE users SET cash=cash-?, cash_reserved=cash_reserved+? WHERE id=? AND cash >= ?");
+            $st->execute([$amt, $amt, $uidF, $amt - 0.000001]);
+            $okCash[$uidF] = $st->rowCount() === 1;
+        }
+        foreach ($resSh as $kk => $q) {
+            if ($q <= 0) continue;
+            [$uR, $sR] = explode(':', $kk);
+            $st = $pdo->prepare("UPDATE wallets SET qty=qty-?, qty_reserved=qty_reserved+? WHERE user_id=? AND stock_id=? AND qty >= ?");
+            $st->execute([$q, $q, $uR, $sR, $q]);
+            $okSh[$kk] = $st->rowCount() === 1;
+        }
+        $newOrders = array_values(array_filter($newOrders, function ($o) use ($okCash, $okSh, &$dropped) {
+            $ok = $o[2] === 'buy' ? ($okCash[$o[0]] ?? false) : ($okSh[$o[0] . ':' . $o[1]] ?? false);
+            if (!$ok) $dropped++;
+            return $ok;
+        }));
+        if ($dropped > 0) Log::write('warn', 'engine', 'bots.reserve_skip',
+            "pominięto $dropped zleceń botów bez pokrycia (rezerwacja przegrała wyścig)", []);
         $nowF = Db::now();
         foreach (array_chunk($newOrders, 200) as $chunk) {
             $vals = []; $args = [];
@@ -959,6 +1036,40 @@ final class Engine
         if ($left <= 0) return null;
         $m = (int) ceil($left / 60);
         return '⏸ Notowania zawieszone (przekroczenie widełek) — wznowienie za ~' . $m . ' min. Zlecenie nie zostało przyjęte.';
+    }
+
+    /** Ile razy szersze od widełek zawieszenia są widełki PRZYJMOWANIA zleceń (zapas, żeby zawieszenia dalej działały). */
+    public const ORDER_BAND_FACTOR = 1.5;
+
+    /**
+     * Widełki na CENIE SKŁADANEGO ZLECENIA. Zwraca komunikat błędu albo null, gdy cena jest w normie.
+     *
+     * Sprawdzenie jest ASYMETRYCZNE i to jest celowe. Zlecenie, które czeka w arkuszu daleko OD rynku
+     * po swojej stronie (tanie kupno „na okazję", drogia sprzedaż „jak odbije"), jest normalną grą —
+     * zrealizuje się po własnej cenie dopiero, gdy rynek do niego dojdzie. Groźna jest odwrotna strona:
+     * kupno DUŻO POWYŻEJ rynku albo sprzedaż DUŻO PONIŻEJ, bo transakcja zawiera się po cenie zlecenia
+     * stojącego w arkuszu i natychmiast przestawia kurs spółki. Jedno zlecenie na 1 akcję potrafiło tak
+     * podbić kurs dziesięciokrotnie, a wraz z nim kapitał gracza, ranking i zaliczenie celu gry.
+     * Punktem odniesienia jest kurs otwarcia sesji — ten sam, którego pilnują zawieszenia — bo kursu
+     * bieżącego dałoby się „doprowadzić" małymi krokami.
+     */
+    public static function priceBandMessage(int $stockId, string $side, float $price): ?string
+    {
+        $s = self::row("SELECT price, day_open_price, halts_session FROM stocks WHERE id=?", [$stockId]);
+        if (!$s) return null;   // nieistniejącą spółkę odrzuca osobne sprawdzenie w place()
+        $ref = (float) $s['day_open_price'] > 0 ? (float) $s['day_open_price'] : (float) $s['price'];
+        if ($ref <= 0) return null;   // debiut bez kursu odniesienia — brak widełek
+        $band = self::HALT_BAND * ((int) $s['halts_session'] + 1) * self::ORDER_BAND_FACTOR;
+        $pct  = round($band * 100);
+        if ($side === 'buy' && $price > $ref * (1 + $band)) {
+            return '📉 Cena poza widełkami: kupno powyżej ' . number_format($ref * (1 + $band), 2, ',', ' ')
+                 . ' PLN nie jest przyjmowane (widełki ±' . $pct . '% od otwarcia sesji). Zlecenie nie zostało przyjęte.';
+        }
+        if ($side === 'sell' && $price < $ref * (1 - $band)) {
+            return '📉 Cena poza widełkami: sprzedaż poniżej ' . number_format(max(0.01, $ref * (1 - $band)), 2, ',', ' ')
+                 . ' PLN nie jest przyjmowana (widełki ±' . $pct . '% od otwarcia sesji). Zlecenie nie zostało przyjęte.';
+        }
+        return null;
     }
 
     /**
@@ -1517,7 +1628,12 @@ final class Engine
         }
         $tps = max(1, (int) (self::one("SELECT v FROM game_state WHERE k='ticks_per_session'") ?: 20));
         if ($tick === null) $tick = (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
-        $n = intdiv(max(0, $tick), $tps) + 1;
+        // Numer sesji bierzemy z LICZNIKA, nie wyliczamy z ticka. Tick to minuty od początku świata,
+        // więc w grze z historią wychodziły z niego tysiące: wyłączenie godzin handlu w panelu GM
+        // katapultowało sesję z np. 40 na 2501 i jednym ruchem wypłacało wszystkie lokaty z odsetkami,
+        // kończyło wszystkie wyzwania i trwale psuło zegar „do celu". Tick mówi już tylko, ile
+        // zostało do końca bieżącej sesji.
+        $n = max(1, (int) (self::one("SELECT v FROM game_state WHERE k='session'") ?: 1));
         return [$n, $tps - (max(0, $tick) % $tps), $tps];
     }
 
@@ -1573,9 +1689,11 @@ final class Engine
             $n = $prev + 1;
             self::setState('session_date', $today);
         } else {
-            [$n] = self::sessionInfo($tick);
+            // bez godzin handlu: nowa sesja co ticks_per_session ticków, licznik zawsze o JEDEN w przód
+            $tps = max(1, (int) (self::one("SELECT v FROM game_state WHERE k='ticks_per_session'") ?: 20));
+            if (max(0, $tick) % $tps !== 0) return;
             $prev = (int) (self::one("SELECT v FROM game_state WHERE k='session'") ?: 0);
-            if ($n === $prev) return;
+            $n = $prev + 1;
         }
         // zapamiętaj datę tej sesji (numer -> dzień) do wyświetlania „Sesja #N · data"
         try {

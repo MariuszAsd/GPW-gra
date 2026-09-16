@@ -78,6 +78,19 @@ function liq_label($liquidity): array {
 }
 function flash(string $msg, string $type = 'ok'): void { $_SESSION['flash'] = ['m' => $msg, 't' => $type]; }
 
+/**
+ * Bramka godzin handlu dla WSZYSTKICH stron ruszających arkuszem (admin i QA testują zawsze).
+ * Wcześniej pilnowało jej tylko place_order.php, a edycja zlecenia ją omijała — a edycja kojarzy
+ * transakcję od razu i przestawia kurs spółki, więc dało się handlować po zamknięciu giełdy,
+ * przy nieruchomym arkuszu botów i bez konkurencji.
+ */
+function require_market_open(array $user, string $back): void {
+    if (Engine::marketIsOpen() || in_array($user['role'] ?? '', ['admin', 'qa'], true)) return;
+    [, $mo, $mc] = Engine::marketHours();
+    flash("🌙 Giełda jest zamknięta — handel trwa {$mo}–{$mc}. Zlecenie nie zostało przyjęte.", 'err');
+    redirect($back);
+}
+
 /** Ikony interfejsu (inline SVG, dziedziczą kolor) — zamiast emoji w chrome aplikacji. */
 function icon(string $name, string $cls = 'ico'): string {
     $paths = [
@@ -221,6 +234,15 @@ function current_user(): ?array {
 function require_login(): array {
     $u = current_user();
     if (!$u) redirect('login.php');
+    // Admin z domyślnym hasłem z zasiewu nie wejdzie dalej niż na stronę zmiany hasła. Konto GM steruje
+    // całą grą (wydarzenia, ticki, prowizje, cel), więc znane hasło z repozytorium to przejęcie gry.
+    if (($u['role'] ?? '') === 'admin' && !in_array(basename($_SERVER['SCRIPT_NAME'] ?? ''), ['konto.php', 'logout.php'], true)) {
+        $hash = (string) Engine::one("SELECT password_hash FROM users WHERE id=?", [$u['id']]);
+        if ($hash !== '' && password_verify('admin123', $hash)) {
+            flash('To konto ma nadal domyślne hasło z instalacji. Zmień je teraz — panel GM steruje całą grą.', 'err');
+            redirect('konto.php');
+        }
+    }
     return $u;
 }
 
