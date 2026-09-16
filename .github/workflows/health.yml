@@ -48,3 +48,21 @@ jobs:
           assert v > 0, "api_market: brak wartosci indeksu"
           print("OK sesja %s: spolek=%d, indeks=%s pkt (%s%%)" % (j.get("session"), len(j["data"]), v, idx.get("chg")))
           '
+
+      - name: Skrypty silnika nieosiągalne z internetu
+        run: |
+          # cron/tick.php przez przeglądarkę = ktoś obcy kręci zegarem gry (przewija sesje,
+          # wypłaca lokaty, kończy wyzwania). Ma odpowiadać 403 (strażnik CLI) albo 404
+          # (katalog poza dokumentami serwera). Cokolwiek innego to otwarta dziura.
+          BASE="${APP_URL%/public}"
+          FAIL=0
+          for P in cron/tick.php cron/qa_probe.php migrate.php seed.php; do
+            CODE=$(curl -sS -o /dev/null -w '%{http_code}' -m 30 "$BASE/$P" || echo 000)
+            echo "$P: HTTP $CODE"
+            case "$CODE" in
+              403|404) ;;
+              000) echo "::warning::$P — brak odpowiedzi (sprawdź ręcznie)" ;;
+              *) echo "::error::$P odpowiada HTTP $CODE — skrypt silnika jest dostępny z internetu!"; FAIL=1 ;;
+            esac
+          done
+          [ "$FAIL" = "0" ] || exit 1
