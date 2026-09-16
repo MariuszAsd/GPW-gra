@@ -21,14 +21,24 @@ try {
 } catch (Throwable $e) {
     echo "<p style='color:#b02a24'><b>Brak połączenia z bazą.</b> Dodaj sekrety <code>DB_HOST/DB_NAME/DB_USER/DB_PASS</code> "
        . "w GitHub → Settings → Secrets, zrób ponowny deploy (zbuduje <code>config.local.php</code>), potem odśwież tę stronę.</p>";
-    echo "<pre style='background:#f4f4f6;padding:12px;border-radius:8px;overflow:auto'>" . htmlspecialchars($e->getMessage()) . "</pre>";
+    // Treść wyjątku PDO (host, nazwa bazy, użytkownik) idzie do logu serwera, nie na stronę dla gościa.
+    error_log('install.php: brak połączenia z bazą: ' . $e->getMessage());
     exit;
 }
 
 // 2) już zainstalowane? -> nie ruszaj danych (chyba że wymuszona reinstalacja ?force=1)
-$installed = false;
-try { $installed = ((int) Engine::one("SELECT COUNT(*) FROM stocks")) > 0; } catch (Throwable $e) { $installed = false; }
+// FAIL-CLOSED: gdy NIE POTRAFIMY stwierdzić, czy baza jest już założona, nie wolno założyć że jest pusta.
+// Wcześniej dowolny błąd tego zapytania (zablokowana tabela, timeout, chwilowa awaria MySQL) ustawiał
+// $installed = false — i to samo żądanie ?run=1, bez żadnego tokenu, kasowało cały świat graczy.
+$installed = null;
+try { $installed = ((int) Engine::one("SELECT COUNT(*) FROM stocks")) > 0; } catch (Throwable $e) { $installed = null; }
 $force = ($_GET['force'] ?? '') === '1';
+if ($installed === null) {
+    http_response_code(503);
+    echo "<p style='color:#b02a24'><b>Nie mogę sprawdzić stanu bazy.</b> Instalator odmawia działania, "
+       . "żeby nie skasować istniejących danych. Spróbuj ponownie za chwilę.</p>";
+    exit;
+}
 
 // GATE BEZPIECZEŃSTWA: destrukcyjna reinstalacja (force=1 kasuje WSZYSTKIE dane) wymaga
 // sekretnego tokenu. Bez tego dowolny gość z internetu mógłby jednym GET-em skasować grę.

@@ -11,6 +11,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['set_goal'])) {
         flash('Wrócono do domyślnego celu gry.');
     } elseif ($g < 1000 || $g > 1000000000) {
         flash('Cel musi być między 1 000 a 1 000 000 000 PLN.', 'err');
+    } elseif ($g <= Engine::playerEquity($uidReal) * 1.05) {
+        // Cel musi być realnym wyzwaniem, a nie kwotą, którą gracz już ma. Bez tego wystarczyło wpisać
+        // 1 000 PLN, żeby po jednym ticku dostać „cel osiągnięty", odznakę Milionera i news na cały rynek.
+        flash('Cel musi być wyraźnie wyższy niż Twój obecny kapitał (co najmniej o 5%). Inaczej nie byłoby czego gonić.', 'err');
     } else {
         // nowy cel = nowe polowanie (sesja osiągnięcia zeruje się; zdobyte odznaki zostają)
         Db::pdo()->prepare("UPDATE users SET goal_target=?, goal_session=NULL WHERE id=?")->execute([round($g, 2), $uidReal]);
@@ -21,7 +25,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['set_goal'])) {
 }
 
 // NOWA PRÓBA celu: po „czas minął" (albo po osiągniętym celu) gracz startuje polowanie od nowa —
-// nowy zegar (limit sesji od TERAZ) i nowa baza wyniku % (kapitał bieżący). Historia konta zostaje.
+// nowy zegar (limit sesji od TERAZ). Historia konta zostaje.
+// Baza wyniku (start_equity) CELOWO zostaje nietknięta: wcześniej nowa próba przestawiała ją na
+// bieżący kapitał, więc jedno kliknięcie zamieniało wynik -50% na 0% i czyściło straty w rankingu.
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['new_attempt'])) {
     $gs = (int) (Engine::one("SELECT v FROM game_state WHERE k='goal_sessions'") ?: 0);
     [$sNow] = Engine::sessionInfo();
@@ -31,12 +37,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['new_attempt'])) {
     if ($meNow['goal_session'] === null && !$expired) {
         flash('Bieżąca próba jeszcze trwa — nową zaczniesz po jej rozstrzygnięciu (cel albo koniec czasu).', 'err');
     } else {
-        $eqNow = Engine::playerEquity($uidReal);
-        Db::pdo()->prepare("UPDATE users SET goal_started_session=?, goal_attempts=goal_attempts+1, goal_session=NULL, start_equity=? WHERE id=?")
-            ->execute([$sNow, $eqNow, $uidReal]);
+        Db::pdo()->prepare("UPDATE users SET goal_started_session=?, goal_attempts=goal_attempts+1, goal_session=NULL WHERE id=?")
+            ->execute([$sNow, $uidReal]);
         $try = (int) $meNow['goal_attempts'] + 1;
-        Engine::journal($uidReal, 'goal', "🔄 Nowa próba celu (nr $try): zegar i wynik liczą się od sesji #$sNow, baza " . number_format($eqNow, 2, ',', ' ') . ' PLN.');
-        flash("Nowa próba (nr $try) wystartowała! Zegar: $gs sesji od teraz, wynik % liczony od bieżącego kapitału.");
+        Engine::journal($uidReal, 'goal', "🔄 Nowa próba celu (nr $try): zegar liczy się od sesji #$sNow.");
+        flash("Nowa próba (nr $try) wystartowała! Zegar: $gs sesji od teraz. Wynik % dalej liczy się od Twojego startowego kapitału.");
     }
     redirect('portfolio.php');
 }

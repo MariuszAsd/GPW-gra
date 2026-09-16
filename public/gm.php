@@ -10,6 +10,16 @@ if ($role !== 'admin') { http_response_code(403); echo "Brak dostępu (tylko adm
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $a = $_POST['action'] ?? '';
     $pdo = Db::pdo();
+
+    // Akcje uruchamiające silnik muszą przejść przez TĘ SAMĄ blokadę co cron. Wcześniej panel
+    // odpalał runTick() prosto z żądania HTTP, więc kliknięcie w trakcie pracy crona dawało dwie
+    // pętle świata naraz — a to rozjeżdżało rezerwacje botów (ujemne stany w portfelach).
+    // Blokada zwalnia się sama wraz z końcem żądania (zamknięcie połączenia / procesu).
+    if (in_array($a, ['event', 'report', 'tick', 'world_event', 'sector_event', 'company_event'], true)
+        && !Engine::worldLock(5)) {
+        flash('Silnik właśnie pracuje (cron) — odczekaj kilka sekund i spróbuj ponownie.', 'err');
+        redirect('gm.php');
+    }
     if ($a === 'sentiment') {
         Engine::setState('sentiment', (string) (float) str_replace(',', '.', $_POST['sentiment'] ?? '0'));
         flash('Ustawiono nastawienie rynku.');

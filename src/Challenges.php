@@ -338,7 +338,12 @@ final class Challenges
         $sid = (int) $cp['shadow_user_id'];
         $uid = (int) $cp['user_id'];
         Engine::releaseAllOrders($sid);   // anuluje zlecenia (też obronne SL/TP) i zwalnia rezerwacje
-        $cash = (float) Engine::one("SELECT cash + cash_reserved FROM users WHERE id=?", [$sid]);
+        // Odczyt salda subkonta musi widzieć stan BIEŻĄCY, nie zrzut sprzed rozpoczęcia transakcji ticka:
+        // gracz może handlować subkontem przez HTTP dokładnie w tej samej chwili, a poniżej zerujemy jego
+        // saldo. Bez blokującego odczytu ostatnia sprzedaż na subkoncie po prostu przepadała.
+        $lock = Db::driver() === 'mysql' ? ' FOR UPDATE' : '';
+        $cashRow = Engine::row("SELECT cash + cash_reserved AS total FROM users WHERE id=?" . $lock, [$sid]);
+        $cash = (float) ($cashRow['total'] ?? 0);
         $stockVal = 0.0;
         foreach (Engine::all("SELECT w.stock_id, w.qty, w.qty_reserved, w.avg_price, s.price
                               FROM wallets w JOIN stocks s ON s.id=w.stock_id
@@ -346,14 +351,18 @@ final class Challenges
             $q = (int) $w['qty'] + (int) $w['qty_reserved'];
             $stockVal += $q * (float) $w['price'];
             Engine::ensureWallet($uid, (int) $w['stock_id']);
-            $own = Engine::row("SELECT qty, avg_price FROM wallets WHERE user_id=? AND stock_id=?", [$uid, $w['stock_id']]);
-            $newQty = (int) $own['qty'] + $q;
-            $newAvg = $newQty > 0 ? round(((int) $own['qty'] * (float) $own['avg_price'] + $q * (float) $w['avg_price']) / $newQty, 4) : 0;
-            $pdo->prepare("UPDATE wallets SET qty=?, avg_price=? WHERE user_id=? AND stock_id=?")->execute([$newQty, $newAvg, $uid, $w['stock_id']]);
+            // Zapis PRZYROSTOWY po stronie SQL — dokładnie ten wzorzec, co w matchBook. Wcześniej był tu
+            // odczyt-a-potem-zapis wartością absolutną: jeśli gracz dokupił akcje na koncie GŁÓWNYM w tej
+            // samej chwili, w której tick rozliczał wyzwanie, zakup znikał bez śladu (gotówka zeszła,
+            // akcji nie było). Średnia liczona z całej pozycji, razem z akcjami zamrożonymi pod SL/TP.
+            $addVal = round($q * (float) $w['avg_price'], 2);
+            $pdo->prepare("UPDATE wallets SET avg_price = CASE WHEN qty + qty_reserved + ? > 0 THEN ROUND(((qty + qty_reserved)*avg_price + ?)/(qty + qty_reserved + ?), 4) ELSE avg_price END, qty = qty + ? WHERE user_id=? AND stock_id=?")
+                ->execute([$q, $addVal, $q, $q, $uid, $w['stock_id']]);
         }
         $pdo->prepare("DELETE FROM wallets WHERE user_id=?")->execute([$sid]);
         $pdo->prepare("UPDATE users SET cash=cash+? WHERE id=?")->execute([round($cash, 2), $uid]);
-        $pdo->prepare("UPDATE users SET cash=0, cash_reserved=0 WHERE id=?")->execute([$sid]);
+        // zdejmij z subkonta DOKŁADNIE tyle, ile przed chwilą dopisaliśmy na konto główne (a nie „ustaw zero")
+        $pdo->prepare("UPDATE users SET cash = cash - ?, cash_reserved = 0 WHERE id=?")->execute([round($cash, 2), $sid]);
         $isBotOwner = (int) (Engine::one("SELECT is_bot FROM users WHERE id=?", [$uid]) ?: 0) === 1;
         if (!$isBotOwner && round($cash, 2) != 0.0) {
             Engine::ledger($uid, round($cash, 2), 'wyzwanie', 'Wyzwanie „' . ($ch['name'] ?? '') . '”: gotówka z subkonta wróciła na konto (akcje przeniesione osobno)', 'wyzwania.php');

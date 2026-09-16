@@ -3,12 +3,13 @@
 require __DIR__ . '/_boot.php';
 $user = acting_user(require_login());
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') redirect('portfolio.php');
+require_market_open($user, 'order.php?id=' . (int) ($_POST['order_id'] ?? 0));
 
 $oid   = (int) ($_POST['order_id'] ?? 0);
 $qty   = (int) ($_POST['qty'] ?? 0);
 $price = (float) str_replace(',', '.', $_POST['price'] ?? '0');
 
-[$ok, $msg] = Engine::editOrder($oid, (int) $user['id'], $qty, $price);
+[$ok, $msg] = Engine::retryOnLock(fn() => Engine::editOrder($oid, (int) $user['id'], $qty, $price));
 Log::write($ok ? 'info' : 'warn', 'player', 'order.edit', ($ok ? 'zmieniono' : 'odrzucono') . ": #$oid -> {$qty}szt @ $price",
     ['user' => $user['username'], 'order_id' => $oid, 'msg' => $msg]);
 if ($ok) Engine::journal((int) $user['id'], 'order', '✏️ Zmieniono zlecenie #' . $oid . ' — ' . $qty . ' szt. po ' . number_format($price, 2, ',', ' ') . ' PLN.', 'order.php?id=' . $oid);

@@ -4,11 +4,7 @@ $user = acting_user(require_login());
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') redirect('market.php');
 
 // poza godzinami handlu giełda nie przyjmuje zleceń (QA i admin testują zawsze)
-if (!Engine::marketIsOpen() && !in_array($user['role'] ?? '', ['admin', 'qa'], true)) {
-    [, $mo, $mc] = Engine::marketHours();
-    flash("🌙 Giełda jest zamknięta — handel trwa {$mo}–{$mc}. Zlecenie nie zostało przyjęte.", 'err');
-    redirect('stock.php?id=' . (int) ($_POST['stock_id'] ?? 0));
-}
+require_market_open($user, 'stock.php?id=' . (int) ($_POST['stock_id'] ?? 0));
 
 $sid   = (int) ($_POST['stock_id'] ?? 0);
 $side  = $_POST['side'] ?? 'buy';
@@ -22,13 +18,14 @@ $tp    = ($_POST['tp_price'] ?? '') !== '' ? (float) str_replace(',', '.', $_POS
 $freeBefore = (int) (Engine::one("SELECT qty FROM wallets WHERE user_id=? AND stock_id=?", [$user['id'], $sid]) ?: 0);
 $filledAny = false;
 if ($type === 'market') {
-    [$ok, $msg] = Engine::marketOrder((int) $user['id'], $sid, $side, $qty);
+    [$ok, $msg] = Engine::retryOnLock(fn() => Engine::marketOrder((int) $user['id'], $sid, $side, $qty));
     $filledAny = $ok;   // PKC = realizacja natychmiast albo błąd
 } else {
     $exp = ($_POST['validity'] ?? 'gtc') === 'session' ? Engine::sessionInfo()[0] : null;
-    [$ok, $msg, $oid] = Engine::place((int) $user['id'], $sid, $side, $qty, $price, $exp) + [2 => 0];
+    // Ponawiane OSOBNO: samo złożenie i samo kojarzenie. Wspólne ponowienie mogłoby złożyć zlecenie dwa razy.
+    [$ok, $msg, $oid] = Engine::retryOnLock(fn() => Engine::place((int) $user['id'], $sid, $side, $qty, $price, $exp)) + [2 => 0];
     if ($ok) {
-        Engine::matchBook($sid);                   // spróbuj skojarzyć od razu
+        Engine::retryOnLock(fn() => Engine::matchBook($sid));   // spróbuj skojarzyć od razu
         // JASNE potwierdzenie: ile weszło od razu, ile czeka w arkuszu
         $rem = $oid > 0 ? (int) (Engine::one("SELECT qty FROM orders WHERE id=? AND status='active'", [$oid]) ?? 0) : 0;
         $done = max(0, $qty - $rem);
