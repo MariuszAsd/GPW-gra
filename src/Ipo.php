@@ -349,7 +349,11 @@ final class Ipo
         $packet = ['mm' => 3000, 'trend' => 300, 'rsi' => 300, 'fundamental' => 300, 'news' => 200, 'tech' => 300];
         $wIns = $pdo->prepare("INSERT INTO wallets (user_id, stock_id, qty, avg_price) VALUES (?,?,?,?)");
         $uUp  = $pdo->prepare("UPDATE users SET start_equity = start_equity + ? WHERE id=?");
-        foreach (Engine::all("SELECT u.id, b.strategy FROM users u JOIN bots b ON b.user_id = u.id WHERE u.is_bot = 1") as $b) {
+        // role <> 'challenger': subkonta-cienie wyzwań też mają is_bot=1 i własny wpis w bots (kopia DNA
+        // właściciela), więc łapały się do tego zapytania i przy KAŻDYM debiucie dostawały darmowy pakiet
+        // akcji. Subkonto człowieka wpisu w bots nie ma, więc nie dostawało nic — fundusze gry wygrywały
+        // wyzwanie bez grania, a gracz tracił wpisowe. To samo kryterium ma recruitFunds w Challenges.
+        foreach (Engine::all("SELECT u.id, b.strategy FROM users u JOIN bots b ON b.user_id = u.id WHERE u.is_bot = 1 AND u.role <> 'challenger'") as $b) {
             $q = $packet[$b['strategy']] ?? 0;
             if ($q <= 0) continue;
             $wIns->execute([(int) $b['id'], $sid, $q, $price]);

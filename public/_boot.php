@@ -25,6 +25,20 @@ $cookieSecure = (!empty($_SERVER['HTTPS']) && strtolower((string) $_SERVER['HTTP
     || (($_SERVER['SERVER_PORT'] ?? '') == 443)
     || (strtolower((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https');
 session_set_cookie_params(['samesite' => 'Lax', 'httponly' => true, 'secure' => $cookieSecure]);
+
+// Nieprzewidziany błąd nie może pokazać graczowi pustej strony ani śladu wyjątku ze ścieżkami serwera.
+// Zapisujemy go do dziennika (panel GM -> Dziennik) i pokazujemy jedno zdanie po ludzku.
+set_exception_handler(function (Throwable $e) {
+    try {
+        Log::write('error', 'engine', 'page.exception', $e->getMessage(),
+            ['file' => basename($e->getFile()), 'line' => $e->getLine(), 'url' => (string) ($_SERVER['REQUEST_URI'] ?? '')]);
+    } catch (Throwable $x) { error_log('page.exception: ' . $e->getMessage()); }
+    if (!headers_sent()) { http_response_code(500); header('Content-Type: text/html; charset=utf-8'); }
+    echo '<div style="font-family:system-ui,Arial,sans-serif;max-width:560px;margin:60px auto;padding:0 18px;line-height:1.6">'
+       . '<h1 style="font-size:20px">Coś poszło nie tak</h1>'
+       . '<p>Ta operacja się nie udała. Twoje pieniądze i akcje są bezpieczne — nic nie zostało policzone połowicznie.</p>'
+       . '<p><a href="pulpit.php">← Wróć na Pulpit</a></p></div>';
+});
 session_start();
 
 // Auto-migracja: po deployu baza sama dołoży nowe kolumny/tabele (bez utraty danych).
