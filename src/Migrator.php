@@ -533,6 +533,21 @@ final class Migrator
                     PRIMARY KEY (user_id, target_id)
                 )",
             ],
+            38 => [
+                // NOWY MODEL RYWALIZACJI: koniec celu „milion w N sesji" — ranking i ligi liczone w PROCENTACH.
+                // Migawka kapitału na początek każdego tygodnia i miesiąca = baza stopy zwrotu w lidze okresu.
+                "CREATE TABLE equity_snapshots (
+                    id " . (Db::driver() === 'mysql' ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT') . ",
+                    user_id    INT NOT NULL,
+                    kind       VARCHAR(8) NOT NULL,
+                    period     VARCHAR(10) NOT NULL,
+                    session    INT NOT NULL,
+                    equity     DECIMAL(15,2) NOT NULL,
+                    created_at VARCHAR(19) NOT NULL,
+                    UNIQUE (user_id, kind, period)
+                )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
+                "CREATE INDEX ix_eqsnap ON equity_snapshots (kind, period)",
+            ],
         ];
     }
 

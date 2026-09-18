@@ -61,10 +61,14 @@ $missionsDone = count(array_filter($missions, fn($m) => $m['done']));
 $news = Engine::all("SELECT id, headline, type, published_at FROM news ORDER BY id DESC LIMIT 4");
 $notifs = Engine::all("SELECT message, link, created_at, read_at FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 4", [$uid]);
 
-// cel gry (osobisty próg gracza ma pierwszeństwo; zmiana w Portfelu)
-$myGoal = Engine::one("SELECT goal_target FROM users WHERE id=?", [$uid]);
-$goalTarget = ($myGoal !== false && $myGoal !== null) ? (float) $myGoal : (float) (Engine::one("SELECT v FROM game_state WHERE k='goal_target'") ?: 0);
-$progress = $goalTarget > 0 ? min(100, $equity / $goalTarget * 100) : 0;
+// drabinka (stopa zwrotu od startu) + miejsce w ligach tygodnia i miesiąca (wszystko w procentach)
+$rung = Engine::ladderRung($ret);
+$next = Engine::ladderNext($ret);
+$myLeague = [];
+foreach (['month' => 'miesiąca', 'week' => 'tygodnia'] as $lk => $lbl) {
+    $tab = Engine::leagueTable($lk);
+    foreach ($tab as $i => $r) if ($r['id'] === $uid) { $myLeague[$lk] = ['pos' => $i + 1, 'n' => count($tab), 'ret' => $r['ret'], 'lbl' => $lbl]; break; }
+}
 
 layout_header('Pulpit', $user, 'home');
 
@@ -102,18 +106,22 @@ function stock_row(array $w, bool $premium, bool $withPl): void {
 <?php if ($eqSvg): ?>
 <div class="panel" style="margin-bottom:12px;padding:10px 14px 8px"><?= $eqSvg ?></div>
 <?php endif; ?>
-<?php if ($goalTarget > 0): ?>
 <details class="goal-mini">
-  <summary>🎯 Cel gry: <b><?= number_format($progress, 0, ',', ' ') ?>%</b> z <?= money_short($goalTarget) ?> PLN
-    <span class="bar"><i style="width:<?= round(min(100, $progress), 1) ?>%"></i></span>
+  <summary>📈 Drabinka: <b><?= ($ret >= 0 ? '+' : '') . number_format($ret, 1, ',', ' ') ?>%</b> od startu
+    <?php if ($next): ?><span class="bar"><i style="width:<?= round(max(0, min(100, $ret / $next[0] * 100)), 1) ?>%"></i></span>
+      <span class="muted">następny szczebel +<?= $next[0] ?>%</span>
+    <?php else: ?><span class="up">🏆 szczyt drabinki</span><?php endif; ?>
+    <?php foreach ($myLeague as $lk => $ml): ?>
+      <span class="tag" title="Liga <?= $ml['lbl'] ?>: stopa zwrotu od początku okresu, w procentach"><?= $lk === 'month' ? '🗓' : '📅' ?> liga <?= $ml['lbl'] ?>: <b><?= $ml['pos'] ?></b>/<?= $ml['n'] ?><?= $ml['ret'] !== null ? ' · ' . ($ml['ret'] >= 0 ? '+' : '') . number_format($ml['ret'], 1, ',', ' ') . '%' : '' ?></span>
+    <?php endforeach; ?>
     <span class="muted" style="text-decoration:underline">szczegóły</span>
   </summary>
   <div class="panel" style="padding:10px 14px">
-    <p class="muted" style="margin:0;font-size:12.5px">Kapitał <b><?= money($equity) ?> PLN</b> z celu <b><?= money($goalTarget) ?> PLN</b>.
-      Własny próg ustawisz w <a href="portfolio.php">Portfelu</a> (sekcja Cel gry).</p>
+    <p class="muted" style="margin:0;font-size:12.5px">Gra bez limitu czasu: liczy się stopa zwrotu od kapitału startowego <b><?= money($startEq) ?> PLN</b>.
+      Każdy szczebel drabinki to odznaka i Tokeny (pełna lista w <a href="portfolio.php">Portfelu</a>),
+      a ligi tygodnia i miesiąca startują od zera z każdym nowym okresem — <a href="ranking.php">zobacz tabele</a>.</p>
   </div>
 </details>
-<?php endif; ?>
 
 <?php /* dashboard: panele układają się w kolumny (masonry) na szerokim ekranie */ ?>
 <div class="dash">
@@ -152,7 +160,7 @@ function stock_row(array $w, bool $premium, bool $withPl): void {
 
 <?php /* ---------- 2b. ZNAJOMI (obserwowani gracze — gwiazdka w Rankingu/na profilu) ---------- */
 $friends = Engine::all(
-    "SELECT u.id, u.username, u.title, u.goal_session FROM user_follows f JOIN users u ON u.id = f.target_id
+    "SELECT u.id, u.username, u.title FROM user_follows f JOIN users u ON u.id = f.target_id
      WHERE f.user_id = ? AND u.is_bot = 0 AND u.role = 'player' ORDER BY u.username", [(int) $user['id']]);
 if ($friends): ?>
 <section class="panel" style="margin-bottom:16px">
@@ -164,7 +172,7 @@ if ($friends): ?>
       $fret = $fse > 0 ? ($feq - $fse) / $fse * 100 : null; ?>
     <tr>
       <td><a href="gracz.php?id=<?= (int) $f['id'] ?>" style="font-weight:700;color:var(--accent)"><?= h($f['username']) ?></a>
-        <?= $f['goal_session'] !== null ? ' <span title="cel gry osiągnięty">🏆</span>' : '' ?></td>
+        <?php if ($fret !== null && ($fr = Engine::ladderRung($fret)) !== null): $fa = Achievements::get($fr[2]); ?> <span title="szczebel drabinki: <?= h($fa[1] ?? '') ?>"><?= h($fa[0] ?? '📈') ?></span><?php endif; ?></td>
       <td class="num mono"><?= money($feq) ?></td>
       <td class="num"><?php if ($fret === null): ?><span class="muted">—</span><?php else: ?><span class="chg <?= $fret >= 0 ? 'p' : 'n' ?>"><span class="ar"><?= $fret >= 0 ? '▲' : '▼' ?></span><?= number_format(abs($fret), 1, ',', ' ') ?>%</span><?php endif; ?></td>
     </tr>

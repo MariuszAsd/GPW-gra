@@ -1737,6 +1737,8 @@ final class Engine
                 // zakotwicz dzień i start sesji bez podbijania numeru
                 self::setState('session_date', $today);
                 self::setState('session_start_tick', (string) $tick);
+                // świeży świat / pierwsze uruchomienie po aktualizacji: baza lig od razu, nie dopiero jutro
+                try { self::takeSnapshots($today); } catch (\Throwable $e) { /* nie blokuje ticka */ }
                 return;
             }
             $n = $prev + 1;
@@ -1753,6 +1755,8 @@ final class Engine
             $rollDate = self::one("SELECT v FROM game_state WHERE k='session_date'") ?: self::nowWarsaw()->format('Y-m-d');
             Db::pdo()->prepare("INSERT INTO session_dates (session, trade_date) VALUES (?, ?)")->execute([$n, $rollDate]);
         } catch (\Throwable $e) { /* data tej sesji już zapisana — pomiń */ }
+        // baza lig tygodnia i miesiąca: migawka kapitału każdego gracza na starcie sesji (raz na okres)
+        try { self::takeSnapshots((string) $rollDate); } catch (\Throwable $e) { Log::write('warn', 'engine', 'snapshot.fail', $e->getMessage()); }
         // świece dzienne D1 (wykresy tydzień/miesiąc/rok): zrzut ZAMYKANEJ sesji,
         // koniecznie PRZED nadpisaniem day_open_price nowym kursem otwarcia
         try {
@@ -1847,29 +1851,122 @@ final class Engine
         self::setState('session', (string) $n);
     }
 
-    /** Cel gry: gdy kapitał gracza (equity) osiągnie JEGO próg — zapisz sesję sukcesu + komunikat.
-     *  Próg = osobisty cel gracza (users.goal_target) albo domyślny z panelu GM. */
-    private static function checkGoal(int $tick): void
+    /* ---------- Drabinka osiągnięć i ligi w procentach ----------
+     * Gra nie ma już „celu" w sensie warunku wygranej ani limitu sesji. To długie inwestowanie:
+     * wynik gracza to STOPA ZWROTU od kapitału startowego, a każda rywalizacja (ranking, liga
+     * miesiąca, liga tygodnia) liczy się w procentach — nowy gracz może wygrać z weteranem.
+     * Drabinka to progi stopy zwrotu; każdy szczebel daje odznakę i tokeny. Szczyt (+900%,
+     * czyli milion ze stu tysięcy) zachowuje dawną odznakę „Milioner". */
+
+    /** Szczeble drabinki: [próg stopy zwrotu w %, tokeny za szczebel, kod odznaki]. Rosnąco. */
+    public const LADDER = [
+        [10,  3,  'drabinka_10'],
+        [25,  5,  'drabinka_25'],
+        [50,  8,  'drabinka_50'],
+        [100, 12, 'drabinka_100'],
+        [150, 15, 'drabinka_150'],
+        [200, 20, 'drabinka_200'],
+        [300, 30, 'drabinka_300'],
+        [500, 40, 'drabinka_500'],
+        [900, 60, 'milioner'],
+    ];
+
+    /** Klucze bieżących okresów ligowych dla daty (domyślnie dziś w Warszawie): tydzień ISO i miesiąc. */
+    public static function periodKeys(?string $date = null): array
     {
-        $default = (float) (self::one("SELECT v FROM game_state WHERE k='goal_target'") ?: 0);
-        [$session] = self::sessionInfo($tick);
-        $players = self::all("SELECT id, username, cash, cash_reserved, goal_target FROM users WHERE is_bot=0 AND role='player' AND goal_session IS NULL");
-        foreach ($players as $p) {
-            $target = $p['goal_target'] !== null ? (float) $p['goal_target'] : $default;
-            if ($target <= 0) continue;
-            $stockVal = (float) (self::one(
-                "SELECT COALESCE(SUM((w.qty + w.qty_reserved) * s.price), 0) FROM wallets w JOIN stocks s ON s.id = w.stock_id WHERE w.user_id = ?",
-                [$p['id']]
-            ) ?: 0);
-            $equity = (float) $p['cash'] + (float) $p['cash_reserved'] + $stockVal + self::lockedFunds((int) $p['id']);
-            if ($equity >= $target) {
-                Db::pdo()->prepare("UPDATE users SET goal_session=? WHERE id=?")->execute([$session, $p['id']]);
-                self::notify((int) $p['id'], 'goal', '🏆 Cel gry osiągnięty! Twój kapitał przekroczył ' . number_format($target, 0, ',', ' ') . ' PLN w sesji #' . $session . '.', 'portfolio.php');
-                self::award((int) $p['id'], 'milioner');
-                Db::pdo()->prepare("INSERT INTO news (headline,body,type,scope,target_id,is_espi,impact_strength,publish_tick,expire_tick,published_at)
-                                    VALUES (?,?,'POS','MARKET',NULL,0,0,?,?,?)")
-                    ->execute(['🏆 ' . $p['username'] . ' osiągnął cel gry: ' . number_format($target, 0, ',', ' ') . ' PLN!',
-                               'Kapitał inwestora przekroczył próg celu w sesji ' . $session . '.', $tick, $tick + 20, Db::now()]);
+        $d = $date !== null ? new \DateTimeImmutable($date, new \DateTimeZone('Europe/Warsaw')) : self::nowWarsaw();
+        return ['week' => $d->format('o-\WW'), 'month' => $d->format('Y-m')];
+    }
+
+    /**
+     * Migawka kapitału gracza jako baza bieżącego tygodnia i miesiąca (raz na okres — UNIQUE).
+     * Wołane przy przejściu sesji dla wszystkich ludzi i przy rejestracji dla nowego gracza,
+     * żeby każdy w lidze okresu liczył od tego samego momentu.
+     */
+    public static function snapshotUser(int $uid, ?float $equity = null, ?string $date = null): void
+    {
+        $eq = $equity ?? self::playerEquity($uid);
+        [$session] = self::sessionInfo();
+        $ins = Db::driver() === 'mysql'
+            ? "INSERT IGNORE INTO equity_snapshots (user_id, kind, period, session, equity, created_at) VALUES (?,?,?,?,?,?)"
+            : "INSERT OR IGNORE INTO equity_snapshots (user_id, kind, period, session, equity, created_at) VALUES (?,?,?,?,?,?)";
+        $st = Db::pdo()->prepare($ins);
+        foreach (self::periodKeys($date) as $kind => $period) $st->execute([$uid, $kind, $period, $session, round($eq, 2), Db::now()]);
+    }
+
+    /** Migawki dla wszystkich graczy na starcie sesji (data = dzień nowej sesji). */
+    private static function takeSnapshots(string $date): void
+    {
+        foreach (self::col("SELECT id FROM users WHERE is_bot=0 AND role='player'") as $uid) {
+            try { self::snapshotUser((int) $uid, null, $date); } catch (\Throwable $e) { /* pojedyncza migawka nie psuje ticka */ }
+        }
+    }
+
+    /**
+     * Tabela ligi w PROCENTACH. $kind: 'all' (od kapitału startowego), 'month', 'week'.
+     * Baza okresu = migawka z pierwszej sesji okresu; gracz bez migawki (dołączył w trakcie)
+     * liczy od kapitału startowego i jest oznaczony jako 'partial'. Posortowane malejąco.
+     */
+    public static function leagueTable(string $kind = 'all'): array
+    {
+        $period = $kind === 'all' ? null : (self::periodKeys()[$kind] ?? null);
+        $snap = [];
+        if ($period !== null) {
+            foreach (self::all("SELECT user_id, equity FROM equity_snapshots WHERE kind=? AND period=?", [$kind, $period]) as $s) {
+                $snap[(int) $s['user_id']] = (float) $s['equity'];
+            }
+        }
+        $out = [];
+        foreach (self::all("SELECT id, username, title, start_equity, joined_session FROM users WHERE is_bot=0 AND role='player'") as $r) {
+            $id = (int) $r['id'];
+            $eq = self::playerEquity($id);
+            $base = ($period !== null && isset($snap[$id])) ? $snap[$id] : (float) $r['start_equity'];
+            $out[] = [
+                'id' => $id, 'username' => $r['username'], 'title' => $r['title'], 'equity' => $eq, 'base' => $base,
+                'ret' => $base > 0 ? ($eq / $base - 1) * 100 : null,
+                'joined_session' => (int) $r['joined_session'],
+                'partial' => $period !== null && !isset($snap[$id]),
+                'rung' => self::ladderRung($base > 0 && (float) $r['start_equity'] > 0 ? ($eq / (float) $r['start_equity'] - 1) * 100 : 0.0),
+            ];
+        }
+        usort($out, fn($a, $b) => ($b['ret'] ?? -INF) <=> ($a['ret'] ?? -INF));
+        return $out;
+    }
+
+    /** Najwyższy osiągnięty szczebel drabinki dla stopy zwrotu (w %) albo null. */
+    public static function ladderRung(float $retPct): ?array
+    {
+        $top = null;
+        foreach (self::LADDER as $r) { if ($retPct + 1e-9 >= $r[0]) $top = $r; else break; }
+        return $top;
+    }
+
+    /** Następny szczebel ponad stopą zwrotu (w %) albo null, gdy drabinka skończona. */
+    public static function ladderNext(float $retPct): ?array
+    {
+        foreach (self::LADDER as $r) if ($retPct + 1e-9 < $r[0]) return $r;
+        return null;
+    }
+
+    /** Sprawdza drabinkę: nowe szczeble = odznaka + tokeny (+ news rynkowy od podwojenia kapitału). */
+    private static function checkLadder(int $tick): void
+    {
+        if ($tick % 5 !== 0) return;   // progi nie uciekną — co 5 ticków wystarczy
+        if (!class_exists('Tokens')) require_once __DIR__ . '/Tokens.php';
+        foreach (self::all("SELECT id, username, start_equity FROM users WHERE is_bot=0 AND role='player' AND start_equity > 0") as $p) {
+            $uid = (int) $p['id'];
+            $ret = (self::playerEquity($uid) / (float) $p['start_equity'] - 1) * 100;
+            foreach (self::LADDER as [$pct, $tokens, $code]) {
+                if ($ret + 1e-9 < $pct) break;
+                if (!self::award($uid, $code)) continue;   // szczebel już zdobyty (award daje 2 tokeny bazowe)
+                if ($tokens > 2) Tokens::grant($uid, $tokens - 2, 'ladder', "drabinka: +$pct% od startu");
+                if ($pct >= 100) {
+                    $co = $pct === 100 ? 'podwoił kapitał startowy' : ($pct === 200 ? 'potroił kapitał startowy' : "ma już +$pct% od startu");
+                    Db::pdo()->prepare("INSERT INTO news (headline,body,type,scope,target_id,is_espi,impact_strength,publish_tick,expire_tick,published_at)
+                                        VALUES (?,?,'POS','MARKET',NULL,0,0,?,?,?)")
+                        ->execute(['🏆 ' . $p['username'] . ' ' . $co . '!',
+                                   'Inwestor wspiął się na szczebel drabinki +' . $pct . '% — stopa zwrotu liczona od kapitału startowego.', $tick, $tick + 20, Db::now()]);
+                }
             }
         }
     }
@@ -1944,7 +2041,7 @@ final class Engine
         try { self::signalAlerts(); } catch (\Throwable $e) { if (!Db::pdo()->inTransaction()) throw $e; Log::write('warn', 'engine', 'ta.alerts', $e->getMessage()); }
         self::recordIndex($t);    // indeks giełdowy (historia pod wykres)
         self::recordEquity($t);   // kapitał graczy (wykres portfela)
-        self::checkGoal($t);      // czy któryś gracz osiągnął cel gry
+        self::checkLadder($t);    // nowe szczeble drabinki (odznaka + tokeny)
 
         // bezpiecznik: gdyby transakcja przepadła po drodze (deadlock => implicit rollback), commit
         // „pustej" transakcji ukryłby częściowo zastosowany tick — lepiej przerwać głośno (cron ponowi)
@@ -2180,7 +2277,7 @@ final class Engine
 
     private static array $achCache = [];   // uid => set zdobytych kodów (na czas żądania)
 
-    private static function hasAch(int $userId, string $code): bool
+    public static function hasAch(int $userId, string $code): bool
     {
         if (!isset(self::$achCache[$userId])) {
             self::$achCache[$userId] = array_fill_keys(self::col("SELECT code FROM achievements WHERE user_id=?", [$userId]), true);

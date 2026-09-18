@@ -20,7 +20,7 @@ $features = [
 $steps = [
     ['Zakładasz konto', 'Wybierasz login, opcjonalnie e-mail — i już jesteś na parkiecie. Za darmo.'],
     ['Dostajesz ' . money_short($startCash) . ' PLN', 'Wirtualny kapitał startowy plus 10 Tokenów inwestora na start.'],
-    ['Budujesz pierwszy milion', 'Kupuj tanio, sprzedawaj drogo, chroń zyski i wspinaj się w rankingu.'],
+    ['Wspinasz się po drabince', 'Kupuj tanio, sprzedawaj drogo, chroń zyski. Liczy się stopa zwrotu, nie kwota — ranking i ligi w procentach, odznaki i tokeny za każdy szczebel.'],
 ];
 ?><!doctype html>
 <html lang="pl"><head>

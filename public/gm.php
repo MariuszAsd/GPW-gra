@@ -27,8 +27,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         Engine::setState('bot_activity', (string) max(0, min(3, (float) str_replace(',', '.', $_POST['bot_activity'] ?? '1'))));
         flash('Ustawiono aktywność botów.');
     } elseif ($a === 'goal') {
-        Engine::setState('goal_target', (string) max(0, (float) str_replace(',', '.', $_POST['goal_target'] ?? '0')));
-        Engine::setState('goal_sessions', (string) max(1, (int) ($_POST['goal_sessions'] ?? 60)));
+        // gra nie ma już „celu" (kwota w limicie sesji) — rywalizacja liczy się w procentach; zostaje długość sesji
         Engine::setState('ticks_per_session', (string) max(1, (int) ($_POST['ticks_per_session'] ?? 20)));
         flash('Zapisano ustawienia celu gry i sesji.');
     } elseif ($a === 'invite') {
@@ -222,8 +221,6 @@ $botact = Engine::one("SELECT v FROM game_state WHERE k='bot_activity'");
 $botact = $botact === false || $botact === null ? 1.0 : (float) $botact;
 $botCount = (int) Engine::one("SELECT COUNT(*) FROM users WHERE is_bot=1");
 $tick = (int) (Engine::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
-$goalTarget = (float) (Engine::one("SELECT v FROM game_state WHERE k='goal_target'") ?: 0);
-$goalSessions = (int) (Engine::one("SELECT v FROM game_state WHERE k='goal_sessions'") ?: 60);
 $inviteCode = (string) (Engine::one("SELECT v FROM game_state WHERE k='invite_code'") ?: '');
 $playerCount = (int) Engine::one("SELECT COUNT(*) FROM users WHERE is_bot=0 AND role='player'");
 $treasury = (float) (Engine::one("SELECT v FROM game_state WHERE k='treasury'") ?: 0);
@@ -245,15 +242,15 @@ layout_header('Panel GM', $user, 'gm');
 </div>
 
 <section class="panel" style="margin-bottom:16px">
-  <h2>Cel gry i sesje</h2>
+  <h2>Sesje i rywalizacja</h2>
   <form method="post" class="row" style="align-items:flex-end">
     <input type="hidden" name="action" value="goal">
-    <div><label>Cel — kapitał (PLN)</label><input type="number" step="10000" name="goal_target" value="<?= (int) $goalTarget ?>" style="width:140px"></div>
-    <div><label>Limit sesji na cel</label><input type="number" min="1" name="goal_sessions" value="<?= $goalSessions ?>" style="width:110px"></div>
-    <div><label>Ticków na sesję</label><input type="number" min="1" name="ticks_per_session" value="<?= $tps ?>" style="width:110px"></div>
+    <div><label>Ticków na sesję (tryb bez godzin handlu)</label><input type="number" min="1" name="ticks_per_session" value="<?= $tps ?>" style="width:110px"></div>
     <button class="btn sm">Zapisz</button>
   </form>
-  <p class="muted" style="margin-top:8px">Gracz ma osiągnąć zadany kapitał w limicie sesji od dołączenia. Sesja = dzień giełdowy (na otwarciu zapisuje się kurs odniesienia dla dziennej zmiany).</p>
+  <p class="muted" style="margin-top:8px">Gra nie ma „celu" ani limitu czasu: wynik gracza to stopa zwrotu od kapitału startowego, ranking i ligi
+    (tydzień, miesiąc) liczą się w procentach, a drabinka osiągnięć (+10% … +900%) daje odznaki i tokeny.
+    Sesja = dzień giełdowy (na otwarciu zapisuje się kurs odniesienia dla dziennej zmiany).</p>
 
   <?php
     $chAll = Challenges::activeAll();

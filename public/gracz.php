@@ -4,7 +4,7 @@ require __DIR__ . '/_boot.php';
 $user = require_login();
 
 $pid = (int) ($_GET['id'] ?? 0);
-$p = Engine::row("SELECT id, username, is_bot, role, cash, cash_reserved, joined_session, goal_session, start_equity, title, frame FROM users WHERE id=?", [$pid]);
+$p = Engine::row("SELECT id, username, is_bot, role, cash, cash_reserved, joined_session, start_equity, title, frame FROM users WHERE id=?", [$pid]);
 $isMe = $p && (int) $p['id'] === (int) $user['id'];
 $viewerAdmin = ($user['role'] ?? '') === 'admin';
 if (!$p || (int) $p['is_bot'] === 1 || ($p['role'] !== 'player' && !$isMe && !$viewerAdmin)) {
@@ -85,7 +85,7 @@ layout_header('Profil: ' . $p['username'], $user, 'ranking');
   <span class="avatar<?= in_array($p['frame'], ['gold', 'silver'], true) ? ' frame-' . h($p['frame']) : '' ?>"><?= mb_strtoupper(mb_substr($p['username'], 0, 1)) ?></span>
   <h1><?= h($p['username']) ?><?= $isMe ? ' <span class="muted" style="font-size:14px">(to Ty)</span>' : '' ?></h1>
   <?php if (trim((string) $p['title']) !== ''): ?><span class="tag" style="color:var(--gold);border-color:var(--gold-border)"><?= h($p['title']) ?></span><?php endif; ?>
-  <?php if ($p['goal_session'] !== null): ?><span class="chg p">🏆 cel osiągnięty (sesja #<?= (int) $p['goal_session'] ?>)</span><?php endif; ?>
+  <?php if (($rung = Engine::ladderRung($ret)) !== null): $ra = Achievements::get($rung[2]); ?><span class="chg p" title="najwyższy zdobyty szczebel drabinki (stopa zwrotu od startu)"><?= $ra ? h($ra[0] . ' ' . $ra[1]) : '+' . $rung[0] . '%' ?></span><?php endif; ?>
   <span class="muted">w grze od sesji #<?= (int) $p['joined_session'] ?></span>
   <?php if ($isMe || $viewerAdmin): ?><a class="btn sm ghost" style="margin-left:auto" href="dziennik.php<?= $isMe ? '' : '?id=' . $pid ?>">Dziennik</a>
   <a class="btn sm ghost" href="ranking.php">← Ranking</a>

@@ -21,7 +21,16 @@ final class Achievements
             'rajd_10'             => ['🚀', 'Rajd',                     '+10% kapitału w jednej sesji.'],
             'lekcja_pokory'       => ['🎢', 'Lekcja pokory',            '-10% kapitału w jednej sesji. Bywa.'],
             'kupil_w_krachu'      => ['🩸', 'Kupował, gdy lała się krew', 'Kupiłeś akcje w trakcie krachu rynkowego.'],
-            'milioner'            => ['🏆', 'Milioner',                 'Osiągnąłeś cel gry.'],
+            // drabinka: progi stopy zwrotu od kapitału startowego (Engine::LADDER) — odznaka + tokeny za szczebel
+            'drabinka_10'         => ['📈', '+10%',                     'Kapitał wyższy o 10% od startowego.'],
+            'drabinka_25'         => ['📈', '+25%',                     'Kapitał wyższy o 25% od startowego.'],
+            'drabinka_50'         => ['📈', '+50%',                     'Kapitał wyższy o 50% od startowego.'],
+            'drabinka_100'        => ['🔥', 'Podwojenie',               'Podwoiłeś kapitał startowy.'],
+            'drabinka_150'        => ['🔥', '+150%',                    'Kapitał wyższy o 150% od startowego.'],
+            'drabinka_200'        => ['🔥', 'Potrojenie',               'Potroiłeś kapitał startowy.'],
+            'drabinka_300'        => ['💎', '+300%',                    'Kapitał czterokrotnie wyższy od startowego.'],
+            'drabinka_500'        => ['💎', '+500%',                    'Kapitał sześciokrotnie wyższy od startowego.'],
+            'milioner'            => ['🏆', 'Milioner',                 'Szczyt drabinki: +900% od startu — milion ze stu tysięcy.'],
             'zwyciezca_wyzwania'  => ['🏅', 'Zwycięzca wyzwania',       'Wygrałeś wyzwanie inwestycyjne.'],
         ];
     }
