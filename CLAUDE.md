@@ -28,7 +28,7 @@ długość fazy (`market_fixing_minutes`, 0 = wyłączone). Bez godzin handlu (t
 Rynek i arkusz zleceń (limit/PKC, stop-buy „kup, gdy przebije”, SL/TP, SL kroczący) · boty o 5 strategiach z własnym DNA ·
 newsroom (ESPI, fundamenty, nastroje, technika) · raporty finansowe i dywidendy · analiza techniczna
 (10 wskaźników) · IPO z zapisami i redukcją · wyzwania (konkursy na osobnych portfelach) · sezon i liga ·
-lokaty bankowe · fundusz indeksowy MAK40 i „czy pobiłeś indeks?” (Pulpit/Ranking: vs MAK40) · odznaki, misje dnia, seria logowań · tokeny inwestora (premium, PayU) · czat i fora spółek ·
+lokaty bankowe · fundusz indeksowy MAK40 i „czy pobiłeś indeks?” (Pulpit/Ranking: vs MAK40) · odznaki, misje dnia, seria logowań · tygodniowy raport e-mail i publiczna karta wyniku (Weekly) · tokeny inwestora (premium, PayU) · czat i fora spółek ·
 ranking, profile graczy, polecenia i obserwowani gracze · panel GM · dziennik logów.
 
 ---
@@ -40,7 +40,7 @@ config.php            jedna konfiguracja (env → config.local.php → domyślne
 migrate.php           tworzy/aktualizuje schemat            seed.php  zasiewa świat
 verify.php            testy integralności (gotówka/akcje)
 cron/tick.php         puls rynku (blokada pliku cron/tick.lock)
-cron/qa_probe.php     QA-bot: gra przez HTTP jak gracz, 146 asercji
+cron/qa_probe.php     QA-bot: gra przez HTTP jak gracz, 150 asercji
 src/                  logika (patrz niżej)
 public/               warstwa web — każda strona to jeden plik PHP
 .github/workflows/    deploy, health, raport, trace, reinstall
@@ -60,7 +60,8 @@ public/               warstwa web — każda strona to jeden plik PHP
 | `Bank.php` | lokaty · `Seasons.php` sezon · `Daily.php` misje · `Achievements.php` odznaki |
 | `Tokens.php` | tokeny premium, pakiety, trial, **polecenia** · `Payments.php` PayU |
 | `Recommendations.php` | rekomendacje DM · `Moderation.php` filtr słów · `Mailer.php`, `PasswordReset.php` |
-| `Qa.php` | definicje 146 asercji QA-bota (w tym `inv.money` — suma pieniądza w świecie) |
+| `Qa.php` | definicje 150 asercji QA-bota (w tym `inv.money` — suma pieniądza w świecie) |
+| `Weekly.php` | „Twój tydzień w Maklerii”: podsumowanie po zamknięciu tygodnia (powiadomienie + e-mail) i publiczna karta wyniku `karta.php?u=TOKEN` z linkiem polecającym |
 | `Fund.php` | fundusz indeksowy MAK40: jednostki = indeks/10, pula `game_state.fund_pool` w świecie, zysk/stratę rozlicza skarbiec |
 | `Reconcile.php` | rekoncyliacja rezerwacji (panel GM): podgląd rozjazdów escrow + korekta na kliknięcie, nigdy sama |
 
@@ -90,7 +91,7 @@ public/               warstwa web — każda strona to jeden plik PHP
    serię realnych błędów (podwójne zwroty escrow, handel na anulowanym zleceniu) — nie cofaj go.
 4. **Zmiana schematu = 3 kroki naraz:** dopisz kolumnę/tabelę w `Schema.php`, podbij `Schema::VERSION`,
    dopisz migrację o tym numerze w `Migrator.php`. Migracje są idempotentne i odpalają się same
-   na produkcji przy pierwszym żądaniu po deployu. Aktualnie **wersja 41**.
+   na produkcji przy pierwszym żądaniu po deployu. Aktualnie **wersja 42**.
 5. **Sekretów nie commituj.** `config.local.php` i `.env` są w `.gitignore`. Dane bazy produkcyjnej
    żyją w sekretach GitHuba i workflow sam buduje z nich `config.local.php` na serwerze.
 6. **Uważaj na polskie znaki w kodzie PHP.** Cudzysłów `"` wewnątrz komentarza SQL w stringu PHP
@@ -112,7 +113,7 @@ php migrate.php && php seed.php          # świeży świat (nadpisuje data/tycoo
 php cron/tick.php 100                    # 100 ticków; wpisy logów source='qa' to normalny szum
 php -S 127.0.0.1:8123 -t public &        # serwer w tle
 APP_URL=http://127.0.0.1:8123 php cron/qa_probe.php
-# MUSI wypisać: ✅ QA OK — asercji: 146
+# MUSI wypisać: ✅ QA OK — asercji: 150
 ```
 
 **Test na MySQL jest obowiązkowy dla zmian dotykających transakcji/wyścigów** (produkcja to MySQL,
@@ -158,7 +159,7 @@ Logi bywają duże — parsuj je skryptem, nie wklejaj w całości.
 
 ## 6. Stan na dziś i znane sprawy
 
-- Schemat **v41**. QA lokalnie: **146/146**.
+- Schemat **v42**. QA lokalnie: **150/150**.
 - Na produkcji QA zgłaszał **3 asercje** escrow: osierocone rezerwacje sprzed lipcowych poprawek wyścigów
   (jeden gracz z ujemnym `cash_reserved`, dwóch z zamrożoną gotówką bez zleceń). To blizna, nie wyciek.
   W panelu GM (sekcja „Zdrowie gry") jest **Rekoncyliacja rezerwacji**: podgląd rozjazdów i przycisk korekty

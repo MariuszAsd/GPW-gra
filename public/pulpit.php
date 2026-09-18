@@ -121,7 +121,8 @@ function stock_row(array $w, bool $premium, bool $withPl): void {
   <div class="panel" style="padding:10px 14px">
     <p class="muted" style="margin:0;font-size:12.5px">Gra bez limitu czasu: liczy się stopa zwrotu od kapitału startowego <b><?= money($startEq) ?> PLN</b>.
       Każdy szczebel drabinki to odznaka i Tokeny (pełna lista w <a href="portfolio.php">Portfelu</a>),
-      a ligi tygodnia i miesiąca startują od zera z każdym nowym okresem — <a href="ranking.php">zobacz tabele</a>.</p>
+      a ligi tygodnia i miesiąca startują od zera z każdym nowym okresem — <a href="ranking.php">zobacz tabele</a>.
+      Po każdym tygodniu dostajesz podsumowanie („Twój tydzień w Maklerii”), a swoją <a href="konto.php#karta">kartę wyniku</a> możesz podesłać znajomym.</p>
   </div>
 </details>
 

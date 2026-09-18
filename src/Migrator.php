@@ -599,6 +599,11 @@ final class Migrator
                 "UPDATE users SET bench_equity = (SELECT eh.equity FROM equity_history eh WHERE eh.user_id = users.id AND eh.t = users.bench_tick LIMIT 1) WHERE is_bot = 0 AND bench_tick IS NOT NULL",
                 "UPDATE users SET bench_index = (SELECT ih.value FROM index_history ih WHERE ih.t >= users.bench_tick ORDER BY ih.t ASC LIMIT 1) WHERE is_bot = 0 AND bench_tick IS NOT NULL",
             ],
+            42 => [
+                // TYGODNIOWY RAPORT I KARTA WYNIKU: token publicznej karty (i wypisania z e-maili), zgoda na e-mail tygodniowy
+                "ALTER TABLE users ADD COLUMN share_token VARCHAR(32) NULL",
+                "ALTER TABLE users ADD COLUMN weekly_mail TINYINT NOT NULL DEFAULT 1",
+            ],
         ];
     }
 

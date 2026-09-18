@@ -16,7 +16,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash('To nie wygląda na poprawny adres e-mail.', 'err');
         } else {
             try {
-                Db::pdo()->prepare("UPDATE users SET email=? WHERE id=?")->execute([$email !== '' ? $email : null, $uid]);
+                Db::pdo()->prepare("UPDATE users SET email=?, weekly_mail=? WHERE id=?")->execute([$email !== '' ? $email : null, isset($_POST['weekly_mail']) ? 1 : 0, $uid]);
                 Engine::journal($uid, 'system', $email !== '' ? '✉️ Ustawiono e-mail do odzyskiwania hasła.' : '✉️ Usunięto e-mail z konta.');
                 flash($email !== '' ? 'E-mail zapisany — od teraz możesz odzyskać hasło.' : 'E-mail usunięty.', 'ok');
             } catch (Throwable $e) {
@@ -38,6 +38,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $email = (string) (Engine::one("SELECT email FROM users WHERE id=?", [$uid]) ?: '');
+$weeklyOn = (int) (Engine::one("SELECT weekly_mail FROM users WHERE id=?", [$uid]) ?? 1) === 1;
+$cardUrl = Weekly::cardUrl($uid);   // publiczna karta wyniku (token generuje się przy pierwszym wejściu)
 layout_header('Ustawienia konta', $user, 'more');
 ?>
 <div class="page-head">
@@ -63,14 +65,26 @@ $refAct = (int) Engine::one("SELECT COUNT(*) FROM users WHERE referred_by=? AND 
   <p class="muted" style="margin:10px 0 0;font-size:12.5px">Poleconych: <b><?= $refCnt ?></b> · aktywnych (nagroda wypłacona): <b><?= $refAct ?></b></p>
 </section>
 
+<section class="panel" id="karta" style="max-width:520px;margin-bottom:14px">
+  <h2>📇 Karta wyniku — pochwal się i zaproś</h2>
+  <p class="muted" style="margin:6px 0 10px">Publiczna strona z Twoim wynikiem (stopa zwrotu, vs MAK40, drabinka, odznaki) — bez logowania.
+    Kończy się zaproszeniem do gry z <b>Twoim linkiem polecającym</b>, więc każdy, kto z niej dołączy, to Twoje polecenie.</p>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <input id="cardlink" readonly value="<?= h($cardUrl) ?>" style="flex:1;min-width:220px;font-size:12.5px" onclick="this.select()">
+    <button class="btn sm ghost" type="button" onclick="navigator.clipboard&&navigator.clipboard.writeText(document.getElementById('cardlink').value).then(()=>{this.textContent='✓ Skopiowano'})">Kopiuj link</button>
+    <a class="btn sm" style="width:auto" href="<?= h($cardUrl) ?>" target="_blank" rel="noopener">Zobacz kartę</a>
+  </div>
+</section>
+
 <section class="panel" style="max-width:520px;margin-bottom:14px">
-  <h2>E-mail do odzyskiwania hasła</h2>
+  <h2>E-mail: odzyskiwanie hasła i tygodniowy raport</h2>
   <?php if ($email === ''): ?>
-    <p class="flash info" style="margin:0 0 12px">Bez e-maila nie odzyskasz hasła, gdy je zapomnisz — warto podać. Używamy go wyłącznie do resetu hasła.</p>
+    <p class="flash info" style="margin:0 0 12px">Bez e-maila nie odzyskasz hasła, gdy je zapomnisz — warto podać. Używamy go do resetu hasła i (jeśli chcesz) do tygodniowego podsumowania „Twój tydzień w Maklerii”.</p>
   <?php endif; ?>
   <form method="post">
     <label for="email">E-mail <span class="muted">(puste pole = usuń)</span></label>
     <input id="email" name="email" type="email" value="<?= h($email) ?>" placeholder="twoj@email.pl">
+    <label style="display:flex;gap:8px;align-items:center;margin:10px 0 4px;font-weight:500"><input type="checkbox" name="weekly_mail" value="1" <?= $weeklyOn ? 'checked' : '' ?> style="width:auto;margin:0"> Wysyłaj co tydzień „Twój tydzień w Maklerii” (wynik, liga, vs MAK40, odznaki)</label>
     <label for="cur1">Obecne hasło (potwierdzenie)</label>
     <input id="cur1" name="current" type="password" required>
     <button class="btn" style="margin-top:12px">Zapisz e-mail</button>
