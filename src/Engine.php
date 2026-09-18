@@ -470,6 +470,11 @@ final class Engine
             self::setState($stateKey, $now[$kind]);   // najpierw przestaw okres — rozliczenie tylko raz
             try { self::settleLeague($kind, (string) $prev, $now[$kind], $session); }
             catch (\Throwable $e) { Log::write('error', 'engine', 'league.fail', "$kind $prev: " . $e->getMessage()); }
+            if ($kind === 'week') {
+                // „Twój tydzień w Maklerii”: powiadomienie w grze + e-mail (wyniki ligi są już w league_results)
+                if (!class_exists('Weekly')) require_once __DIR__ . '/Weekly.php';
+                try { Weekly::sendAll((string) $prev, $now[$kind]); } catch (\Throwable $e) { Log::write('warn', 'engine', 'weekly.fail', $e->getMessage()); }
+            }
         }
     }
 

@@ -17,7 +17,7 @@
 final class Qa
 {
     /** Pełny przebieg = tyle asercji. Gdy dodajesz asercję, podnieś tę liczbę (i w CLAUDE.md). */
-    public const EXPECTED_CHECKS = 146;
+    public const EXPECTED_CHECKS = 150;
     /** Po tylu nieudanych przebiegach z rzędu GM dostaje e-mail (raz na serię). */
     public const ALERT_AFTER = 2;
 
@@ -170,6 +170,17 @@ final class Qa
         [$c, $b] = $this->http('POST', '/api_watch.php', ['stock_id' => $sid]);
         $this->check($c === 200 && str_contains($b, '"on":false'), 'watch.off', 'drugie kliknięcie nie wyłączyło obserwowania');
 
+        // tygodniowy raport i karta wyniku: stały token, publiczna karta bez logowania, wypisanie z e-maili tokenem, nieznany token = 404
+        if (!class_exists('Weekly')) require_once __DIR__ . '/Weekly.php';
+        $tokW = Weekly::shareToken($uid);
+        $this->check(strlen($tokW) === 32 && Weekly::shareToken($uid) === $tokW, 'weekly.token', 'token karty wyniku nie jest stały 32-znakowy');
+        [$c, $b] = $this->http('GET', '/karta.php?u=' . $tokW);
+        $this->check($c === 200 && str_contains($b, 'karta wyniku') && str_contains($b, 'qa_tester'), 'weekly.card', "karta wyniku: code=$c");
+        $pdo->prepare("UPDATE users SET weekly_mail=1 WHERE id=?")->execute([$uid]);
+        [$c] = $this->http('GET', '/karta.php?u=' . $tokW . '&off=1');
+        $this->check($c === 200 && (int) Engine::one("SELECT weekly_mail FROM users WHERE id=?", [$uid]) === 0, 'weekly.off', 'link wypisania z e-maili nie zadziałał');
+        [$c] = $this->http('GET', '/karta.php?u=' . str_repeat('0', 32));
+        $this->check($c === 404, 'weekly.card404', "nieznany token karty: code=$c (oczekiwano 404)");
         // fundusz MAK40: kupno = gotówka do puli funduszu (w świecie), sprzedaż = wypłata wg wyceny minus prowizja,
         // zysk/strata ze skarbca — suma pieniądza w świecie bez zmian (potwierdza to inv.money na końcu przebiegu)
         if (!class_exists('Fund')) require_once __DIR__ . '/Fund.php';

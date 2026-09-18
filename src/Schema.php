@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 41;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 42;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -34,6 +34,8 @@ final class Schema
                 bench_tick   INT NULL,                     -- „czy pobiłeś indeks?”: punkt odniesienia (tick, wartość indeksu i kapitał gracza z TEJ SAMEJ chwili)
                 bench_index  DECIMAL(12,2) NULL,
                 bench_equity $money NULL,
+                share_token VARCHAR(32) NULL,              -- token publicznej karty wyniku (karta.php?u=) i wypisania z e-maili
+                weekly_mail TINYINT NOT NULL DEFAULT 1,    -- e-mail „Twój tydzień w Maklerii” po zamknięciu tygodnia (0 = wyłączony)
                 tokens INT NOT NULL DEFAULT 0,             -- Tokeny inwestora (waluta premium; księga w token_ledger)
                 email VARCHAR(120) NULL,                   -- do odzyskiwania hasła (opcjonalny; unikalny gdy podany)
                 goal_target DECIMAL(15,2) NULL,            -- osobisty cel gry (NULL = domyślny z panelu GM)
