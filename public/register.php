@@ -37,14 +37,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             Db::pdo()->prepare("INSERT INTO users (username, password_hash, email, is_bot, role, cash, joined_session, start_equity, referred_by) VALUES (?,?,?,0,'player',?,?,?,?)")
                 ->execute([$username, password_hash($pass1, PASSWORD_DEFAULT), $email !== '' ? $email : null, $cfg['starting_cash'], $sessionNo, $cfg['starting_cash'], $refBy]);
             $uid = (int) Db::pdo()->lastInsertId();
+            // baza ligi tygodnia i miesiąca od momentu dołączenia — nowy gracz liczy się w procentach od dziś
+            try { Engine::snapshotUser($uid, (float) $cfg['starting_cash']); } catch (Throwable $e) { /* migawka nie blokuje rejestracji */ }
             Log::write('info', 'auth', 'register', "nowe konto: $username" . ($refBy ? " (z polecenia #$refBy)" : ''), ['uid' => $uid]);
             Tokens::grant($uid, 10, 'welcome', 'Tokeny powitalne — zajrzyj do sekcji Tokeny inwestora');
             if ($refBy) Tokens::grant($uid, Tokens::REF_BONUS, 'referral', 'bonus z linku polecającego');
             session_regenerate_id(true);
             $_SESSION['uid'] = $uid;
-            $goal = (float) (Engine::one("SELECT v FROM game_state WHERE k='goal_target'") ?: 0);
-            flash('Witaj na giełdzie! Masz ' . money($cfg['starting_cash']) . ' PLN startowego kapitału' .
-                  ($goal > 0 ? ' — cel: ' . money($goal) . ' PLN.' : '.'));
+            flash('Witaj na giełdzie! Masz ' . money($cfg['starting_cash']) . ' PLN startowego kapitału. Liczy się stopa zwrotu — powodzenia!');
             redirect('pulpit.php');
         } catch (Throwable $e) {
             $err = 'Nie udało się utworzyć konta (login zajęty?).';

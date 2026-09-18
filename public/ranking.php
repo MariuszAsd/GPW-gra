@@ -16,44 +16,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['follow_id']) || isse
     redirect('ranking.php');
 }
 
-$goalTarget = (float) (Engine::one("SELECT v FROM game_state WHERE k='goal_target'") ?: 0);
-$goalSessions = (int) (Engine::one("SELECT v FROM game_state WHERE k='goal_sessions'") ?: 0);
 [$sessionNo] = Engine::sessionInfo();
 
-// gracze + wartość akcji jednym zapytaniem (podzapytanie zamiast GROUP BY — spójne SQLite/MySQL)
-$players = Engine::all(
-    "SELECT u.id, u.username, u.title, u.cash, u.cash_reserved, u.joined_session, u.goal_session, u.start_equity,
-            u.goal_started_session, u.goal_attempts, u.goal_target,
-            (SELECT COALESCE(SUM((w.qty + w.qty_reserved) * s.price), 0)
-             FROM wallets w JOIN stocks s ON s.id = w.stock_id WHERE w.user_id = u.id) AS stock_val,
-            (SELECT COALESCE(SUM(d.amount), 0) FROM deposits d WHERE d.user_id = u.id AND d.status = 'active') AS dep_val,
-            (SELECT COALESCE(SUM(i.paid), 0) FROM ipo_subs i JOIN ipo_offers o ON o.id = i.offer_id AND o.status = 'open'
-             WHERE i.user_id = u.id) AS ipo_val
-     FROM users u WHERE u.is_bot = 0 AND u.role = 'player'"
-);
-$defaultGoal = (float) (Engine::one("SELECT v FROM game_state WHERE k='goal_target'") ?: 1000000);
-foreach ($players as &$p) {
-    // kapitał = całość majątku: gotówka + zamrożone + akcje + lokaty/IPO + ZABLOKOWANE w wyzwaniu
-    // (buy-in wyzwania to nie strata — dalej Twój majątek, jak lokata)
-    $p['equity'] = (float) $p['cash'] + (float) $p['cash_reserved'] + (float) $p['stock_val'] + (float) $p['dep_val'] + (float) $p['ipo_val']
-                 + Engine::challengeLocked((int) $p['id']);
-    $p['ret'] = (float) $p['start_equity'] > 0 ? ($p['equity'] - $p['start_equity']) / $p['start_equity'] * 100 : null;
-    // Medal należy się za CEL GRY, nie za dowolnie zaniżony cel własny: gracz, który ustawił sobie
-    // próg niższy niż obowiązujący w grze, ma swoją odznakę i wpis w dzienniku, ale nie wskakuje
-    // w rankingu przed wszystkich z „celem w 1 sesji".
-    $p['won'] = $p['goal_session'] !== null
-        && ($p['goal_target'] === null || (float) $p['goal_target'] >= $defaultGoal - 0.01);
-    // tempo od startu BIEŻĄCEJ próby (po restarcie „nowa próba" zegar biegnie od goal_started_session)
-    $gs0 = $p['goal_started_session'] !== null ? (int) $p['goal_started_session'] : (int) $p['joined_session'];
-    $p['speed'] = $p['won'] ? max(1, (int) $p['goal_session'] - $gs0 + 1) : null;
-}
-unset($p);
-// kolejność rywalizacji: zwycięzcy wg tempa (najmniej sesji do celu), potem reszta wg kapitału
-usort($players, function ($a, $b) {
-    if ($a['won'] !== $b['won']) return $a['won'] ? -1 : 1;
-    if ($a['won'] && $a['speed'] !== $b['speed']) return $a['speed'] <=> $b['speed'];
-    return $b['equity'] <=> $a['equity'];
-});
+// Trzy tabele, wszystkie w PROCENTACH: od startu (domyślna), liga miesiąca, liga tygodnia.
+// Kwota kapitału jest tylko informacją — nie decyduje o miejscu. Nowy gracz może wygrać z weteranem.
+$wg = in_array($_GET['wg'] ?? '', ['miesiac', 'tydzien'], true) ? $_GET['wg'] : 'start';
+$kind = ['start' => 'all', 'miesiac' => 'month', 'tydzien' => 'week'][$wg];
+$players = Engine::leagueTable($kind);
+$periods = Engine::periodKeys();
+$periodLabel = ['start' => 'od kapitału startowego', 'miesiac' => 'liga miesiąca ' . $periods['month'], 'tydzien' => 'liga tygodnia ' . $periods['week']][$wg];
 
 $following = array_map('intval', Engine::col("SELECT target_id FROM user_follows WHERE user_id=?", [(int) $user['id']]));
 
@@ -61,40 +32,33 @@ layout_header('Ranking', $user, 'ranking');
 $medals = ['🥇', '🥈', '🥉'];
 ?>
 <?php explainer('ranking', 'O co gramy', [
-    'cel: pierwszy milion — grasz CAŁYM kapitałem konta',
+    'liczy się PROCENT, nie kwota: stopa zwrotu od startu albo od początku okresu',
     'wynik = gotówka + akcje + lokaty/IPO + zablokowane w wyzwaniu',
-    '„🏆 cel w N sesji" = zwycięzca doszedł do celu w N sesji (tempo)',
-    '„do celu: N sesji" = tyle ZOSTAŁO Ci na milion (limit ' . $goalSessions . ')',
+    'liga miesiąca i tygodnia startują od zera z każdym nowym okresem',
+    'drabinka: +10% … +900% — odznaka i Tokeny za każdy szczebel',
     'to nie Wyzwania — tam grasz osobnym portfelem z buy-inu']); ?>
 <div class="page-head"><h1>Liga</h1><?= session_tag($sessionNo) ?>
-  <?php if ($goalTarget > 0): ?><span class="muted hide-m">cel: <?= money($goalTarget) ?> PLN w <?= $goalSessions ?> sesji — całym kapitałem konta (osobne konkursy z wpisowym: zakładka <b>Wyzwania</b>)</span><?php endif; ?>
+  <span class="muted hide-m"><?= h($periodLabel) ?> — całym kapitałem konta (osobne konkursy z wpisowym: zakładka <b>Wyzwania</b>)</span>
 </div>
 <?php liga_subnav('ranking'); ?>
+<?php subnav([['start', 'ranking.php', 'Od startu'], ['miesiac', 'ranking.php?wg=miesiac', 'Liga miesiąca'], ['tydzien', 'ranking.php?wg=tydzien', 'Liga tygodnia']], $wg); ?>
 
 <div class="panel" style="padding:0;overflow:hidden">
   <div class="tbl-scroll">
     <table>
-      <thead><tr><th style="width:52px">#</th><th>Gracz</th><th class="num">Kapitał</th><th class="num">Wynik</th><th>Cel</th><th class="num">Dołączył</th></tr></thead>
+      <thead><tr><th style="width:52px">#</th><th>Gracz</th><th class="num">Stopa zwrotu</th><th>Drabinka</th><th class="num hide-m">Kapitał</th><th class="num hide-m">Dołączył</th></tr></thead>
       <tbody>
       <?php foreach ($players as $i => $p):
-          $gStart = $p['goal_started_session'] !== null ? (int) $p['goal_started_session'] : (int) $p['joined_session'];
-          $deadline = $gStart + $goalSessions - 1;
-          $left = $deadline - $sessionNo;
           $isMeRow = (int) $p['id'] === (int) $user['id']; ?>
-        <tr <?= (int) $p['id'] === (int) $user['id'] ? 'style="background:var(--info-bg)"' : '' ?>>
+        <tr <?= $isMeRow ? 'style="background:var(--info-bg)"' : '' ?>>
           <td class="mono" style="font-size:16px"><?= $medals[$i] ?? ($i + 1) ?></td>
-          <td><a href="gracz.php?id=<?= (int) $p['id'] ?>" style="font-weight:700;color:var(--accent)"><?= h($p['username']) ?></a><?= trim((string) $p['title']) !== '' ? ' <span class="tag" style="color:var(--gold);border-color:var(--gold-border)">' . h($p['title']) . '</span>' : '' ?><?php $bn = (int) Engine::one("SELECT COUNT(*) FROM achievements WHERE user_id=?", [$p['id']]); ?><?= $bn > 0 ? " <span class='tag' title='zdobyte odznaki: $bn z " . count(Achievements::all()) . "'>🎖️$bn</span>" : '' ?><?= (int) $p['id'] === (int) $user['id'] ? ' <span class="tag" style="color:var(--accent);border-color:var(--accent)">Ty</span>' : '' ?><?= (int) $p['goal_attempts'] > 1 ? ' <span class="tag" title="Która próba dojścia do celu (restart zegara po upływie czasu)">' . (int) $p['goal_attempts'] . '. próba</span>' : '' ?><?php if (!$isMeRow): $isFollowed = in_array((int) $p['id'], $following, true); ?>
+          <td><a href="gracz.php?id=<?= (int) $p['id'] ?>" style="font-weight:700;color:var(--accent)"><?= h($p['username']) ?></a><?= trim((string) $p['title']) !== '' ? ' <span class="tag" style="color:var(--gold);border-color:var(--gold-border)">' . h($p['title']) . '</span>' : '' ?><?php $bn = (int) Engine::one("SELECT COUNT(*) FROM achievements WHERE user_id=?", [$p['id']]); ?><?= $bn > 0 ? " <span class='tag' title='zdobyte odznaki: $bn z " . count(Achievements::all()) . "'>🎖️$bn</span>" : '' ?><?= $isMeRow ? ' <span class="tag" style="color:var(--accent);border-color:var(--accent)">Ty</span>' : '' ?><?= $p['partial'] ? ' <span class="tag" title="Dołączył w trakcie okresu — liczony od swojego startu">od dołączenia</span>' : '' ?><?php if (!$isMeRow): $isFollowed = in_array((int) $p['id'], $following, true); ?>
             <form method="post" style="display:inline;margin-left:4px"><input type="hidden" name="<?= $isFollowed ? 'unfollow_id' : 'follow_id' ?>" value="<?= (int) $p['id'] ?>"><button class="linklike" title="<?= $isFollowed ? 'Przestań obserwować — zniknie z widżetu Znajomi na Pulpicie' : 'Obserwuj gracza — jego wynik zobaczysz w widżecie Znajomi na Pulpicie' ?>" style="background:none;border:0;cursor:pointer;font-size:14px;padding:0;vertical-align:middle"><?= $isFollowed ? '★' : '☆' ?></button></form><?php endif; ?></td>
-          <td class="num mono"><?= money($p['equity']) ?></td>
           <td class="num"><?php if ($p['ret'] === null): ?><span class="muted">—</span>
             <?php else: ?><span class="chg <?= $p['ret'] >= 0 ? 'p' : 'n' ?>"><span class="ar"><?= $p['ret'] >= 0 ? '▲' : '▼' ?></span><?= number_format(abs($p['ret']), 1, ',', ' ') ?>%</span><?php endif; ?></td>
-          <td>
-            <?php if ($p['won']): ?><span class="up" title="Zwycięzca — tyle sesji zajęło mu dojście do celu (mniej = szybciej)">🏆 cel w <?= $p['speed'] ?> sesji</span>
-            <?php elseif ($goalTarget <= 0): ?><span class="muted">—</span>
-            <?php elseif ($left >= 0): ?><span class="soft" title="Ile sesji ZOSTAŁO temu graczowi na osiągnięcie celu (milion) — limit <?= $goalSessions ?> sesji od dołączenia">w grze · do celu: <?= $left ?> sesji</span>
-            <?php else: ?><span class="muted">czas minął</span><?= $isMeRow ? ' · <a href="portfolio.php" style="color:var(--accent)" title="Wystartuj nową próbę: świeży zegar i wynik % od bieżącego kapitału">nowa próba →</a>' : '' ?><?php endif; ?>
-          </td>
-          <td class="num muted">#<?= (int) $p['joined_session'] ?></td>
+          <td><?php if ($p['rung']): $ra = Achievements::get($p['rung'][2]); ?><span class="soft" title="najwyższy zdobyty szczebel drabinki (od startu)"><?= h(($ra[0] ?? '📈') . ' ' . ($ra[1] ?? '+' . $p['rung'][0] . '%')) ?></span><?php else: ?><span class="muted">—</span><?php endif; ?></td>
+          <td class="num mono hide-m"><?= money($p['equity']) ?></td>
+          <td class="num muted hide-m">#<?= (int) $p['joined_session'] ?></td>
         </tr>
       <?php endforeach; if (!$players) echo "<tr><td class='muted' colspan=6 style='padding:20px'>Brak graczy.</td></tr>"; ?>
       </tbody>

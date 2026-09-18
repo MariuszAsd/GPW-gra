@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 37;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 38;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -220,6 +220,18 @@ final class Schema
                 user_id INT NOT NULL,
                 t INT NOT NULL,
                 equity $money NOT NULL
+            )",
+
+            // --- MIGAWKI KAPITAŁU na początek tygodnia/miesiąca (ligi liczone w PROCENTACH od tej bazy) ---
+            "equity_snapshots" => "CREATE TABLE equity_snapshots (
+                id $pk,
+                user_id    INT NOT NULL,
+                kind       VARCHAR(8) NOT NULL,
+                period     VARCHAR(10) NOT NULL,
+                session    INT NOT NULL,
+                equity     $money NOT NULL,
+                created_at VARCHAR(19) NOT NULL,
+                UNIQUE (user_id, kind, period)
             )",
 
             // --- WYDARZENIA: modyfikatory czasowe (nakładki na bazowe wartości, SAME wygasają) ---
@@ -573,6 +585,7 @@ final class Schema
             "CREATE INDEX ix_logs ON logs (level, id)",
             "CREATE INDEX ix_index_t ON index_history (t)",
             "CREATE INDEX ix_equity ON equity_history (user_id, t)",
+            "CREATE INDEX ix_eqsnap ON equity_snapshots (kind, period)",
             "CREATE INDEX ix_tx_buyorder ON transactions (buy_order_id)",
             "CREATE INDEX ix_tx_sellorder ON transactions (sell_order_id)",
             "CREATE INDEX ix_notif ON notifications (user_id, read_at)",

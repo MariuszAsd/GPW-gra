@@ -234,10 +234,20 @@ layout_header('Pomoc', $user, 'help');
 </div>
 
 <div class="panel help-sec" id="cel">
-  <h3>🏆 Cel gry</h3>
-  <p>Zaczynasz ze 100 000 PLN. Twoim zadaniem jest zbudować <b>1 000 000 PLN</b> w limicie sesji
-     (patrz pasek postępu w Portfelu). Sesja to „dzień giełdowy" gry — kursy żyją cały czas,
-     spółki publikują <b>raporty miesięczne</b>, pojawiają się komunikaty <b>ESPI</b>, a sektorami rządzą trendy.
-     Czytaj wiadomości i raporty na podstronach spółek — tam często widać, czemu kurs się rusza.</p>
+  <h3>📈 O co gramy: drabinka i ligi</h3>
+  <p>Zaczynasz ze 100 000 PLN i inwestujesz na długo — bez limitu czasu i bez jednego „celu do zaliczenia".
+     Twój wynik to <b>stopa zwrotu od kapitału startowego</b>. Każda rywalizacja liczy się <b>w procentach</b>,
+     więc ktoś, kto dołączył wczoraj, może wygrać z kimś, kto gra od pół roku:</p>
+  <ul>
+    <li><b>Drabinka</b> — progi stopy zwrotu (+10%, +25%, +50%, podwojenie, … aż po +900%, czyli milion ze stu tysięcy).
+        Każdy szczebel daje odznakę i Tokeny inwestora. Postęp widzisz w Portfelu.</li>
+    <li><b>Ranking</b> — wszyscy gracze według stopy zwrotu od startu.</li>
+    <li><b>Liga miesiąca i liga tygodnia</b> — stopa zwrotu liczona od początku okresu (baza to Twój kapitał na starcie
+        tygodnia lub miesiąca), więc co miesiąc i co tydzień wszyscy startują od zera.</li>
+    <li><b>Wyzwania</b> — osobne konkursy z wpisowym, na oddzielnym portfelu (zakładka Liga).</li>
+  </ul>
+  <p>Sesja to „dzień giełdowy" gry — kursy żyją cały czas, spółki publikują <b>raporty miesięczne</b>,
+     pojawiają się komunikaty <b>ESPI</b>, a sektorami rządzą trendy. Czytaj wiadomości i raporty na podstronach
+     spółek — tam często widać, czemu kurs się rusza.</p>
 </div>
 <?php layout_footer();

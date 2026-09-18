@@ -3,48 +3,6 @@ require __DIR__ . '/_boot.php';
 $user = acting_user(require_login());
 $uidReal = (int) ($user['owner_id'] ?? $user['id']);
 
-// osobisty cel gry: gracz ustawia własny próg (puste/0 = wróć do domyślnego z GM)
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['set_goal'])) {
-    $g = (float) str_replace([' ', ','], ['', '.'], (string) $_POST['goal_value']);
-    if ($g <= 0) {
-        Db::pdo()->prepare("UPDATE users SET goal_target=NULL, goal_session=NULL WHERE id=?")->execute([$uidReal]);
-        flash('Wrócono do domyślnego celu gry.');
-    } elseif ($g < 1000 || $g > 1000000000) {
-        flash('Cel musi być między 1 000 a 1 000 000 000 PLN.', 'err');
-    } elseif ($g <= Engine::playerEquity($uidReal) * 1.05) {
-        // Cel musi być realnym wyzwaniem, a nie kwotą, którą gracz już ma. Bez tego wystarczyło wpisać
-        // 1 000 PLN, żeby po jednym ticku dostać „cel osiągnięty", odznakę Milionera i news na cały rynek.
-        flash('Cel musi być wyraźnie wyższy niż Twój obecny kapitał (co najmniej o 5%). Inaczej nie byłoby czego gonić.', 'err');
-    } else {
-        // nowy cel = nowe polowanie (sesja osiągnięcia zeruje się; zdobyte odznaki zostają)
-        Db::pdo()->prepare("UPDATE users SET goal_target=?, goal_session=NULL WHERE id=?")->execute([round($g, 2), $uidReal]);
-        Engine::journal($uidReal, 'goal', '🎯 Ustawiono osobisty cel gry: ' . number_format($g, 0, ',', ' ') . ' PLN.');
-        flash('Nowy cel: ' . number_format($g, 0, ',', ' ') . ' PLN. Powodzenia!');
-    }
-    redirect('portfolio.php');
-}
-
-// NOWA PRÓBA celu: po „czas minął" (albo po osiągniętym celu) gracz startuje polowanie od nowa —
-// nowy zegar (limit sesji od TERAZ). Historia konta zostaje.
-// Baza wyniku (start_equity) CELOWO zostaje nietknięta: wcześniej nowa próba przestawiała ją na
-// bieżący kapitał, więc jedno kliknięcie zamieniało wynik -50% na 0% i czyściło straty w rankingu.
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['new_attempt'])) {
-    $gs = (int) (Engine::one("SELECT v FROM game_state WHERE k='goal_sessions'") ?: 0);
-    [$sNow] = Engine::sessionInfo();
-    $meNow = Engine::row("SELECT joined_session, goal_started_session, goal_session, goal_attempts FROM users WHERE id=?", [$uidReal]);
-    $started = $meNow['goal_started_session'] !== null ? (int) $meNow['goal_started_session'] : (int) $meNow['joined_session'];
-    $expired = $gs > 0 && ($started + $gs - 1) < $sNow;
-    if ($meNow['goal_session'] === null && !$expired) {
-        flash('Bieżąca próba jeszcze trwa — nową zaczniesz po jej rozstrzygnięciu (cel albo koniec czasu).', 'err');
-    } else {
-        Db::pdo()->prepare("UPDATE users SET goal_started_session=?, goal_attempts=goal_attempts+1, goal_session=NULL WHERE id=?")
-            ->execute([$sNow, $uidReal]);
-        $try = (int) $meNow['goal_attempts'] + 1;
-        Engine::journal($uidReal, 'goal', "🔄 Nowa próba celu (nr $try): zegar liczy się od sesji #$sNow.");
-        flash("Nowa próba (nr $try) wystartowała! Zegar: $gs sesji od teraz. Wynik % dalej liczy się od Twojego startowego kapitału.");
-    }
-    redirect('portfolio.php');
-}
 
 // lokaty: założenie / zerwanie (zawsze z KONTA GŁÓWNEGO — portfel wyzwania gra tylko akcjami)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bank_open'])) {
@@ -125,18 +83,12 @@ $equity = $user['cash'] + $user['cash_reserved'] + $value + $locked;
 $plPct = $cost > 0 ? $pl / $cost * 100 : 0;
 $deposits = ($user['ctx'] ?? '') !== 'challenge' ? Bank::activeFor($uidReal) : [];
 
-// --- cel gry: osobisty próg gracza ma pierwszeństwo przed domyślnym z GM ---
-$goalDefault = (float) (Engine::one("SELECT v FROM game_state WHERE k='goal_target'") ?: 0);
-$goalSessions = (int) (Engine::one("SELECT v FROM game_state WHERE k='goal_sessions'") ?: 0);
+// --- drabinka: stopa zwrotu od kapitału startowego (bez celu i bez limitu czasu) ---
 [$sessionNo] = Engine::sessionInfo();
-$me = Engine::row("SELECT joined_session, goal_started_session, goal_attempts, goal_session, goal_target AS my_goal FROM users WHERE id=?", [$uidReal]);
-$goalTarget = $me['my_goal'] !== null ? (float) $me['my_goal'] : $goalDefault;
-$goalStart = $me['goal_started_session'] !== null ? (int) $me['goal_started_session'] : (int) ($me['joined_session'] ?? 1);
-$deadline = $goalStart + $goalSessions - 1;
-$sessionsLeft = $deadline - $sessionNo;
-// nowa próba możliwa, gdy bieżąca się rozstrzygnęła: cel osiągnięty ALBO czas minął
-$attemptOver = $me['goal_session'] !== null || ($goalSessions > 0 && $sessionsLeft < 0);
-$progress = $goalTarget > 0 ? min(100, $equity / $goalTarget * 100) : 0;
+$startEq = (float) (Engine::one("SELECT start_equity FROM users WHERE id=?", [$uidReal]) ?: 0);
+$ret = $startEq > 0 ? ($equity / $startEq - 1) * 100 : 0.0;
+$rung = Engine::ladderRung($ret);
+$next = Engine::ladderNext($ret);
 
 layout_header('Portfel', $user, 'portfolio');
 ?>
@@ -147,34 +99,23 @@ layout_header('Portfel', $user, 'portfolio');
     'pozycje: kurs, cena kupna i wynik', 'kliknij pozycję, by ustawić SL/TP',
     'kliknij zlecenie po szczegóły', 'pełna historia w Dzienniku']); ?>
 
-<?php if ($goalTarget > 0 && ($user['ctx'] ?? '') !== 'challenge'): // cel gry = dyskretna wzmianka (szczegóły po rozwinięciu) ?>
+<?php if (($user['ctx'] ?? '') !== 'challenge'): // drabinka = dyskretna wzmianka (szczegóły po rozwinięciu) ?>
 <details class="goal-mini">
-  <summary>🎯 Cel gry: <b><?= number_format($progress, 0, ',', ' ') ?>%</b> z <?= money_short($goalTarget) ?> PLN
-    <span class="bar"><i style="width:<?= round(min(100, $progress), 1) ?>%"></i></span>
-    <?php if ($me['goal_session'] !== null): ?><span class="up">🏆 osiągnięty (sesja #<?= (int) $me['goal_session'] ?>)</span>
-    <?php elseif ($sessionsLeft >= 0 && $me['my_goal'] === null): ?><span class="muted" title="Ile sesji zostało Ci na milion CAŁYM kapitałem konta (nie dotyczy Wyzwań)">do celu gry: <?= $sessionsLeft ?> sesji</span>
-    <?php elseif ($goalSessions > 0 && $sessionsLeft < 0): ?><span class="muted">czas minął</span><?php endif; ?>
-    <?php if ((int) $me['goal_attempts'] > 1): ?><span class="tag" title="Która to Twoja próba dojścia do celu"><?= (int) $me['goal_attempts'] ?>. próba</span><?php endif; ?>
+  <summary>📈 Drabinka: <b><?= ($ret >= 0 ? '+' : '') . number_format($ret, 1, ',', ' ') ?>%</b> od startu
+    <?php if ($rung): $ra = Achievements::get($rung[2]); ?><span class="up" title="najwyższy zdobyty szczebel"><?= $ra ? h($ra[0] . ' ' . $ra[1]) : '' ?></span><?php endif; ?>
+    <?php if ($next): ?><span class="bar"><i style="width:<?= round(max(0, min(100, $ret / $next[0] * 100)), 1) ?>%"></i></span>
+      <span class="muted" title="Następny szczebel drabinki i tokeny za jego zdobycie">następny: +<?= $next[0] ?>% (<?= $next[1] ?> Tokenów)</span>
+    <?php else: ?><span class="up">🏆 szczyt drabinki</span><?php endif; ?>
     <span class="muted" style="text-decoration:underline">szczegóły</span>
   </summary>
   <div class="panel" style="padding:12px 14px">
-    <div class="goal-nums mono"><span><?= money($equity) ?> PLN</span><span><?= number_format($progress, 1, ',', ' ') ?>%</span><span><?= money($goalTarget) ?> PLN</span></div>
-    <form method="post" class="inline" style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <input type="hidden" name="set_goal" value="1">
-      <label style="margin:0;display:inline">Twój własny cel (PLN):</label>
-      <input type="number" name="goal_value" min="0" step="10000" value="<?= $me['my_goal'] !== null ? (int) $me['my_goal'] : '' ?>" placeholder="np. 500000" style="width:140px">
-      <button class="btn sm ghost">Zapisz</button>
-      <span class="muted" style="font-size:11.5px">puste = wróć do domyślnego · zmiana zaczyna polowanie od nowa</span>
-    </form>
-    <?php if ($attemptOver): ?>
-    <form method="post" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
-      <input type="hidden" name="new_attempt" value="1">
-      <button class="btn sm">🔄 Nowa próba celu</button>
-      <span class="muted" style="font-size:11.5px;margin-left:6px">
-        <?= $me['goal_session'] !== null ? 'cel masz już za sobą — ' : 'czas tej próby minął — ' ?>nowy zegar (<?= (int) $goalSessions ?> sesji od teraz)
-        i wynik % od bieżącego kapitału; majątek i historia konta zostają</span>
-    </form>
-    <?php endif; ?>
+    <p class="muted" style="margin:0 0 8px;font-size:12.5px">Stopa zwrotu od kapitału startowego <b><?= money($startEq) ?> PLN</b> (dziś <b><?= money($equity) ?> PLN</b>).
+      Bez limitu czasu — każdy szczebel to odznaka i Tokeny inwestora.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:6px">
+      <?php foreach (Engine::LADDER as [$pct, $tok, $code]): $got = Engine::hasAch($uidReal, $code); $a = Achievements::get($code); ?>
+        <span class="tag" style="<?= $got ? 'color:var(--up);border-color:var(--up)' : '' ?>" title="<?= h(($a[2] ?? '') . " · $tok Tokenów") ?>"><?= $got ? '✓ ' : '' ?>+<?= $pct ?>%</span>
+      <?php endforeach; ?>
+    </div>
   </div>
 </details>
 <?php endif; ?>
