@@ -210,6 +210,7 @@ Engine::ensureWallet(1, (int) $stockRows[0]['id']);
 $pdo->prepare("UPDATE wallets SET qty=100, avg_price=? WHERE user_id=1 AND stock_id=?")
     ->execute([$stockRows[0]['price'], $stockRows[0]['id']]);
 $pdo->prepare("UPDATE users SET start_equity = start_equity + ? WHERE id=1")->execute([100 * (float) $stockRows[0]['price']]);
+$pdo->exec("UPDATE users SET bench_tick = 0, bench_index = 1000, bench_equity = start_equity WHERE is_bot = 0");   // punkt odniesienia „vs indeks”: zasiew = indeks 1000 pkt
 
 // Kotwica zamkniętej ekonomii: suma całej gotówki w świecie na starcie. Od tej chwili
 // suma (gotówka + rezerwacje + lokaty + skarbiec + pule wyzwań + zapisy IPO) może się różnić

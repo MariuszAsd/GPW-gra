@@ -374,6 +374,14 @@ final class Engine
         if ($st->rowCount() === 0) $pdo->prepare("INSERT INTO game_state (k, v) VALUES ('treasury', ?)")->execute([(string) round($amount, 2)]);
     }
 
+    /** Korekta skarbca bez osłony pokrycia (zysk/strata funduszu MAK40, prowizja funduszu) — skarbiec może zejść pod zero jak przy odsetkach lokat. */
+    public static function treasuryAdjust(float $delta): void
+    {
+        $delta = round($delta, 2);
+        if ($delta == 0.0) return;
+        self::addTreasury($delta);
+    }
+
     /** Stan skarbca gry (zebrane prowizje minus wypłacone odsetki, nagrody i dopłaty). */
     public static function treasury(): float
     {
@@ -413,7 +421,8 @@ final class Engine
              + self::treasury()
              + (float) self::one("SELECT COALESCE(SUM(pot),0) FROM challenges WHERE status IN ('signup','running')")
              + (float) self::one("SELECT COALESCE(SUM(cp.buyin),0) FROM challenge_players cp JOIN challenges c ON c.id=cp.challenge_id AND c.status='signup' WHERE cp.shadow_user_id IS NULL")
-             + (float) self::one("SELECT COALESCE(SUM(paid),0) FROM ipo_subs WHERE allotted IS NULL");
+             + (float) self::one("SELECT COALESCE(SUM(paid),0) FROM ipo_subs WHERE allotted IS NULL")
+             + (float) (self::one("SELECT v FROM game_state WHERE k='fund_pool'") ?: 0);   // gotówka wpłacona za jednostki funduszu MAK40
     }
 
     /**
@@ -1394,7 +1403,47 @@ final class Engine
         $stockVal = (float) (self::one(
             "SELECT COALESCE(SUM((w.qty + w.qty_reserved) * s.price), 0)
              FROM wallets w JOIN stocks s ON s.id = w.stock_id WHERE w.user_id = ?", [$uid]) ?: 0);
-        return round((float) $u['cash'] + (float) $u['cash_reserved'] + $stockVal + self::lockedFunds($uid), 2);
+        return round((float) $u['cash'] + (float) $u['cash_reserved'] + $stockVal + self::lockedFunds($uid) + self::fundValue($uid), 2);
+    }
+
+    /** Wartość jednostek funduszu MAK40 gracza (część kapitału jak akcje; 0 bez pozycji). */
+    public static function fundValue(int $uid): float
+    {
+        if (!class_exists('Fund')) require_once __DIR__ . '/Fund.php';
+        return Fund::value($uid);
+    }
+
+    /**
+     * „Czy pobiłeś indeks?” — punkt odniesienia gracza: TA SAMA chwila dla jego kapitału i dla indeksu
+     * (rejestracja; starsze konta: najstarszy dostępny punkt historii z migracji; bez historii — teraz, leniwie).
+     * Zwraca stopy zwrotu gracza i indeksu od tego punktu oraz różnicę w punktach procentowych (alpha).
+     */
+    public static function benchmark(int $uid): array
+    {
+        $u = self::row("SELECT bench_tick, bench_index, bench_equity, start_equity FROM users WHERE id=?", [$uid]);
+        $eqNow = self::playerEquity($uid);
+        $idxNow = self::indexValue();
+        if (!$u) return ['from_tick' => 0, 'index0' => $idxNow, 'equity0' => $eqNow, 'index_now' => $idxNow, 'ret_player' => 0.0, 'ret_index' => 0.0, 'alpha' => 0.0];
+        if ($u['bench_tick'] === null || $u['bench_index'] === null || $u['bench_equity'] === null || (float) $u['bench_index'] <= 0 || (float) $u['bench_equity'] <= 0) {
+            $t = (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
+            $eq0 = $eqNow > 0 ? $eqNow : (float) $u['start_equity'];
+            Db::pdo()->prepare("UPDATE users SET bench_tick=?, bench_index=?, bench_equity=? WHERE id=?")->execute([$t, $idxNow, round($eq0, 2), $uid]);
+            $u = ['bench_tick' => $t, 'bench_index' => $idxNow, 'bench_equity' => $eq0];
+        }
+        $rp = (float) $u['bench_equity'] > 0 ? ($eqNow / (float) $u['bench_equity'] - 1) * 100 : 0.0;
+        $ri = (float) $u['bench_index'] > 0 ? ($idxNow / (float) $u['bench_index'] - 1) * 100 : 0.0;
+        return ['from_tick' => (int) $u['bench_tick'], 'index0' => (float) $u['bench_index'], 'equity0' => (float) $u['bench_equity'],
+                'index_now' => $idxNow, 'ret_player' => $rp, 'ret_index' => $ri, 'alpha' => $rp - $ri];
+    }
+
+    /** Zmiana indeksu od początku okresu ligi (pierwsza migawka okresu niesie wartość indeksu) — null, gdy brak. */
+    public static function periodIndexReturn(string $kind, ?string $period = null): ?float
+    {
+        $period = $period ?? (self::periodKeys()[$kind] ?? null);
+        if ($period === null) return null;
+        $v = self::one("SELECT index_value FROM equity_snapshots WHERE kind=? AND period=? AND index_value IS NOT NULL ORDER BY id ASC LIMIT 1", [$kind, $period]);
+        if ($v === false || $v === null || (float) $v <= 0) return null;
+        return (self::indexValue() / (float) $v - 1) * 100;
     }
 
     /** Wartość ZABLOKOWANA w wyzwaniach — wciąż majątek gracza (jak lokata), nie strata.
@@ -2163,11 +2212,12 @@ final class Engine
     {
         $eq = $equity ?? self::playerEquity($uid);
         [$session] = self::sessionInfo();
+        $idx = self::indexValue();   // indeks z chwili migawki: benchmark ligi (indeks w tym tygodniu/miesiącu)
         $ins = Db::driver() === 'mysql'
-            ? "INSERT IGNORE INTO equity_snapshots (user_id, kind, period, session, equity, created_at) VALUES (?,?,?,?,?,?)"
-            : "INSERT OR IGNORE INTO equity_snapshots (user_id, kind, period, session, equity, created_at) VALUES (?,?,?,?,?,?)";
+            ? "INSERT IGNORE INTO equity_snapshots (user_id, kind, period, session, equity, index_value, created_at) VALUES (?,?,?,?,?,?,?)"
+            : "INSERT OR IGNORE INTO equity_snapshots (user_id, kind, period, session, equity, index_value, created_at) VALUES (?,?,?,?,?,?,?)";
         $st = Db::pdo()->prepare($ins);
-        foreach (self::periodKeys($date) as $kind => $period) $st->execute([$uid, $kind, $period, $session, round($eq, 2), Db::now()]);
+        foreach (self::periodKeys($date) as $kind => $period) $st->execute([$uid, $kind, $period, $session, round($eq, 2), $idx, Db::now()]);
     }
 
     /** Migawki dla wszystkich graczy na starcie sesji (data = dzień nowej sesji). */
