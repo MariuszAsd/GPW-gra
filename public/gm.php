@@ -44,6 +44,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($a === 'fee') {
         Engine::setState('fee_rate', (string) max(0, min(5, (float) str_replace(',', '.', $_POST['fee_rate'] ?? '0.5'))));
         flash('Ustawiono prowizję od obrotu.');
+    } elseif ($a === 'push_keys') {
+        $k = Push::available() ? Push::keys(true) : null;
+        flash($k ? 'Klucze VAPID gotowe — gracze mogą włączać push.' : 'Push niedostępny na tym serwerze (brak openssl_pkey_derive / aes-128-gcm / curl).', $k ? 'ok' : 'err');
+    } elseif ($a === 'push_test') {
+        [$ps, $pf] = Push::sendUser((int) $user['id'], 'Makleria (test GM)', '🔔 Test powiadomienia push z panelu GM.', 'gm.php', 'gmtest');
+        flash("Push testowy: $ps wysłanych, $pf błędów" . ($ps + $pf === 0 ? ' — najpierw włącz push w Powiadomieniach w tej przeglądarce.' : '.'), $ps > 0 ? 'ok' : 'err');
     } elseif ($a === 'reconcile') {
         // korekta sald graczy — tylko z przycisku, po podglądzie, pod blokadą świata; każdy wiersz trafia do dziennika
         try {
@@ -594,6 +600,21 @@ $modTop = Engine::all("SELECT m.user_id, u.username, COUNT(*) n, MAX(m.created_a
     <div class="row">
       <form method="post" class="inline"><input type="hidden" name="action" value="qa"><button class="btn sm">Testuj teraz (QA)</button></form>
       <a class="btn sm ghost" href="gm_logs.php">📜 Dziennik logów</a>
+    </div>
+
+    <?php $pushAvail = Push::available(); $pushKeys = $pushAvail ? Push::keys(false) : null;
+      $pushSubs = (int) Engine::one("SELECT COUNT(*) FROM push_subscriptions"); $pushUsers = (int) Engine::one("SELECT COUNT(DISTINCT user_id) FROM push_subscriptions");
+      $pushLast = Engine::row("SELECT ts, message FROM logs WHERE event IN ('push.flush','push.fail') ORDER BY id DESC LIMIT 1"); ?>
+    <h3 style="margin-top:16px">🔔 Powiadomienia push (PWA)
+      <span class="chg <?= $pushAvail ? 'p' : 'n' ?>" style="margin-left:6px"><?= $pushAvail ? ($pushKeys ? 'działa' : 'brak kluczy') : 'niedostępne na serwerze' ?></span>
+    </h3>
+    <p class="muted" style="margin:4px 0 8px">Gra instaluje się jak aplikacja (manifest + service worker). Push: gracz włącza je w Powiadomieniach, a cron dosyła nowe wpisy z dzwonka
+      (Push::flush po tickach). Subskrypcji: <b><?= $pushSubs ?></b> (graczy: <b><?= $pushUsers ?></b>).<?php if ($pushLast): ?> Ostatnio: <?= h($pushLast['ts']) ?> — <?= h($pushLast['message']) ?>.<?php endif; ?>
+      <?php if (!$pushAvail): ?><br>Serwer nie ma <code>openssl_pkey_derive</code>, <code>aes-128-gcm</code> albo <code>curl</code> — powiadomienia w grze działają, push nie.<?php endif; ?></p>
+    <div class="row">
+      <?php if ($pushAvail && !$pushKeys): ?><form method="post" class="inline"><input type="hidden" name="action" value="push_keys"><button class="btn sm">Wygeneruj klucze VAPID</button></form><?php endif; ?>
+      <?php if ($pushAvail && $pushKeys): ?><form method="post" class="inline"><input type="hidden" name="action" value="push_test"><button class="btn sm ghost">Wyślij test do mnie</button></form><?php endif; ?>
+      <a class="btn sm ghost" href="powiadomienia.php#push">Włącz push w tej przeglądarce</a>
     </div>
 
     <?php $rcCash = Reconcile::cashIssues(); $rcQty = Reconcile::qtyIssues(); $rcSkip = 0; $rcCancel = 0; $rcMade = 0;

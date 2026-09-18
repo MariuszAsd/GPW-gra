@@ -17,7 +17,7 @@
 final class Qa
 {
     /** Pełny przebieg = tyle asercji. Gdy dodajesz asercję, podnieś tę liczbę (i w CLAUDE.md). */
-    public const EXPECTED_CHECKS = 150;
+    public const EXPECTED_CHECKS = 155;
     /** Po tylu nieudanych przebiegach z rzędu GM dostaje e-mail (raz na serię). */
     public const ALERT_AFTER = 2;
 
@@ -170,6 +170,36 @@ final class Qa
         [$c, $b] = $this->http('POST', '/api_watch.php', ['stock_id' => $sid]);
         $this->check($c === 200 && str_contains($b, '"on":false'), 'watch.off', 'drugie kliknięcie nie wyłączyło obserwowania');
 
+        // push (Web Push bez composera): klucze VAPID, JWT ES256 weryfikowalny kluczem publicznym, szyfrogram aes128gcm
+        // odszyfrowywalny po stronie subskrybenta, zapis/usunięcie subskrypcji, wysyłka na martwy endpoint = porażka bez wyjątku
+        if (!class_exists('Push')) require_once __DIR__ . '/Push.php';
+        if (Push::available()) {
+            $pk = Push::keys(true);
+            $this->check($pk !== null && strlen(Push::b64urlDecode($pk['public'])) === 65, 'push.keys', 'klucze VAPID nie powstały');
+            $jwt = (string) Push::vapidJwt('https://push.example.org');
+            $parts = explode('.', $jwt); $sigOk = false;
+            if (count($parts) === 3 && $pk) {
+                $der = self::rawToDer(Push::b64urlDecode($parts[2]));
+                $sigOk = openssl_verify($parts[0] . '.' . $parts[1], $der, openssl_pkey_get_public(Push::publicPem(Push::b64urlDecode($pk['public']))), OPENSSL_ALGO_SHA256) === 1;
+            }
+            $this->check($sigOk, 'push.jwt', 'podpis JWT ES256 nie weryfikuje się kluczem publicznym VAPID');
+            $ua = openssl_pkey_new(['curve_name' => 'prime256v1', 'private_key_type' => OPENSSL_KEYTYPE_EC]); $ud = openssl_pkey_get_details($ua);
+            $uaPub = "\x04" . str_pad($ud['ec']['x'], 32, "\0", STR_PAD_LEFT) . str_pad($ud['ec']['y'], 32, "\0", STR_PAD_LEFT);
+            $authS = random_bytes(16);
+            $body = Push::encrypt('{"title":"qa"}', Push::b64url($uaPub), Push::b64url($authS));
+            $salt = substr($body, 0, 16); $asPub = substr($body, 21, 65); $ct = substr($body, 86, -16); $tag = substr($body, -16);
+            $shared = openssl_pkey_derive(openssl_pkey_get_public(Push::publicPem($asPub)), $ua, 32);
+            $ikm = hash_hkdf('sha256', $shared, 32, "WebPush: info\0" . $uaPub . $asPub, $authS);
+            $cek = hash_hkdf('sha256', $ikm, 16, "Content-Encoding: aes128gcm\0", $salt); $nonce = hash_hkdf('sha256', $ikm, 12, "Content-Encoding: nonce\0", $salt);
+            $plain = openssl_decrypt($ct, 'aes-128-gcm', $cek, OPENSSL_RAW_DATA, $nonce, $tag);
+            $this->check($plain === '{"title":"qa"}' . "\x02", 'push.encrypt', 'szyfrogram aes128gcm nie odszyfrowuje się kluczem subskrybenta');
+            $ep = 'https://push.invalid/qa/' . bin2hex(random_bytes(6));
+            $this->check(Push::subscribe($uid, $ep, Push::b64url($uaPub), Push::b64url($authS)) && Push::count($uid) >= 1, 'push.subscribe', 'zapis subskrypcji nie powiódł się');
+            [$okS] = Push::sendTo(['endpoint' => $ep, 'p256dh' => Push::b64url($uaPub), 'auth' => Push::b64url($authS)], ['title' => 'qa']);
+            $this->check($okS === false && Push::unsubscribe($uid, $ep) === 1, 'push.deadend', 'wysyłka na martwy endpoint powinna zwrócić porażkę, a subskrypcja dać się usunąć');
+        } else {
+            for ($i = 0; $i < 5; $i++) $this->check(true, 'push.skip', 'push niedostępny na serwerze (brak openssl_pkey_derive/aes-128-gcm/curl) — pominięto');
+        }
         // tygodniowy raport i karta wyniku: stały token, publiczna karta bez logowania, wypisanie z e-maili tokenem, nieznany token = 404
         if (!class_exists('Weekly')) require_once __DIR__ . '/Weekly.php';
         $tokW = Weekly::shareToken($uid);
@@ -411,6 +441,14 @@ final class Qa
     }
 
     /* ---------- pomocnicze ---------- */
+
+    /** Surowy podpis r||s (64 B) -> DER SEQUENCE{INTEGER, INTEGER} (do openssl_verify w teście push). */
+    private static function rawToDer(string $raw): string
+    {
+        $enc = function (string $i): string { $i = ltrim($i, "\0"); if ($i === '') $i = "\0"; if ((ord($i[0]) & 0x80) !== 0) $i = "\0" . $i; return "\x02" . chr(strlen($i)) . $i; };
+        $r = $enc(substr($raw, 0, 32)); $s = $enc(substr($raw, 32, 32));
+        return "\x30" . chr(strlen($r) + strlen($s)) . $r . $s;
+    }
 
     private function cash(int $uid): float { return (float) Engine::one("SELECT cash FROM users WHERE id=?", [$uid]); }
 

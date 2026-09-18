@@ -22,6 +22,7 @@ layout_header('Pomoc', $user, 'help');
   <a href="#wyzwania">Wyzwania</a>
   <a href="#lokaty">Lokaty</a>
   <a href="#fundusz">Fundusz MAK40</a>
+  <a href="#pwa">Telefon i push</a>
   <a href="#widelki">Widełki</a>
   <a href="#ipo">IPO</a>
   <a href="#prowizja">Prowizja</a>
@@ -242,6 +243,18 @@ layout_header('Pomoc', $user, 'help');
   <div class="help-ex">💡 <b>Czy pobiłeś indeks?</b> Pulpit i Ranking pokazują „vs MAK40”: Twoją stopę zwrotu minus zmianę indeksu liczoną
      od tej samej chwili (od Twojego startu albo od początku tygodnia/miesiąca w ligach). Dodatni wynik = wybierasz spółki lepiej,
      niż zrobiłby to fundusz indeksowy. Ujemny = spokojne „kup cały rynek” dałoby więcej. To najuczciwsza miara inwestora.</div>
+</div>
+
+<div class="panel help-sec" id="pwa">
+  <h3>📲 Makleria na telefonie — aplikacja i powiadomienia push</h3>
+  <p><b>Instalacja:</b> na Androidzie (Chrome/Edge) przeglądarka zaproponuje „Zainstaluj aplikację” — albo wejdź w Konto i kliknij
+     „Zainstaluj Maklerię jak aplikację”. Na iPhonie: przycisk Udostępnij → „Do ekranu początkowego”. Gra otwiera się wtedy na pełnym
+     ekranie, z ikoną, szybciej — a bez internetu pokaże stronę „brak połączenia” zamiast błędu.</p>
+  <p><b>Push:</b> w Powiadomieniach kliknij „Włącz powiadomienia” i zgódź się w przeglądarce. Od tej chwili wyzwolone stopy (SL/TP/stop-buy),
+     dywidendy, wyniki lig, wyzwania i tygodniowe podsumowanie przyjdą na urządzenie nawet przy zamkniętej grze. Na iPhonie push działa
+     tylko w wersji zainstalowanej na ekranie początkowym (iOS 16.4+). Każde urządzenie włączasz osobno; „Wyłącz” cofa zgodę.</p>
+  <div class="help-ex">💡 Push to dokładnie te same wpisy, które lądują na dzwonku w grze — nic więcej, bez reklam. Gdy urządzenie przestanie
+     odbierać (np. wyczyszczone dane przeglądarki), subskrypcja sama znika po kilku nieudanych próbach.</div>
 </div>
 
 <div class="panel help-sec" id="lokaty">

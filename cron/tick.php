@@ -49,6 +49,15 @@ for ($i = 0; $i < $count; $i++) {
     if (php_sapi_name() === 'cli') echo "tick #$t ok\n";
 }
 
+// PUSH: dosyłka nowych powiadomień subskrybentom (HTTP do serwerów push — celowo POZA transakcją ticka)
+if (php_sapi_name() === 'cli' && $t > 0) {
+    try {
+        require_once __DIR__ . '/../src/Push.php';
+        [$ps, $pf] = Push::flush();
+        if ($ps + $pf > 0) echo "push: $ps wysłanych, $pf błędów\n";
+    } catch (Throwable $e) { Log::write('warn', 'engine', 'push.flush', $e->getMessage()); }
+}
+
 // QA-bot co N ticków (tylko z CLI/crona — testuje grę przez HTTP jak prawdziwy gracz)
 $qaRan = false;
 if (php_sapi_name() === 'cli' && $t > 0) {

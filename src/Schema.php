@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 42;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 43;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -530,6 +530,19 @@ final class Schema
                 updated_at VARCHAR(19) NOT NULL
             )",
 
+            // --- POWIADOMIENIA PUSH (Web Push; subskrypcje przeglądarek graczy; logika w src/Push.php) ---
+            "push_subscriptions" => "CREATE TABLE push_subscriptions (
+                id $pk,
+                user_id INT NOT NULL,
+                endpoint_hash CHAR(64) NOT NULL UNIQUE,   -- sha256 endpointu (unikalność bez indeksu na TEXT)
+                endpoint TEXT NOT NULL,
+                p256dh VARCHAR(120) NOT NULL,             -- klucz publiczny subskrypcji (base64url)
+                auth   VARCHAR(40) NOT NULL,              -- sekret auth subskrypcji (base64url)
+                fails  INT NOT NULL DEFAULT 0,            -- nieudane wysyłki z rzędu (3 = subskrypcja martwa, znika)
+                created_at VARCHAR(19) NOT NULL,
+                last_ok VARCHAR(19) NULL
+            )",
+
             // --- IPO Z ZAPISAMI (oferta publiczna: zapisy po cenie emisyjnej, redukcja, debiut) ---
             "ipo_offers" => "CREATE TABLE ipo_offers (
                 id $pk,
@@ -619,7 +632,8 @@ final class Schema
             "CREATE INDEX ix_league ON league_results (kind, period, rank)",
             "CREATE INDEX ix_tx_stock ON transactions (stock_id, id)",       // „ostatnie transakcje" spółki i retencja — seek po spółce zamiast skanu całej tabeli
             "CREATE INDEX ix_news_exp ON news (expire_tick)",                 // „żywe" newsy (expire_tick > tick) to ułamek archiwum — bez indeksu każdy tick czytał całą tabelę
-            "CREATE INDEX ix_news_pub ON news (publish_tick)",                // „co się właśnie ukazało" (publish_tick > tick-4) dla reakcji botów
+            "CREATE INDEX ix_news_pub ON news (publish_tick)",
+            "CREATE INDEX ix_push_user ON push_subscriptions (user_id)",                // „co się właśnie ukazało" (publish_tick > tick-4) dla reakcji botów
             "CREATE INDEX ix_tx_buyorder ON transactions (buy_order_id)",
             "CREATE INDEX ix_tx_sellorder ON transactions (sell_order_id)",
             "CREATE INDEX ix_notif ON notifications (user_id, read_at)",

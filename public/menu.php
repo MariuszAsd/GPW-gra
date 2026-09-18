@@ -31,6 +31,7 @@ layout_header('Konto', $user, 'more');
   <?php endif; ?>
   <a href="konto.php"><?= icon('user') ?>Ustawienia konta — e-mail i hasło<span class="arr">›</span></a>
   <a href="powiadomienia.php"><?= icon('bell') ?>Powiadomienia<?= $unread > 0 ? "<span class='sub' style='color:var(--down);font-weight:700'>$unread</span>" : '' ?><span class="arr">›</span></a>
+  <a href="powiadomienia.php#push"><?= icon('bell') ?>Powiadomienia push na tym urządzeniu<span class="sub">stopy, dywidendy, ligi — także przy zamkniętej grze</span><span class="arr">›</span></a>
   <a href="dziennik.php"><?= icon('book') ?>Dziennik konta<span class="arr">›</span></a>
   <a href="historia.php"><?= icon('book') ?>Historia konta — wpływy i wydatki<span class="arr">›</span></a>
 </section>
@@ -39,6 +40,8 @@ layout_header('Konto', $user, 'more');
   <a href="samouczek.php"><?= icon('help') ?>Samouczek — jak grać<span class="arr">›</span></a>
   <a href="pomoc.php"><?= icon('help') ?>Pomoc i infografiki<span class="arr">›</span></a>
   <button onclick="return themeToggle()"><?= icon('theme') ?>Przełącz motyw jasny / ciemny</button>
+  <button data-pwa-install style="display:none" onclick="return pwaInstall()"><?= icon('home') ?>📲 Zainstaluj Maklerię jak aplikację<span class="sub">ikona na ekranie, pełny ekran, szybki start</span></button>
+  <a href="pomoc.php#pwa"><?= icon('help') ?>Makleria na telefonie — jak zainstalować<span class="arr">›</span></a>
   <?php if ($isAdmin): ?><a href="gm.php" style="color:var(--gold)"><?= icon('gear') ?>Panel GM<span class="arr">›</span></a><?php endif; ?>
 </section>
 

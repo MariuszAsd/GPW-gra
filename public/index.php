@@ -30,6 +30,8 @@ $steps = [
 <title>Makleria — giełdowa gra treningowa. Zagraj bez ryzyka.</title>
 <meta name="description" content="Makleria to darmowy symulator giełdy. Handluj akcjami fikcyjnych spółek, walcz w wyzwaniach o pulę i ucz się inwestować bez ryzyka — na wirtualnych pieniądzach, na żywym rynku.">
 <link rel="stylesheet" href="assets/app.css">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#0f172a"><link rel="icon" type="image/png" href="assets/favicon.png"><link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<script>if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}))}</script>
 <style>
 .lp-wrap{max-width:1040px;margin:0 auto;padding:0 20px}
 .lp-top{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 86%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}

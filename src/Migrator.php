@@ -604,6 +604,21 @@ final class Migrator
                 "ALTER TABLE users ADD COLUMN share_token VARCHAR(32) NULL",
                 "ALTER TABLE users ADD COLUMN weekly_mail TINYINT NOT NULL DEFAULT 1",
             ],
+            43 => [
+                // PWA + WEB PUSH: subskrypcje przeglądarek (klucze VAPID żyją w game_state)
+                "CREATE TABLE push_subscriptions (
+                    id " . (Db::driver() === 'mysql' ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT') . ",
+                    user_id INT NOT NULL,
+                    endpoint_hash CHAR(64) NOT NULL UNIQUE,
+                    endpoint TEXT NOT NULL,
+                    p256dh VARCHAR(120) NOT NULL,
+                    auth   VARCHAR(40) NOT NULL,
+                    fails  INT NOT NULL DEFAULT 0,
+                    created_at VARCHAR(19) NOT NULL,
+                    last_ok VARCHAR(19) NULL
+                )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
+                "CREATE INDEX ix_push_user ON push_subscriptions (user_id)",
+            ],
         ];
     }
 
