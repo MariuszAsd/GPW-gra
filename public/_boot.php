@@ -21,6 +21,7 @@ require_once __DIR__ . '/../src/Bank.php';
 require_once __DIR__ . '/../src/Reconcile.php';
 require_once __DIR__ . '/../src/Fund.php';
 require_once __DIR__ . '/../src/Weekly.php';
+require_once __DIR__ . '/../src/Push.php';
 
 // Secure gdy połączenie po HTTPS (produkcja) — ciasteczko sesji nie wycieknie przy przypadkowym HTTP.
 // Lokalnie (HTTP) zostaje bez Secure, żeby logowanie działało bez certyfikatu.
@@ -301,6 +302,13 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
        . "if(t!=='dark'&&t!=='light')t='light';document.documentElement.setAttribute('data-theme',t);})();"
        . "function themeToggle(){var r=document.documentElement,t=r.getAttribute('data-theme')==='dark'?'light':'dark';"
        . "r.setAttribute('data-theme',t);try{localStorage.setItem('theme',t)}catch(e){}return false}</script>";
+    // PWA: manifest (instalacja na telefonie), ikony, service worker (strona offline + powiadomienia push)
+    echo "<link rel='manifest' href='manifest.json'><meta name='theme-color' content='#0f172a'>"
+       . "<link rel='icon' type='image/png' href='assets/favicon.png'><link rel='apple-touch-icon' href='assets/apple-touch-icon.png'>"
+       . "<meta name='apple-mobile-web-app-capable' content='yes'><meta name='apple-mobile-web-app-title' content='Makleria'><meta name='mobile-web-app-capable' content='yes'>"
+       . "<script>if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}))}"
+       . "window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();window.__pwaPrompt=e;document.querySelectorAll('[data-pwa-install]').forEach(b=>b.style.display='')});"
+       . "function pwaInstall(){const p=window.__pwaPrompt;if(!p)return false;p.prompt();p.userChoice.then(()=>{window.__pwaPrompt=null;document.querySelectorAll('[data-pwa-install]').forEach(b=>b.style.display='none')});return false}</script>";
     echo "<title>" . h($title) . " · Makleria</title><link rel='stylesheet' href='assets/app.css'></head><body>";
     echo "<header class='topbar'>" . brand_logo() . "<nav>";
     if ($user) {

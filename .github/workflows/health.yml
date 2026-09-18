@@ -49,6 +49,15 @@ jobs:
           print("OK sesja %s: spolek=%d, indeks=%s pkt (%s%%)" % (j.get("session"), len(j["data"]), v, idx.get("chg")))
           '
 
+      - name: PWA — manifest, service worker i strona offline odpowiadają
+        run: |
+          for f in manifest.json sw.js offline.html assets/icon-192.png; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$APP_URL/$f")
+            echo "$f: $code"
+            [ "$code" = "200" ] || { echo "::error::$f nie odpowiada 200"; exit 1; }
+          done
+          curl -s "$APP_URL/manifest.json" | php -r '$m=json_decode(stream_get_contents(STDIN),true); exit(is_array($m)&&($m["short_name"]??"")==="Makleria"?0:1);' || { echo "::error::manifest.json nie jest poprawnym manifestem"; exit 1; }
+
       - name: Skrypty silnika nieosiągalne z internetu
         run: |
           # cron/tick.php przez przeglądarkę = ktoś obcy kręci zegarem gry (przewija sesje,
