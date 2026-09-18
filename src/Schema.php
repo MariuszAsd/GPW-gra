@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 38;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 40;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -71,6 +71,7 @@ final class Schema
                 price          $money NOT NULL,
                 fundamental    $money NOT NULL,
                 day_open_price $money NOT NULL DEFAULT 0,
+                day_turnover   $money NOT NULL DEFAULT 0,   -- obrót bieżącej sesji (Σ ilość×cena transakcji); zerowany na rolce sesji — Rynek/API czytają liczbę zamiast sumować świece
                 -- DNA reakcji na świat:
                 beta                 $f NOT NULL DEFAULT 1,
                 volatility           $f NOT NULL DEFAULT 1,
@@ -234,6 +235,20 @@ final class Schema
                 UNIQUE (user_id, kind, period)
             )",
 
+            // --- WYNIKI LIG OKRESOWYCH (tydzień: nagrody PLN ze skarbca; miesiąc: tokeny) ---
+            "league_results" => "CREATE TABLE league_results (
+                id $pk,
+                kind     VARCHAR(8) NOT NULL,
+                period   VARCHAR(10) NOT NULL,
+                user_id  INT NOT NULL,
+                rank     INT NOT NULL,
+                ret_pct  DECIMAL(9,2) NOT NULL,
+                prize    $money NOT NULL DEFAULT 0,
+                tokens   INT NOT NULL DEFAULT 0,
+                paid_at  VARCHAR(19) NOT NULL,
+                UNIQUE (kind, period, user_id)
+            )",
+
             // --- WYDARZENIA: modyfikatory czasowe (nakładki na bazowe wartości, SAME wygasają) ---
             "active_effects" => "CREATE TABLE active_effects (
                 id $pk,
@@ -293,7 +308,8 @@ final class Schema
                 status VARCHAR(12) NOT NULL DEFAULT 'signup',  -- signup | running | finished | cancelled
                 buyin  $money NOT NULL,                        -- kapitał wyzwania (zablokowany z konta głównego)
                 fee_pct $f NOT NULL DEFAULT 10,                -- wpisowe (% buy-inu) -> pula nagród
-                pot    $money NOT NULL DEFAULT 0,              -- pula nagród (suma wpisowego)
+                pot    $money NOT NULL DEFAULT 0,              -- pula nagród (suma wpisowego + dopłata skarbca)
+                treasury_bonus $money NOT NULL DEFAULT 0,      -- ile do puli dołożył skarbiec gry (wraca do skarbca przy odwołaniu)
                 min_players INT NOT NULL DEFAULT 3,
                 start_session INT NOT NULL,                    -- pierwsza sesja handlu (do niej trwają zapisy)
                 end_session   INT NOT NULL,                    -- ostatnia sesja handlu
@@ -586,6 +602,10 @@ final class Schema
             "CREATE INDEX ix_index_t ON index_history (t)",
             "CREATE INDEX ix_equity ON equity_history (user_id, t)",
             "CREATE INDEX ix_eqsnap ON equity_snapshots (kind, period)",
+            "CREATE INDEX ix_league ON league_results (kind, period, rank)",
+            "CREATE INDEX ix_tx_stock ON transactions (stock_id, id)",       // „ostatnie transakcje" spółki i retencja — seek po spółce zamiast skanu całej tabeli
+            "CREATE INDEX ix_news_exp ON news (expire_tick)",                 // „żywe" newsy (expire_tick > tick) to ułamek archiwum — bez indeksu każdy tick czytał całą tabelę
+            "CREATE INDEX ix_news_pub ON news (publish_tick)",                // „co się właśnie ukazało" (publish_tick > tick-4) dla reakcji botów
             "CREATE INDEX ix_tx_buyorder ON transactions (buy_order_id)",
             "CREATE INDEX ix_tx_sellorder ON transactions (sell_order_id)",
             "CREATE INDEX ix_notif ON notifications (user_id, read_at)",

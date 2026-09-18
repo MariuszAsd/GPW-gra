@@ -331,6 +331,149 @@ final class Engine
         if ($st->rowCount() === 0) $pdo->prepare("INSERT INTO game_state (k, v) VALUES ('treasury', ?)")->execute([(string) round($amount, 2)]);
     }
 
+    /** Stan skarbca gry (zebrane prowizje minus wypłacone odsetki, nagrody i dopłaty). */
+    public static function treasury(): float
+    {
+        return (float) (self::one("SELECT v FROM game_state WHERE k='treasury'") ?: 0);
+    }
+
+    /** Zwrot do skarbca (np. dopłata do odwołanego wyzwania). */
+    public static function treasuryGive(float $amount): void
+    {
+        if ($amount > 0) self::addTreasury(round($amount, 2));
+    }
+
+    /**
+     * Pobranie ze skarbca Z GUARDEM: tylko gdy skarbiec ma pokrycie. Zwraca false, gdy brakuje.
+     * Skarbiec to pieniądz wewnątrz świata gry (prowizje od obrotu), więc nagroda z niego nie łamie
+     * zamkniętej ekonomii — tylko zawraca do graczy to, co zeszło z ich transakcji.
+     */
+    public static function treasuryTake(float $amount): bool
+    {
+        $amount = round($amount, 2);
+        if ($amount <= 0) return false;
+        // game_state.v jest tekstem — bez CAST porównanie „v >= kwota" idzie po znakach ('9' > '10')
+        $st = Db::pdo()->prepare("UPDATE game_state SET v = ROUND(v - ?, 2) WHERE k='treasury' AND CAST(v AS DECIMAL(15,2)) >= ?");
+        $st->execute([$amount, $amount]);
+        return $st->rowCount() === 1;
+    }
+
+    /**
+     * ZAMKNIĘTA EKONOMIA — cała gotówka w świecie, w jednym miejscu (QA i verify.php liczą to samo).
+     * Wchodzi wszystko, co jest pieniądzem „w drodze": wolna i zamrożona gotówka kont (także subkont wyzwań),
+     * lokaty, skarbiec (może być ujemny), pule wyzwań, wpisowe czekające na start i zapisy IPO przed przydziałem.
+     */
+    public static function worldCash(): float
+    {
+        return (float) self::one("SELECT COALESCE(SUM(cash),0)+COALESCE(SUM(cash_reserved),0) FROM users")
+             + (float) self::one("SELECT COALESCE(SUM(amount),0) FROM deposits WHERE status='active'")
+             + self::treasury()
+             + (float) self::one("SELECT COALESCE(SUM(pot),0) FROM challenges WHERE status IN ('signup','running')")
+             + (float) self::one("SELECT COALESCE(SUM(cp.buyin),0) FROM challenge_players cp JOIN challenges c ON c.id=cp.challenge_id AND c.status='signup' WHERE cp.shadow_user_id IS NULL")
+             + (float) self::one("SELECT COALESCE(SUM(paid),0) FROM ipo_subs WHERE allotted IS NULL");
+    }
+
+    /**
+     * Kotwica sumy pieniądza (world_cash_base) przesuwa się TYLKO przy legalnych zdarzeniach spoza obiegu:
+     * nowy gracz dostaje kapitał startowy (+), spółka w IPO zabiera zapłatę za przydzielone akcje (−).
+     * Dywidendy liczone są osobno (dividends_paid). Wszystko inne to obieg zamknięty — QA pilnuje różnicy.
+     */
+    public static function worldCashAdjust(float $delta, string $why): void
+    {
+        $delta = round($delta, 2);
+        if ($delta == 0.0) return;
+        $cur = self::one("SELECT v FROM game_state WHERE k='world_cash_base'");
+        if ($cur === false || $cur === null || $cur === '') return;   // świat jeszcze niezakotwiczony — zakotwiczy pierwszy przebieg QA
+        self::setState('world_cash_base', (string) round((float) $cur + $delta, 2));
+        Log::write('info', 'engine', 'world.cash', sprintf('%s: kotwica pieniądza %+.2f PLN', $why, $delta));
+    }
+
+    /** Nagrody lig z ustawień GM (game_state), z domyślnymi wartościami. */
+    public static function leaguePrizes(): array
+    {
+        $g = fn(string $k, $def) => ($v = self::one("SELECT v FROM game_state WHERE k=?", [$k])) === false || $v === null ? $def : $v;
+        return [
+            'week'  => [(float) $g('league_prize_1', 10000), (float) $g('league_prize_2', 5000), (float) $g('league_prize_3', 2500)],
+            'month' => [(int) $g('league_tokens_1', 20), (int) $g('league_tokens_2', 10), (int) $g('league_tokens_3', 5)],
+        ];
+    }
+
+    /**
+     * Rozliczenie lig okresowych przy przejściu sesji w NOWY tydzień / miesiąc.
+     * Baza i koniec okresu to migawki equity_snapshots (start poprzedniego i start nowego okresu),
+     * więc wynik jest liczony dokładnie od granicy do granicy. Liczą się tylko gracze, którzy w okresie
+     * zawarli choć jedną transakcję — nagroda jest za granie, nie za trzymanie gotówki.
+     * Tydzień: nagrody PLN ze skarbca (guard: bez pokrycia nie ma wypłaty, jest wpis w dzienniku).
+     * Miesiąc: tokeny inwestora (nie dotykają ekonomii PLN).
+     */
+    public static function settleLeagues(string $rollDate, int $session): void
+    {
+        $now = self::periodKeys($rollDate);
+        foreach (['week', 'month'] as $kind) {
+            $stateKey = "league_{$kind}_current";
+            $prev = self::one("SELECT v FROM game_state WHERE k=?", [$stateKey]);
+            if ($prev === false || $prev === null || $prev === '') { self::setState($stateKey, $now[$kind]); continue; }
+            if ($prev === $now[$kind]) continue;
+            self::setState($stateKey, $now[$kind]);   // najpierw przestaw okres — rozliczenie tylko raz
+            try { self::settleLeague($kind, (string) $prev, $now[$kind], $session); }
+            catch (\Throwable $e) { Log::write('error', 'engine', 'league.fail', "$kind $prev: " . $e->getMessage()); }
+        }
+    }
+
+    private static function settleLeague(string $kind, string $prev, string $cur, int $session): void
+    {
+        if (!class_exists('Tokens')) require_once __DIR__ . '/Tokens.php';
+        $pdo = Db::pdo();
+        $start = []; $end = [];
+        foreach (self::all("SELECT user_id, equity, created_at FROM equity_snapshots WHERE kind=? AND period=?", [$kind, $prev]) as $s) $start[(int) $s['user_id']] = $s;
+        foreach (self::all("SELECT user_id, equity FROM equity_snapshots WHERE kind=? AND period=?", [$kind, $cur]) as $s) $end[(int) $s['user_id']] = (float) $s['equity'];
+        $rows = [];
+        foreach (self::all("SELECT id, username FROM users WHERE is_bot=0 AND role='player'") as $u) {
+            $uid = (int) $u['id'];
+            if (!isset($start[$uid], $end[$uid]) || (float) $start[$uid]['equity'] <= 0) continue;
+            $since = (string) $start[$uid]['created_at'];
+            $trades = (int) self::one(
+                "SELECT (SELECT COUNT(*) FROM transactions WHERE buyer_id=? AND created_at >= ?) + (SELECT COUNT(*) FROM transactions WHERE seller_id=? AND created_at >= ?)",
+                [$uid, $since, $uid, $since]);
+            if ($trades < 1) continue;   // bez handlu w okresie — poza klasyfikacją
+            $rows[] = ['uid' => $uid, 'name' => $u['username'], 'ret' => ($end[$uid] / (float) $start[$uid]['equity'] - 1) * 100];
+        }
+        if (!$rows) { Log::write('info', 'engine', 'league.empty', "liga $kind $prev: nikt nie handlował"); return; }
+        usort($rows, fn($a, $b) => $b['ret'] <=> $a['ret']);
+        $prizes = self::leaguePrizes()[$kind];
+        $label  = $kind === 'week' ? 'tygodnia' : 'miesiąca';
+        $ins = $pdo->prepare("INSERT INTO league_results (kind, period, user_id, rank, ret_pct, prize, tokens, paid_at) VALUES (?,?,?,?,?,?,?,?)");
+        $podium = [];
+        foreach ($rows as $i => $r) {
+            $rank = $i + 1; $prize = 0.0; $tokens = 0;
+            if ($rank <= 3) {
+                if ($kind === 'week') {
+                    $prize = round((float) $prizes[$rank - 1], 2);
+                    if ($prize > 0 && self::treasuryTake($prize)) {
+                        $pdo->prepare("UPDATE users SET cash = cash + ? WHERE id=?")->execute([$prize, $r['uid']]);
+                        self::ledger($r['uid'], $prize, 'nagroda', "Liga $label $prev: " . $rank . '. miejsce (' . ($r['ret'] >= 0 ? '+' : '') . number_format($r['ret'], 1, ',', ' ') . '%)', 'ranking.php?wg=tydzien');
+                    } elseif ($prize > 0) {
+                        Log::write('warn', 'engine', 'league.nofunds', "liga $label $prev: skarbiec bez pokrycia na nagrodę $prize dla #{$r['uid']}");
+                        $prize = 0.0;
+                    }
+                } else {
+                    $tokens = (int) $prizes[$rank - 1];
+                    if ($tokens > 0) Tokens::grant($r['uid'], $tokens, 'league', "Liga $label $prev: $rank. miejsce");
+                }
+                $medal = ['🥇', '🥈', '🥉'][$rank - 1];
+                $what = $prize > 0 ? number_format($prize, 0, ',', ' ') . ' PLN ze skarbca gry' : ($tokens > 0 ? "$tokens Tokenów" : 'bez nagrody');
+                self::notify($r['uid'], 'league', "$medal Liga $label $prev: $rank. miejsce (" . ($r['ret'] >= 0 ? '+' : '') . number_format($r['ret'], 1, ',', ' ') . "%) — $what.", 'ranking.php?wg=' . ($kind === 'week' ? 'tydzien' : 'miesiac'));
+                $podium[] = $medal . ' ' . $r['name'] . ' ' . ($r['ret'] >= 0 ? '+' : '') . number_format($r['ret'], 1, ',', ' ') . '%';
+            }
+            try { $ins->execute([$kind, $prev, $r['uid'], $rank, round($r['ret'], 2), $prize, $tokens, Db::now()]); } catch (\PDOException $e) { /* już rozliczone */ }
+        }
+        $pdo->prepare("INSERT INTO news (headline,body,type,scope,target_id,is_espi,impact_strength,publish_tick,expire_tick,published_at) VALUES (?,?,'NEU','MARKET',NULL,0,0,?,?,?)")
+            ->execute(["🏆 Liga $label $prev rozstrzygnięta: " . $rows[0]['name'] . ' na czele',
+                       'Podium: ' . implode(' · ', $podium) . '. Stopa zwrotu liczona od początku okresu.',
+                       (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?: 0), (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?: 0) + 30, Db::now()]);
+        Log::write('info', 'engine', 'league.settled', "liga $label $prev: " . implode(' · ', $podium), []);
+    }
+
     /**
      * Powtarza operację, która przegrała z bazą wyścig o blokady (zakleszczenie / przekroczony czas
      * oczekiwania). Na MySQL żądanie gracza biegnie równolegle z wielosekundową transakcją ticka, więc
@@ -487,7 +630,7 @@ final class Engine
                 if (php_sapi_name() === 'cli') {
                     $nowTs = Db::now();
                     foreach ([[$b, 'kupna'], [$s, 'sprzedaży']] as [$oo, $lbl]) {
-                        if ($oo['qty'] <= 0 && $oo['created_at'] !== $nowTs && in_array((int) $oo['user_id'], self::humanIds(), true)) {
+                        if ($oo['qty'] <= 0 && $oo['created_at'] !== $nowTs && self::isHumanOwned((int) $oo['user_id'])) {
                             $tk = self::one("SELECT ticker FROM stocks WHERE id=?", [$stockId]);
                             self::notify((int) $oo['user_id'], 'order',
                                 "✅ Zlecenie $lbl $tk zrealizowane w całości (" . (int) $oo['qty_init'] . " szt.)",
@@ -501,7 +644,7 @@ final class Engine
                 $pdo->prepare("INSERT INTO transactions (stock_id, buyer_id, seller_id, buy_order_id, sell_order_id, qty, price, created_at, candled) VALUES (?,?,?,?,?,?,?,?,0)")
                     ->execute([$stockId, $b['user_id'], $s['user_id'], $b['id'], $s['id'], $q, $p, Db::now()]);
                 foreach ([(int) $b['user_id'], (int) $s['user_id']] as $huid) {   // odznaki: zbierz, sprawdź RAZ po pętli
-                    if (in_array($huid, self::humanIds(), true)) $achUids[$huid] = true;
+                    if (self::isHumanOwned($huid)) $achUids[$huid] = true;
                 }
                 $tickTrades[$stockId][] = ['p' => $p, 'q' => $q];
                 $trades++;
@@ -1058,7 +1201,7 @@ final class Engine
                     number_format((float) $o['cur'], 2, ',', ' '),
                     number_format((float) ($hitSL ? $o['sl_price'] : $o['tp_price']), 2, ',', ' '), $msg),
                 ['user_id' => (int) $o['user_id'], 'order_id' => (int) $o['id'], 'qty' => (int) $o['qty'], 'tx_from' => $txFrom, 'tx_to' => $txTo]);
-            if (in_array((int) $o['user_id'], self::humanIds(), true)) {
+            if (self::isHumanOwned((int) $o['user_id'])) {
                 self::notify((int) $o['user_id'], 'stop',
                     ($hitSL ? '🛡️ Stop-Loss ' : '💰 Take-Profit ') . $o['ticker'] . ' wyzwolony przy ' . number_format((float) $o['cur'], 2, ',', ' ') . ' PLN — ' . $msg,
                     'order.php?id=' . (int) $o['id']);
@@ -1222,13 +1365,20 @@ final class Engine
         }
         $ins = $pdo->prepare("INSERT INTO candles (stock_id,t,o,h,l,c,v) VALUES (?,?,?,?,?,?,?)");
         $upd = $pdo->prepare("UPDATE candles SET h=?, l=?, c=?, v=v+? WHERE stock_id=? AND t=?");
+        // obrót sesji dopisujemy na bieżąco (ilość × cena każdej ujętej transakcji) — Rynek, API i strona spółki
+        // czytają gotową liczbę zamiast sumować świece 76 spółek przy każdym odświeżeniu; zerowany na rolce sesji
+        $turn = $pdo->prepare("UPDATE stocks SET day_turnover = day_turnover + ? WHERE id=?");
         foreach (self::all("SELECT id, price FROM stocks") as $st) {
             $sid = (int) $st['id'];
             $prev = self::closes($sid, 1);
             $o   = $prev ? (float) $prev[0] : (float) $st['price'];
             $cur = (float) $st['price'];   // aktualny kurs = ostatnia transakcja (bot lub gracz)
             $tr  = $trades[$sid] ?? [];
-            if ($tr) { $ps = array_column($tr, 'p'); $c = $cur; $h = max(max($ps), $o, $cur); $l = min(min($ps), $o, $cur); $v = array_sum(array_column($tr, 'q')); }
+            if ($tr) {
+                $ps = array_column($tr, 'p'); $c = $cur; $h = max(max($ps), $o, $cur); $l = min(min($ps), $o, $cur); $v = array_sum(array_column($tr, 'q'));
+                $value = 0.0; foreach ($tr as $x) $value += $x['p'] * $x['q'];
+                $turn->execute([round($value, 2), $sid]);
+            }
             else     { $c = $cur; $h = max($o, $cur); $l = min($o, $cur); $v = 0; }
             if (isset($anchor[$sid])) {   // debiut: rozszerz kotwicę o obrót, nie twórz drugiej świecy
                 $upd->execute([max($h, $anchor[$sid]['h']), min($l, $anchor[$sid]['l']), $c, $v, $sid, $t]);
@@ -1238,7 +1388,60 @@ final class Engine
         }
         self::markCandled($candIds);   // oznacz ujęte transakcje po id (bez wyścigu kursora na MySQL)
         // retencja: świece rosną 50/tick — trzymaj ~20k ticków wstecz (wystarcza na wykres sesyjny 80×200)
-        if ($t % 500 === 0) $pdo->prepare("DELETE FROM candles WHERE t < ?")->execute([$t - 20000]);
+        if ($t % 500 === 0) {
+            $pdo->prepare("DELETE FROM candles WHERE t < ?")->execute([$t - 20000]);
+            $pdo->prepare("DELETE FROM news WHERE expire_tick < ?")->execute([$t - 20000]);   // archiwum newsów: ~3 tygodnie sesji
+        }
+        self::pruneBotHistory($t);
+    }
+
+    /**
+     * Sprzątanie historii BOTÓW — jedyne tabele, które rosną bez końca: zlecenia (100 botów kwotuje co tick)
+     * i transakcje bot–bot. Gracze zostają w całości (ich historia, polecenia, misje i odznaki liczą się z transakcji).
+     *
+     * Zamiast jednego wielkiego DELETE (na produkcji miliony wierszy = długa blokada tabeli w środku ticka)
+     * przeglądamy tabelę po kawałku od zapamiętanego kursora (id rośnie z czasem, więc stare wiersze są na początku)
+     * i kasujemy tylko to, co jest botów i starsze niż limit. Kursor stoi na granicy wieku i przesuwa się z czasem.
+     * Po deployu na dużą bazę sprzątanie dogania zaległości paczką co tick; gdy nie ma już nic starego,
+     * odpoczywa 60 ticków (prune_next_tick), żeby nie czytać co minutę 5000 młodych wierszy na darmo.
+     */
+    private const PRUNE_BATCH = 5000;
+
+    public static function pruneBotHistory(int $t = 0): void
+    {
+        if ($t > 0 && $t < (int) (self::one("SELECT v FROM game_state WHERE k='prune_next_tick'") ?: 0)) return;
+        $pdo = Db::pdo();
+        $bots = array_map('intval', self::col("SELECT id FROM users WHERE is_bot=1"));
+        if (!$bots) return;
+        $bots = array_flip($bots);
+        $idle = true;
+        $plans = [
+            // tabela, kursor, wiek (dni), które wiersze wolno skasować
+            ['orders',       'prune_orders_cursor', 14, fn(array $r) => isset($bots[(int) $r['user_id']]) && in_array($r['status'], ['filled', 'cancelled', 'expired'], true)],
+            ['transactions', 'prune_tx_cursor',     30, fn(array $r) => isset($bots[(int) $r['buyer_id']]) && isset($bots[(int) $r['seller_id']]) && (int) $r['candled'] === 1],
+        ];
+        foreach ($plans as [$table, $key, $days, $deletable]) {
+            $cutoff = date('Y-m-d H:i:s', time() - $days * 86400);
+            $cursor = (int) (self::one("SELECT v FROM game_state WHERE k=?", [$key]) ?: 0);
+            $maxId  = (int) (self::one("SELECT MAX(id) FROM $table") ?: 0);
+            if ($cursor > $maxId) { $cursor = 0; self::setState($key, '0'); }   // tabela zaczęła numerację od nowa (reinstalacja) — od początku
+            $cols = $table === 'orders' ? 'id, user_id, status, created_at' : 'id, buyer_id, seller_id, candled, created_at';
+            $rows = self::all("SELECT $cols FROM $table WHERE id > ? ORDER BY id LIMIT " . self::PRUNE_BATCH, [$cursor]);
+            $ids = []; $last = $cursor; $lookahead = 0;
+            foreach ($rows as $r) {
+                // kursor zatrzymuje się na pierwszym młodym wierszu (wrócimy, gdy się zestarzeje), ale jeszcze
+                // kilkaset wierszy za nim sprawdzamy — zmiana czasu serwera potrafi wtrącić starszą datę między młodsze id
+                if ($r['created_at'] >= $cutoff) { if (++$lookahead > 200) break; continue; }
+                if ($lookahead === 0) $last = (int) $r['id'];
+                if ($deletable($r)) $ids[] = (int) $r['id'];
+            }
+            foreach (array_chunk($ids, 500) as $chunk) {
+                $pdo->prepare("DELETE FROM $table WHERE id IN (" . implode(',', array_fill(0, count($chunk), '?')) . ")")->execute($chunk);
+            }
+            if ($last !== $cursor) { self::setState($key, (string) $last); $idle = false; }
+            if ($ids) $idle = false;
+        }
+        if ($idle && $t > 0) self::setState('prune_next_tick', (string) ($t + 60));
     }
 
     /**
@@ -1738,7 +1941,7 @@ final class Engine
                 self::setState('session_date', $today);
                 self::setState('session_start_tick', (string) $tick);
                 // świeży świat / pierwsze uruchomienie po aktualizacji: baza lig od razu, nie dopiero jutro
-                try { self::takeSnapshots($today); } catch (\Throwable $e) { /* nie blokuje ticka */ }
+                try { self::takeSnapshots($today); self::settleLeagues($today, $prev); } catch (\Throwable $e) { /* nie blokuje ticka */ }
                 return;
             }
             $n = $prev + 1;
@@ -1757,6 +1960,8 @@ final class Engine
         } catch (\Throwable $e) { /* data tej sesji już zapisana — pomiń */ }
         // baza lig tygodnia i miesiąca: migawka kapitału każdego gracza na starcie sesji (raz na okres)
         try { self::takeSnapshots((string) $rollDate); } catch (\Throwable $e) { Log::write('warn', 'engine', 'snapshot.fail', $e->getMessage()); }
+        // nowy tydzień/miesiąc = rozliczenie poprzedniego okresu ligi (nagrody ze skarbca / tokeny)
+        try { self::settleLeagues((string) $rollDate, $n); } catch (\Throwable $e) { Log::write('error', 'engine', 'league.fail', $e->getMessage()); }
         // świece dzienne D1 (wykresy tydzień/miesiąc/rok): zrzut ZAMYKANEJ sesji,
         // koniecznie PRZED nadpisaniem day_open_price nowym kursem otwarcia
         try {
@@ -1778,7 +1983,7 @@ final class Engine
             }
             if (($n % 50) === 0) $pdoD->prepare("DELETE FROM candles_daily WHERE session < ?")->execute([$n - 400]);  // ~rok+ historii
         } catch (\Throwable $e) { if (!Db::pdo()->inTransaction()) throw $e; Log::write('warn', 'engine', 'candles.daily', $e->getMessage()); }
-        Db::pdo()->exec("UPDATE stocks SET day_open_price = price");
+        Db::pdo()->exec("UPDATE stocks SET day_open_price = price, day_turnover = 0");   // nowa sesja = obrót od zera
         Db::pdo()->exec("UPDATE stocks SET halts_session = 0");   // nowa sesja = świeży limit zawieszeń (widełki)
 
         // PRZEJMIJ każde zlecenie osobno (active -> expired atomowo) PRZED zwolnieniem escrow: jeśli gracz
@@ -1794,7 +1999,7 @@ final class Engine
             $cur = self::row("SELECT * FROM orders WHERE id=?", [(int) $o['id']]);
             if ($cur) self::release($cur);
             $cnt++;
-            if (in_array((int) $o['user_id'], self::humanIds(), true)) {
+            if (self::isHumanOwned((int) $o['user_id'])) {
                 self::notify((int) $o['user_id'], 'order', '⌛ Zlecenie #' . (int) $o['id'] . ' wygasło z końcem sesji — rezerwacja wróciła.', 'order.php?id=' . (int) $o['id']);
             }
         }
@@ -2173,7 +2378,7 @@ final class Engine
         foreach ($ev['follow_ups'] ?? [] as [$fcode, $chance, $dMin, $dMax]) {
             if (mt_rand(1, 100) > $chance) continue;
             Db::pdo()->prepare("INSERT INTO scheduled_events (due_tick, template_code, sector_id, stock_id) VALUES (?,?,?,?)")
-                ->execute([$tick + mt_rand($dMin, $dMax), $fcode, $sectorId, null]);   // kaskada dziedziczy sektor
+                ->execute([$tick + mt_rand($dMin, $dMax), $fcode, $sectorId, $stockId]);   // kaskada dziedziczy sektor I spółkę (nagroda „inwestycja owocuje" trafiała w losową spółkę, nie w tę, która ogłosiła inwestycję)
         }
         // rozstrzygnięcie plotki (wykluczające) — losujemy dopiero w dniu rozstrzygnięcia
         if (!empty($ev['resolve'])) {
@@ -2368,6 +2573,19 @@ final class Engine
     }
 
     /** Id ludzkich kont (gracze/admin/qa) — memo na czas żądania/ticka. */
+    /**
+     * Czy konto należy do człowieka — wprost (is_bot=0) albo jako subkonto-cień jego wyzwania.
+     * Subkonta mają is_bot=1, więc samo humanIds() odcinało graczom w wyzwaniu powiadomienia
+     * o realizacji zleceń, wyzwoleniu SL/TP, wygaśnięciu zleceń i odznaki z handlu — portfel
+     * wyzwania był „niemy". Powiadomienie i odznaka i tak trafiają do właściciela (mapowanie w notify/award).
+     */
+    public static function isHumanOwned(int $uid): bool
+    {
+        if (in_array($uid, self::humanIds(), true)) return true;
+        $owner = self::challengeOwner($uid);
+        return $owner !== $uid && in_array($owner, self::humanIds(), true);
+    }
+
     public static function humanIds(): array
     {
         if (self::$humanIds === null) {

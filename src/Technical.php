@@ -59,6 +59,7 @@ final class Technical
         $l = array_map(fn($r) => (float) $r['l'], $rows);
         $v = array_map(fn($r) => (int) $r['v'], $rows);
         $n = count($c);
+        self::$barsCache[$sid] = $n;
         $sig = array_fill_keys(array_keys(self::CATALOG), 0.0);   // za mało danych = neutralnie
         if ($n < 15) return self::$sigCache[$sid] = $sig;
         $price = $c[$n - 1] ?: 1.0;
@@ -145,6 +146,22 @@ final class Technical
     }
 
     /** Sygnał zbiorczy [-1,1]: średnia ważona wg wag spółki. */
+    /** Ile świec ma spółka (po ostatnim signals()). Poniżej MIN_BARS werdykt nie ma sensu. */
+    private static array $barsCache = [];
+    public const MIN_BARS = 45;   // ~połowa katalogu wskaźników liczy się dopiero od tylu świec
+
+    public static function bars(int $sid): int
+    {
+        if (!isset(self::$barsCache[$sid])) self::signals($sid);
+        return self::$barsCache[$sid] ?? 0;
+    }
+
+    /** Czy jest dość danych na kierunkowy werdykt — świeży debiut z 16 świecami dawał „Lekko kupuj" z trzech wskaźników. */
+    public static function enoughData(int $sid): bool
+    {
+        return self::bars($sid) >= self::MIN_BARS;
+    }
+
     public static function composite(int $sid): float
     {
         $sig = self::signals($sid);

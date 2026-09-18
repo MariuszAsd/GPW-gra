@@ -211,5 +211,10 @@ $pdo->prepare("UPDATE wallets SET qty=100, avg_price=? WHERE user_id=1 AND stock
     ->execute([$stockRows[0]['price'], $stockRows[0]['id']]);
 $pdo->prepare("UPDATE users SET start_equity = start_equity + ? WHERE id=1")->execute([100 * (float) $stockRows[0]['price']]);
 
+// Kotwica zamkniętej ekonomii: suma całej gotówki w świecie na starcie. Od tej chwili
+// suma (gotówka + rezerwacje + lokaty + skarbiec + pule wyzwań + zapisy IPO) może się różnić
+// od kotwicy WYŁĄCZNIE o wypłacone dywidendy — pilnuje tego asercja QA inv.money.
+Engine::setState('world_cash_base', (string) round((float) $pdo->query("SELECT COALESCE(SUM(cash),0)+COALESCE(SUM(cash_reserved),0) FROM users")->fetchColumn(), 2));
+Engine::setState('dividends_paid', '0');
 $pdo->commit();
 $log("✅ Świat zasiany.");

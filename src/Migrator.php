@@ -548,6 +548,38 @@ final class Migrator
                 )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
                 "CREATE INDEX ix_eqsnap ON equity_snapshots (kind, period)",
             ],
+            39 => [
+                // SKARBIEC JAKO PULA NAGRÓD: liga tygodnia wypłaca nagrody PLN ze skarbca (prowizje wracają do graczy),
+                // liga miesiąca daje tokeny, a skarbiec dokłada bonus do puli każdego wyzwania z człowiekiem.
+                "ALTER TABLE challenges ADD COLUMN treasury_bonus DECIMAL(15,2) NOT NULL DEFAULT 0",
+                "CREATE TABLE league_results (
+                    id " . (Db::driver() === 'mysql' ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT') . ",
+                    kind     VARCHAR(8) NOT NULL,
+                    period   VARCHAR(10) NOT NULL,
+                    user_id  INT NOT NULL,
+                    rank     INT NOT NULL,
+                    ret_pct  DECIMAL(9,2) NOT NULL,
+                    prize    DECIMAL(15,2) NOT NULL DEFAULT 0,
+                    tokens   INT NOT NULL DEFAULT 0,
+                    paid_at  VARCHAR(19) NOT NULL,
+                    UNIQUE (kind, period, user_id)
+                )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
+                "CREATE INDEX ix_league ON league_results (kind, period, rank)",
+            ],
+            40 => [
+                // PORZĄDKI PO AUDYCIE: obrót dzienny liczony na bieżąco (Rynek i API sumowały świece każdej spółki
+                // przy każdym odświeżeniu), indeksy pod najczęstsze zapytania, a na MySQL wyrównanie tego,
+                // co stare migracje zostawiły inaczej niż Schema.php (domyślne candled, kodowanie user_follows).
+                "ALTER TABLE stocks ADD COLUMN day_turnover DECIMAL(15,2) NOT NULL DEFAULT 0",
+                // start w środku sesji: obrót dotychczasowy z tej sesji policz jeszcze raz ze świec, żeby Rynek nie pokazał zer
+                "UPDATE stocks SET day_turnover = COALESCE((SELECT SUM(c.v * c.c) FROM candles c WHERE c.stock_id = stocks.id
+                    AND c.t >= COALESCE((SELECT CAST(g.v AS " . (Db::driver() === 'mysql' ? 'UNSIGNED' : 'INTEGER') . ") FROM game_state g WHERE g.k='session_start_tick'), 0)), 0)",
+                "CREATE INDEX ix_tx_stock ON transactions (stock_id, id)",
+                "CREATE INDEX ix_news_exp ON news (expire_tick)",
+                "CREATE INDEX ix_news_pub ON news (publish_tick)",
+                Db::driver() === 'mysql' ? "ALTER TABLE transactions ALTER COLUMN candled SET DEFAULT 0" : null,
+                Db::driver() === 'mysql' ? "ALTER TABLE user_follows CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci" : null,
+            ],
         ];
     }
 
@@ -582,11 +614,21 @@ final class Migrator
         $cur = (int) $cur;
         if ($cur >= Schema::VERSION) return [];   // aktualne — nic nie robimy
 
-        // Blokada pliku: żeby dwa równoległe żądania nie migrowały naraz.
-        $lockPath = __DIR__ . '/../data/migrate.lock';
-        @mkdir(dirname($lockPath), 0777, true);
-        $lock = @fopen($lockPath, 'c');
-        if ($lock) flock($lock, LOCK_EX);
+        // Blokada: po deployu pierwsze żądania graczy wchodzą RÓWNOLEGLE. Na MySQL blokada jest w bazie
+        // (GET_LOCK — działa między procesami i użytkownikami systemowymi, znika sama z połączeniem);
+        // blokada pliku była jedynym zabezpieczeniem i po cichu znikała, gdy katalog data/ nie był
+        // zapisywalny — wtedy każde żądanie wykonywało komplet migracji (niedempotentna v30 mnożyła
+        // report_period trzykrotnie na każde żądanie).
+        $lock = null; $dbLock = false;
+        if (Db::driver() === 'mysql') {
+            $dbLock = (int) $pdo->query("SELECT GET_LOCK('makleria_migrate', 30)")->fetchColumn() === 1;
+            if (!$dbLock) return [];   // ktoś inny migruje — to żądanie pójdzie na już zmigrowanej bazie
+        } else {
+            $lockPath = __DIR__ . '/../data/migrate.lock';
+            @mkdir(dirname($lockPath), 0777, true);
+            $lock = @fopen($lockPath, 'c');
+            if ($lock) flock($lock, LOCK_EX);
+        }
 
         try {
             $cur = (int) $pdo->query("SELECT version FROM schema_meta WHERE id=1")->fetchColumn(); // po blokadzie
@@ -596,21 +638,33 @@ final class Migrator
             foreach ($migs as $v => $stmts) {
                 if ($v <= $cur || $v > Schema::VERSION) continue;
                 foreach ($stmts as $sql) {
+                    if ($sql === null || trim((string) $sql) === '') continue;   // krok tylko dla innego silnika
                     try {
                         $pdo->exec($sql);
-                    } catch (Throwable $e) {
-                        // idempotencja: jeśli zmiana już jest (kolumna/tabela istnieje), pomiń
+                    } catch (PDOException $e) {
+                        // Idempotencja po KODZIE błędu, nie po treści: „exist" łapało też „table doesn't exist",
+                        // a „duplicate" — „Duplicate entry" z CREATE UNIQUE INDEX, i migracja uchodziła za wykonaną.
+                        // MySQL: 1050 tabela istnieje, 1060 kolumna istnieje, 1061 indeks istnieje.
+                        // SQLite: „already exists" / „duplicate column name".
+                        $code = (int) ($e->errorInfo[1] ?? 0);
                         $m = strtolower($e->getMessage());
-                        if (strpos($m, 'exist') !== false || strpos($m, 'duplicate') !== false) continue;
+                        $already = in_array($code, [1050, 1060, 1061], true)
+                            || (Db::driver() !== 'mysql' && (strpos($m, 'already exists') !== false || strpos($m, 'duplicate column name') !== false));
+                        if ($already) continue;
+                        try { Log::write('error', 'engine', 'migrate.fail', "migracja $v: " . $e->getMessage(), ['sql' => mb_substr($sql, 0, 200)]); } catch (Throwable $x) { /* dziennik może nie istnieć */ }
                         throw $e;
                     }
                 }
-                $pdo->prepare("UPDATE schema_meta SET version=? WHERE id=1")->execute([$v]);
+                // claim-first na stemplu wersji: podbij tylko, jeśli nikt nas nie wyprzedził
+                $st = $pdo->prepare("UPDATE schema_meta SET version=? WHERE id=1 AND version=?");
+                $st->execute([$v, $cur]);
+                if ($st->rowCount() !== 1) break;
                 $applied[] = $v;
                 $cur = $v;
             }
             return $applied;
         } finally {
+            if ($dbLock) { try { $pdo->query("SELECT RELEASE_LOCK('makleria_migrate')"); } catch (Throwable $e) { /* połączenie już zamknięte */ } }
             if ($lock) { flock($lock, LOCK_UN); fclose($lock); }
         }
     }

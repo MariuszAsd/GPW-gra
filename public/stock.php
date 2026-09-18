@@ -48,7 +48,7 @@ $chg = $ref > 0 ? ((float) $s['price'] - $ref) / $ref * 100 : 0;   // zmiana od 
 
 $candles = array_reverse(Engine::all("SELECT o,h,l,c,v FROM candles WHERE stock_id=? ORDER BY t DESC LIMIT 80", [$id]));
 [$sessionNo] = Engine::sessionInfo();
-$sessTurnover = (float) (Engine::one("SELECT SUM(v * c) FROM candles WHERE stock_id=? AND t >= ?", [$id, Engine::sessionStartTick()]) ?: 0);
+$sessTurnover = (float) (Engine::one("SELECT day_turnover FROM stocks WHERE id=?", [$id]) ?: 0);   // liczony na bieżąco przez silnik
 [$liqCls, $liqTxt] = liq_label($s['liquidity']);
 
 $bids = Engine::all("SELECT price, SUM(qty) q FROM orders WHERE stock_id=? AND side='buy'  AND status='active' GROUP BY price ORDER BY price DESC LIMIT 8", [$id]);
@@ -70,7 +70,7 @@ $mcap = (float) $s['price'] * (float) $s['total_shares'];
 $taSig = Technical::signals($id);
 $taW = Technical::weights($id);
 $taComp = Technical::composite($id);
-[$taVerdict, $taCls] = Technical::verdict($taComp);
+[$taVerdict, $taCls] = Technical::enoughData($id) ? Technical::verdict($taComp) : ['Za mało danych', ''];
 $taAff = (float) ($s['tech_affinity'] ?? 0.5);
 
 // forum spółki: 40 najnowszych wpisów graczy

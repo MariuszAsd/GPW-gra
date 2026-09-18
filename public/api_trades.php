@@ -9,7 +9,7 @@ $id = (int) ($_GET['id'] ?? 0);
 $trades = Engine::all("SELECT qty, price, created_at FROM transactions WHERE stock_id=? ORDER BY id DESC LIMIT 14", [$id]);
 $bids = Engine::all("SELECT price, SUM(qty) q FROM orders WHERE stock_id=? AND side='buy'  AND status='active' GROUP BY price ORDER BY price DESC LIMIT 8", [$id]);
 $asks = Engine::all("SELECT price, SUM(qty) q FROM orders WHERE stock_id=? AND side='sell' AND status='active' GROUP BY price ORDER BY price ASC  LIMIT 8", [$id]);
-$turn = (float) (Engine::one("SELECT SUM(v * c) FROM candles WHERE stock_id=? AND t >= ?", [$id, Engine::sessionStartTick()]) ?: 0);
+$turn = (float) (Engine::one("SELECT day_turnover FROM stocks WHERE id=?", [$id]) ?: 0);   // liczony na bieżąco przez silnik
 
 echo json_encode([
     'ok'       => true,

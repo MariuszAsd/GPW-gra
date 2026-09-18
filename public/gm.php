@@ -15,7 +15,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // odpalał runTick() prosto z żądania HTTP, więc kliknięcie w trakcie pracy crona dawało dwie
     // pętle świata naraz — a to rozjeżdżało rezerwacje botów (ujemne stany w portfelach).
     // Blokada zwalnia się sama wraz z końcem żądania (zamknięcie połączenia / procesu).
-    if (in_array($a, ['event', 'report', 'tick', 'world_event', 'sector_event', 'company_event'], true)
+    if (in_array($a, ['event', 'report', 'tick', 'world_event', 'sector_event', 'company_event', 'reconcile'], true)
         && !Engine::worldLock(5)) {
         flash('Silnik właśnie pracuje (cron) — odczekaj kilka sekund i spróbuj ponownie.', 'err');
         redirect('gm.php');
@@ -33,9 +33,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($a === 'invite') {
         Engine::setState('invite_code', trim($_POST['invite_code'] ?? ''));
         flash(trim($_POST['invite_code'] ?? '') === '' ? 'Rejestracja otwarta (bez kodu).' : 'Ustawiono kod zaproszenia.');
+    } elseif ($a === 'prizes') {
+        // nagrody lig i dopłata skarbca do wyzwań — pieniądz ze skarbca (prowizje), nie z powietrza
+        foreach (['league_prize_1', 'league_prize_2', 'league_prize_3', 'challenge_bonus_cap'] as $k) {
+            Engine::setState($k, (string) max(0, (float) str_replace([' ', ','], ['', '.'], (string) ($_POST[$k] ?? '0'))));
+        }
+        foreach (['league_tokens_1', 'league_tokens_2', 'league_tokens_3'] as $k) Engine::setState($k, (string) max(0, (int) ($_POST[$k] ?? 0)));
+        Engine::setState('challenge_bonus_pct', (string) max(0, min(200, (float) str_replace(',', '.', (string) ($_POST['challenge_bonus_pct'] ?? '50')))));
+        flash('Zapisano nagrody lig i dopłatę do wyzwań.');
     } elseif ($a === 'fee') {
         Engine::setState('fee_rate', (string) max(0, min(5, (float) str_replace(',', '.', $_POST['fee_rate'] ?? '0.5'))));
         flash('Ustawiono prowizję od obrotu.');
+    } elseif ($a === 'reconcile') {
+        // korekta sald graczy — tylko z przycisku, po podglądzie, pod blokadą świata; każdy wiersz trafia do dziennika
+        try {
+            $s = Reconcile::apply((int) $user['id']);
+            flash("Rekoncyliacja wykonana: gotówka {$s['cash']} kont, akcje {$s['qty']} pozycji, anulowane zlecenia {$s['cancelled']}, dotworzone akcje {$s['created']}, pominięte {$s['skipped']}. Szczegóły w dzienniku.");
+        } catch (Throwable $e) {
+            flash('Rekoncyliacja wycofana: ' . $e->getMessage(), 'err');
+        }
     } elseif ($a === 'qa') {
         require_once __DIR__ . '/../src/Qa.php';
         $r = Qa::run();
@@ -497,8 +513,30 @@ $modTop = Engine::all("SELECT m.user_id, u.username, COUNT(*) n, MAX(m.created_a
       <button class="btn sm">Ustaw</button>
     </form>
     <h2 style="margin-top:18px">💰 Skarbiec gry: <span class="up mono"><?= money($treasury) ?> PLN</span></h2>
-    <p class="muted">Zebrane prowizje od obrotu (płaci sprzedający przy każdej transakcji — gracze i boty). Do wykorzystania na eventy / market making.
+    <p class="muted">Zebrane prowizje od obrotu (płaci sprzedający przy każdej transakcji — gracze i boty). Skarbiec finansuje odsetki z lokat,
+       nagrody ligi tygodnia i dopłaty do puli wyzwań — pieniądz wraca do graczy, nic nie powstaje z powietrza.
        Spółki wypłaciły dotąd <b class="mono"><?= money($divPaid) ?> PLN</b> dywidend (świeża gotówka w świecie gry).</p>
+    <?php $pz = Engine::leaguePrizes();
+      $bp = Engine::one("SELECT v FROM game_state WHERE k='challenge_bonus_pct'"); $bp = ($bp === false || $bp === null) ? 50 : (float) $bp;
+      $bc = Engine::one("SELECT v FROM game_state WHERE k='challenge_bonus_cap'"); $bc = ($bc === false || $bc === null) ? 20000 : (float) $bc; ?>
+    <form method="post" class="row" style="align-items:flex-end;margin-top:8px">
+      <input type="hidden" name="action" value="prizes">
+      <div><label>Liga tygodnia — 1. miejsce (PLN)</label><input type="number" step="100" min="0" name="league_prize_1" value="<?= (int) $pz['week'][0] ?>" style="width:110px"></div>
+      <div><label>2. miejsce</label><input type="number" step="100" min="0" name="league_prize_2" value="<?= (int) $pz['week'][1] ?>" style="width:100px"></div>
+      <div><label>3. miejsce</label><input type="number" step="100" min="0" name="league_prize_3" value="<?= (int) $pz['week'][2] ?>" style="width:100px"></div>
+      <div><label>Liga miesiąca — tokeny 1/2/3</label>
+        <input type="number" min="0" name="league_tokens_1" value="<?= (int) $pz['month'][0] ?>" style="width:60px">
+        <input type="number" min="0" name="league_tokens_2" value="<?= (int) $pz['month'][1] ?>" style="width:60px">
+        <input type="number" min="0" name="league_tokens_3" value="<?= (int) $pz['month'][2] ?>" style="width:60px"></div>
+      <div><label>Dopłata do puli wyzwania (% wpisowych)</label><input type="number" step="5" min="0" max="200" name="challenge_bonus_pct" value="<?= rtrim(rtrim((string) $bp, '0'), '.') ?: '0' ?>" style="width:90px"></div>
+      <div><label>maks. dopłata (PLN)</label><input type="number" step="1000" min="0" name="challenge_bonus_cap" value="<?= (int) $bc ?>" style="width:110px"></div>
+      <button class="btn sm">Zapisz</button>
+    </form>
+    <?php $lastW = Engine::all("SELECT l.period, l.rank, l.ret_pct, l.prize, u.username FROM league_results l JOIN users u ON u.id=l.user_id WHERE l.kind='week' AND l.period=(SELECT MAX(period) FROM league_results WHERE kind='week') ORDER BY l.rank LIMIT 3");
+      if ($lastW): ?>
+      <p class="muted" style="margin-top:8px">Ostatnia liga tygodnia (<?= h($lastW[0]['period']) ?>):
+        <?php foreach ($lastW as $r): ?><span class="tag"><?= ['🥇','🥈','🥉'][$r['rank']-1] ?? $r['rank'] ?> <?= h($r['username']) ?> <?= ($r['ret_pct'] >= 0 ? '+' : '') . number_format((float) $r['ret_pct'], 1, ',', ' ') ?>% · <?= money($r['prize']) ?> PLN</span> <?php endforeach; ?></p>
+    <?php endif; ?>
     <form method="post" class="inline">
       <input type="hidden" name="action" value="fee">
       <label style="display:inline">Prowizja (% wartości):</label>
@@ -552,6 +590,50 @@ $modTop = Engine::all("SELECT m.user_id, u.username, COUNT(*) n, MAX(m.created_a
       <form method="post" class="inline"><input type="hidden" name="action" value="qa"><button class="btn sm">Testuj teraz (QA)</button></form>
       <a class="btn sm ghost" href="gm_logs.php">📜 Dziennik logów</a>
     </div>
+
+    <?php $rcCash = Reconcile::cashIssues(); $rcQty = Reconcile::qtyIssues(); $rcSkip = 0; $rcCancel = 0; $rcMade = 0;
+      foreach ($rcCash as $r) { if ($r['plan'][3] === 0 && $r['plan'][2] !== '') $rcSkip++; $rcCancel += $r['plan'][3]; }
+      foreach ($rcQty as $r) { $rcCancel += $r['plan'][3]; $rcMade += $r['plan'][4]; } ?>
+    <h3 style="margin-top:16px">🧹 Rekoncyliacja rezerwacji
+      <span class="chg <?= (!$rcCash && !$rcQty) ? 'p' : 'n' ?>" style="margin-left:6px"><?= (!$rcCash && !$rcQty) ? 'zgodne' : (count($rcCash) + count($rcQty)) . ' rozjazdów' ?></span>
+    </h3>
+    <p class="muted" style="margin:4px 0 8px">
+      Porównanie zamrożonej gotówki i zarezerwowanych akcji z aktywnymi zleceniami (to samo, co sprawdza QA).
+      Korekta nie tworzy pieniędzy: suma „wolne + zamrożone" każdego gracza zostaje, zmienia się tylko podział.
+      Gdy zleceń jest na więcej niż gracz ma, nadmiarowe zlecenia zostaną anulowane (gracz dostanie powiadomienie).
+      Nic nie dzieje się samo — dopiero po kliknięciu, a każdy wiersz trafia do dziennika.
+    </p>
+    <?php if ($rcCash): ?>
+      <div class="tbl-scroll"><table class="compact">
+        <thead><tr><th>Gracz</th><th class="num">Wolne</th><th class="num">Zamrożone</th><th class="num">Zlecenia kupna</th><th class="num">Po korekcie</th><th>Uwaga</th></tr></thead>
+        <tbody><?php foreach (array_slice($rcCash, 0, 40) as $r): ?>
+          <tr><td><?= h($r['username']) ?><?= (int) $r['is_bot'] ? ' <span class="muted">(bot)</span>' : '' ?></td>
+            <td class="num mono"><?= money($r['cash']) ?></td><td class="num mono <?= (float) $r['cash_reserved'] < 0 ? 'down' : '' ?>"><?= money($r['cash_reserved']) ?></td>
+            <td class="num mono"><?= money($r['should_be']) ?></td>
+            <td class="num mono"><?= money($r['plan'][0]) ?> + <?= money($r['plan'][1]) ?></td><td class="muted"><?= h($r['plan'][2]) ?></td></tr>
+        <?php endforeach; ?></tbody></table></div>
+      <?php if (count($rcCash) > 40): ?><p class="muted">… i jeszcze <?= count($rcCash) - 40 ?> kont.</p><?php endif; ?>
+    <?php endif; ?>
+    <?php if ($rcQty): ?>
+      <div class="tbl-scroll" style="margin-top:6px"><table class="compact">
+        <thead><tr><th>Gracz</th><th>Spółka</th><th class="num">Wolne</th><th class="num">Zarezerwowane</th><th class="num">Zlecenia sprzedaży</th><th class="num">Po korekcie</th><th>Uwaga</th></tr></thead>
+        <tbody><?php foreach (array_slice($rcQty, 0, 40) as $r): ?>
+          <tr><td><?= h($r['username']) ?><?= (int) $r['is_bot'] ? ' <span class="muted">(bot)</span>' : '' ?></td><td class="mono"><?= h($r['ticker']) ?></td>
+            <td class="num mono <?= (int) $r['qty'] < 0 ? 'down' : '' ?>"><?= (int) $r['qty'] ?></td><td class="num mono <?= (int) $r['qty_reserved'] < 0 ? 'down' : '' ?>"><?= (int) $r['qty_reserved'] ?></td>
+            <td class="num mono"><?= (int) $r['should_be'] ?></td>
+            <td class="num mono"><?= (int) $r['plan'][0] ?> + <?= (int) $r['plan'][1] ?></td><td class="muted"><?= h($r['plan'][2]) ?></td></tr>
+        <?php endforeach; ?></tbody></table></div>
+      <?php if (count($rcQty) > 40): ?><p class="muted">… i jeszcze <?= count($rcQty) - 40 ?> pozycji.</p><?php endif; ?>
+    <?php endif; ?>
+    <?php if ($rcCash || $rcQty): ?>
+      <form method="post" class="inline" style="margin-top:8px" onsubmit="return confirm('Wykonać korektę sald? Zmieni podział wolne/zamrożone u <?= count($rcCash) ?> kont i <?= count($rcQty) ?> pozycji akcji<?= $rcCancel ? ", anuluje $rcCancel zleceń" : '' ?><?= $rcMade ? ", dotworzy $rcMade akcji" : '' ?><?= $rcSkip ? ", pominie $rcSkip kont z ujemną sumą" : '' ?>. Każdy wiersz trafi do dziennika.')">
+        <input type="hidden" name="action" value="reconcile">
+        <button class="btn sm">🧹 Wykonaj korektę rezerwacji</button>
+        <span class="muted" style="margin-left:6px">pieniądz w świecie: bez zmian<?= $rcMade ? " · dotworzone akcje: $rcMade" : '' ?><?= $rcSkip ? " · pominięte: $rcSkip" : '' ?></span>
+      </form>
+    <?php else: ?>
+      <p class="muted" style="margin:0">✅ Rezerwacje gotówki i akcji zgadzają się z aktywnymi zleceniami — nie ma czego korygować.</p>
+    <?php endif; ?>
   </section>
 </div>
 

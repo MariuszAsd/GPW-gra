@@ -6,9 +6,7 @@ header('Cache-Control: no-store, max-age=0');   // bez tego mobilna przeglądark
 [$sessionNo, , $tps] = Engine::sessionInfo();
 $sessStart = Engine::sessionStartTick();   // tick otwarcia bieżącej sesji (obrót dzienny)
 $out = [];
-foreach (Engine::all("SELECT s.id, s.price, s.day_open_price,
-                             (SELECT SUM(c.v * c.c) FROM candles c WHERE c.stock_id = s.id AND c.t >= $sessStart) AS turnover
-                      FROM stocks s") as $s) {
+foreach (Engine::all("SELECT s.id, s.price, s.day_open_price, s.day_turnover AS turnover FROM stocks s") as $s) {
     $ref = (float) $s['day_open_price'] > 0 ? (float) $s['day_open_price'] : (float) $s['price'];
     $chg = $ref > 0 ? ((float) $s['price'] - $ref) / $ref * 100 : 0;
     $out[$s['id']] = ['price' => number_format($s['price'], 2, '.', ''), 'chg' => round($chg, 2), 'vol' => money_short((float) $s['turnover'])];

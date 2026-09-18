@@ -60,6 +60,8 @@ final class Daily
             $bonus = $streak % 7 === 0 ? self::STREAK_BONUS : 0;
             Tokens::grant($uid, self::STREAK_DAILY + $bonus, 'daily',
                 "seria: dzień $streak" . ($bonus > 0 ? " (bonus tygodnia +$bonus)" : ''));
+            // domknij WCZORAJ: misje zaliczone po ostatniej wizycie na Pulpicie przepadały bez wypłaty
+            try { self::missions($uid, $yesterday); } catch (\Throwable $e) { /* nie blokuje serii */ }
         } catch (\Throwable $e) { Log::write('warn', 'engine', 'daily.touch', $e->getMessage()); }
     }
 
@@ -80,20 +82,25 @@ final class Daily
      * Stan misji gracza na dziś + automatyczna wypłata świeżo zaliczonych.
      * Zwraca listę [code, opis, tokeny, done].
      */
-    public static function missions(int $uid): array
+    public static function missions(int $uid, ?string $day = null): array
     {
-        $day = self::today();
+        $day = $day ?? self::today();
         $granted = Engine::col("SELECT code FROM daily_missions WHERE user_id=? AND day=?", [$uid, $day]);
+        // handel w trybie wyzwania idzie na subkonto-cień — misje mają go widzieć jak własny
+        $ids = array_merge([$uid], array_map('intval', Engine::col(
+            "SELECT cp.shadow_user_id FROM challenge_players cp JOIN challenges c ON c.id=cp.challenge_id AND c.status='running'
+             WHERE cp.user_id=? AND cp.shadow_user_id IS NOT NULL", [$uid])));
+        $idList = implode(',', array_map('intval', $ids));
         $out = [];
         foreach (self::missionsFor($day) as $code) {
             [$desc, $tokens, $sql] = self::MISSIONS[$code];
             $done = in_array($code, $granted, true);
             if (!$done) {
                 try {
-                    $st = Db::pdo()->prepare(str_replace([':uid', ':day'], ['?', '?'], $sql));
-                    // kolejność placeholderów odpowiada kolejności :uid/:day w SQL
+                    $sqlIds = str_replace('=:uid', " IN ($idList)", $sql);   // porównanie z kontem -> z kontem i jego subkontami
+                    $st = Db::pdo()->prepare(str_replace(':day', '?', $sqlIds));
                     $args = [];
-                    foreach (self::placeholderOrder($sql) as $ph) $args[] = $ph === ':uid' ? $uid : $day . '%';
+                    foreach (self::placeholderOrder($sqlIds) as $ph) $args[] = $day . '%';
                     $st->execute($args);
                     if ((int) $st->fetchColumn() > 0) {
                         Db::pdo()->prepare("INSERT INTO daily_missions (user_id, day, code, tokens, created_at) VALUES (?,?,?,?,?)")

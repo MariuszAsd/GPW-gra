@@ -25,6 +25,7 @@ $KAT = [
     'lokata'      => '🏦 Lokaty',
     'dywidenda'   => '💰 Dywidendy',
     'wyzwanie'    => '⚔️ Wyzwania',
+    'nagroda'     => '🏆 Nagrody lig',
 ];
 $fil = array_key_exists($_GET['f'] ?? '', $KAT) ? ($_GET['f'] ?? '') : '';
 
@@ -98,7 +99,7 @@ foreach (Engine::all("SELECT amount, rate_pct, end_session, status, created_at F
 // 4) KSIĘGA GOTÓWKI (dywidendy itd. — od wdrożenia strony)
 foreach (Engine::all("SELECT ts, amount, category, note, link FROM cash_ledger
                       WHERE user_id = ? ORDER BY id DESC LIMIT $LIMIT", [$pid]) as $c) {
-    $map = ['dividend' => ['dywidenda', '💰 Dywidenda'], 'wyzwanie' => ['wyzwanie', '⚔️ Wyzwanie'], 'lokata' => ['lokata', '🏦 Lokata']];
+    $map = ['dividend' => ['dywidenda', '💰 Dywidenda'], 'wyzwanie' => ['wyzwanie', '⚔️ Wyzwanie'], 'lokata' => ['lokata', '🏦 Lokata'], 'nagroda' => ['nagroda', '🏆 Nagroda ligi']];
     [$cat, $lbl] = $map[$c['category']] ?? [$c['category'], 'ℹ️ ' . $c['category']];
     $add($c['ts'], (float) $c['amount'], $cat, $lbl, (string) $c['note'], (string) ($c['link'] ?? ''));
 }

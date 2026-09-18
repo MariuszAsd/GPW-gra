@@ -103,8 +103,10 @@ final class Tokens
              WHERE u.is_bot = 0 AND u.role = 'player'
                AND NOT EXISTS (SELECT 1 FROM user_items i WHERE i.user_id = u.id AND i.item = 'trial_premium')
                AND NOT EXISTS (SELECT 1 FROM premium_passes p WHERE p.user_id = u.id)
-               AND (SELECT COUNT(DISTINCT SUBSTR(j.ts, 1, 10)) FROM player_journal j WHERE j.user_id = u.id) >= $needDays
+               AND (SELECT COUNT(DISTINCT SUBSTR(t.created_at, 1, 10)) FROM transactions t WHERE t.buyer_id = u.id OR t.seller_id = u.id) >= $needDays
                AND (SELECT MIN(j.ts) FROM player_journal j WHERE j.user_id = u.id) <= ?", [$cutoff]);
+        // aktywność liczona z TRANSAKCJI, nie z dziennika: dziennik dostaje wpisy od silnika (krach, hossa, raporty)
+        // także na kontach, które nigdy się nie zalogowały — trial trafiał do martwych kont
 
         $pdo = Db::pdo();
         $until = $session + $sessions - 1;   // np. 2 dni = bieżąca sesja + następna
@@ -143,12 +145,18 @@ final class Tokens
     public const REF_REWARD = 25;   // tokeny dla polecającego za AKTYWNEGO poleconego
     public const REF_BONUS  = 10;   // dodatkowe tokeny powitalne dla poleconego (przy rejestracji)
 
+    /** Maksymalna liczba nagrodzonych poleceń na jedno konto — powyżej farma multikont przestaje się opłacać. */
+    public const REF_MAX_REWARDED = 10;
+
     public static function grantReferrals(): void
     {
+        // Aktywność = co najmniej 5 transakcji ROZŁOŻONYCH na co najmniej 3 różne dni. Sam próg „5 transakcji"
+        // dało się nabić w kwadrans na świeżym multikoncie (dwa zlecenia PKC) i zgarnąć 25 tokenów ≈ 8 zł towaru.
         $due = Engine::all(
             "SELECT u.id, u.username, u.referred_by FROM users u
              WHERE u.referred_by IS NOT NULL AND u.ref_reward_at IS NULL AND u.is_bot = 0
-               AND (SELECT COUNT(*) FROM transactions t WHERE t.buyer_id = u.id OR t.seller_id = u.id) >= 5");
+               AND (SELECT COUNT(*) FROM transactions t WHERE t.buyer_id = u.id OR t.seller_id = u.id) >= 5
+               AND (SELECT COUNT(DISTINCT SUBSTR(t.created_at, 1, 10)) FROM transactions t WHERE t.buyer_id = u.id OR t.seller_id = u.id) >= 3");
         $pdo = Db::pdo();
         foreach ($due as $u) {
             // przejmij atomowo (raz na poleconego) — ponowny przebieg/wyścig nie zdubluje nagrody
@@ -156,6 +164,13 @@ final class Tokens
             $st->execute([Db::now(), (int) $u['id']]);
             if ($st->rowCount() !== 1) continue;
             $ref = (int) $u['referred_by'];
+            // bonus POLECONEGO dopiero teraz (dawniej przy rejestracji = darmowe tokeny za samo założenie konta)
+            self::grant((int) $u['id'], self::REF_BONUS, 'referral', 'bonus z linku polecającego — za realną grę');
+            $rewarded = (int) Engine::one("SELECT COUNT(*) FROM users WHERE referred_by=? AND ref_reward_at IS NOT NULL AND id<>?", [$ref, (int) $u['id']]);
+            if ($rewarded >= self::REF_MAX_REWARDED) {
+                Log::write('warn', 'engine', 'referral.limit', "polecający #$ref przekroczył limit nagrodzonych poleceń (" . self::REF_MAX_REWARDED . ") — bez nagrody za {$u['username']}", ['referrer' => $ref]);
+                continue;
+            }
             self::grant($ref, self::REF_REWARD, 'referral', 'polecony gracz ' . $u['username'] . ' zaczął handlować');
             Engine::notify($ref, 'token', '🤝 Twój polecony ' . $u['username'] . ' rozkręcił się na rynku — masz +' . self::REF_REWARD
                 . ' Tokenów inwestora! Polecaj dalej: link znajdziesz w zakładce Konto.', 'konto.php');

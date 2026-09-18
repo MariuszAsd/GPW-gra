@@ -227,10 +227,12 @@ final class Ipo
         $sid = (int) Engine::one("SELECT id FROM stocks WHERE ticker=?", [$o['ticker']]);
 
         // przydział + zwroty dla graczy (akcje po cenie emisyjnej prosto do portfela)
+        $sunk = 0.0;   // zapłata za przydzielone akcje trafia do spółki = opuszcza obieg gotówki (kotwica QA w dół)
         foreach ($subs as $s2) {
             $uid = (int) $s2['user_id'];
             $allot = (int) floor((int) $s2['qty'] * $ratio);
             $refund = round((float) $s2['paid'] - $allot * (float) $o['price'], 2);
+            $sunk += round((float) $s2['paid'], 2) - $refund;
             $pdo->prepare("UPDATE ipo_subs SET allotted=?, refund=? WHERE id=?")->execute([$allot, $refund, (int) $s2['id']]);
             if ($refund > 0) $pdo->prepare("UPDATE users SET cash = cash + ? WHERE id = ?")->execute([$refund, $uid]);
             if ($allot > 0 && $sid > 0) {
@@ -245,6 +247,7 @@ final class Ipo
             Engine::notify($uid, 'ipo', $msg, $sid > 0 ? 'stock.php?id=' . $sid : 'ipo.php');
             Engine::journal($uid, 'ipo', $msg, $sid > 0 ? 'stock.php?id=' . $sid : 'ipo.php');
         }
+        if ($sunk > 0) Engine::worldCashAdjust(-$sunk, 'IPO ' . $o['name'] . ' (zapłata za przydział)');
         $pdo->prepare("UPDATE ipo_offers SET stock_id=?, demand_bots=?, reduction_pct=? WHERE id=?")
             ->execute([$sid ?: null, $demandBots, $reduction, (int) $o['id']]);
         Log::write('info', 'engine', 'ipo.allot', $o['name'] . ": popyt {$heat}x, redukcja $reduction%", ['players' => $demandPlayers, 'bots' => $demandBots]);

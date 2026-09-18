@@ -16,6 +16,11 @@
  */
 final class Qa
 {
+    /** Pełny przebieg = tyle asercji. Gdy dodajesz asercję, podnieś tę liczbę (i w CLAUDE.md). */
+    public const EXPECTED_CHECKS = 136;
+    /** Po tylu nieudanych przebiegach z rzędu GM dostaje e-mail (raz na serię). */
+    public const ALERT_AFTER = 2;
+
     private string $base = '';
     private string $jar = '';
     private array $fails = [];
@@ -36,6 +41,7 @@ final class Qa
         Log::write($ok ? 'info' : 'error', 'qa', 'qa.run',
             ($ok ? "OK — {$q->checks} asercji" : 'BŁĘDY: ' . count($q->fails) . " z {$q->checks} asercji"),
             $ok ? [] : ['fails' => array_slice($q->fails, 0, 12)]);
+        self::alert($ok, $q->checks, $q->fails);
         Log::prune();
         return ['ok' => $ok, 'checks' => $q->checks, 'fails' => $q->fails];
     }
@@ -54,16 +60,28 @@ final class Qa
             $pdo->prepare("UPDATE users SET password_hash=?, role='qa' WHERE id=?")->execute([$hash, $uid]);
         } else {
             [$s] = Engine::sessionInfo();
-            $pdo->prepare("INSERT INTO users (username, password_hash, is_bot, role, cash, joined_session, start_equity) VALUES ('qa_tester', ?, 0, 'qa', 5000, ?, 5000)")
+            // konto rodzi się z ZEREM — kapitał na testy dostaje niżej ze skarbca, tak jak przy każdej dosypce
+            // (5000 „z niczego" przy pierwszym przebiegu psuło sumę pieniądza w świecie o dokładnie tę kwotę)
+            $pdo->prepare("INSERT INTO users (username, password_hash, is_bot, role, cash, joined_session, start_equity) VALUES ('qa_tester', ?, 0, 'qa', 0, ?, 0)")
                 ->execute([$hash, $s]);
             $uid = (int) $pdo->lastInsertId();
         }
         $uid = (int) $uid;
         // czysty stan: anuluj zlecenia QA (też obronne), dosyp gotówki gdy wydrenowany
         foreach (Engine::all("SELECT id FROM orders WHERE user_id=? AND status IN ('active','pending')", [$uid]) as $o) Engine::cancel((int) $o['id'], $uid);
+        // wpisy QA na czacie/forum z poprzedniego przebiegu postarzamy: anty-spam (5 s / 15 s) blokował posty,
+        // gdy GM kliknął „Testuj teraz" dwa razy pod rząd — i QA meldował 3 fałszywe błędy (a od 2 z rzędu idzie alarm)
+        $pdo->prepare("UPDATE chat_messages SET created_at='2000-01-01 00:00:00' WHERE user_id=?")->execute([$uid]);
+        $pdo->prepare("UPDATE stock_comments SET created_at='2000-01-01 00:00:00' WHERE user_id=?")->execute([$uid]);
+        // Dosypka ZE SKARBCA gry (guard pokrycia) — konto QA handluje na wspólnym arkuszu, więc dolana gotówka
+        // wypływa do botów i graczy; dawne „cash+5000" z niczego łamało zamkniętą ekonomię przy każdym przebiegu.
         if ((float) Engine::one("SELECT cash FROM users WHERE id=?", [$uid]) < 2000) {
-            $pdo->prepare("UPDATE users SET cash=cash+5000, start_equity=start_equity+5000 WHERE id=?")->execute([$uid]);
-            Log::write('info', 'qa', 'qa.topup', 'dosypano 5000 PLN kontu qa_tester');
+            if (Engine::treasuryTake(5000)) {
+                $pdo->prepare("UPDATE users SET cash=cash+5000, start_equity=start_equity+5000 WHERE id=?")->execute([$uid]);
+                Log::write('info', 'qa', 'qa.topup', 'dosypano 5000 PLN kontu qa_tester (ze skarbca)');
+            } else {
+                Log::write('warn', 'qa', 'qa.topup', 'skarbiec bez pokrycia na dosypkę dla qa_tester — testy handlu mogą zostać pominięte');
+            }
         }
 
         // 1) logowanie: złe hasło NIE wpuszcza; dobre wpuszcza
@@ -286,9 +304,56 @@ final class Qa
              FROM wallets w WHERE w.qty_reserved <> COALESCE((SELECT SUM(o.qty) FROM orders o WHERE o.user_id=w.user_id AND o.stock_id=w.stock_id AND o.side='sell' AND o.status IN ('active','pending')),0)");
         $this->check(count($badQty) === 0, 'inv.qty_reserved', 'rezerwacje akcji ≠ aktywne zlecenia sprzedaży + obronne', ['wallets' => array_slice($badQty, 0, 3)]);
 
+        // 8) ZAMKNIĘTA EKONOMIA — suma pieniądza w świecie. Trzy inwarianty wyżej pilnują tylko spójności
+        // rezerwacji; escrow może być idealny, a w grze i tak przybędzie gotówki z niczego. Kotwica:
+        // world_cash_base (zasiew albo pierwszy przebieg po aktualizacji); jedyne legalne źródło nowej gotówki
+        // to dywidendy (dividends_paid). Skarbiec, pule wyzwań, wpisowe w locie i zapisy IPO są W świecie.
+        // Kotwica przesuwa się przy rejestracji (+kapitał startowy) i przydziale IPO (−zapłata za akcje): Engine::worldCashAdjust.
+        $world = Engine::worldCash();
+        $div  = (float) (Engine::one("SELECT v FROM game_state WHERE k='dividends_paid'") ?: 0);
+        $base = Engine::one("SELECT v FROM game_state WHERE k='world_cash_base'");
+        if ($base === false || $base === null || $base === '') {
+            // pierwszy przebieg na istniejącym świecie: zakotwicz TERAZ (stan sprzed jest niepoznawalny) — od tej chwili każdy wyciek będzie widoczny
+            Engine::setState('world_cash_base', (string) round($world - $div, 2));
+            Log::write('info', 'qa', 'qa.anchor', 'zakotwiczono sumę pieniądza w świecie: ' . number_format($world - $div, 2, ',', ' ') . ' PLN (bez dywidend)');
+            $base = $world - $div;
+        }
+        $drift = round($world - ((float) $base + $div), 2);
+        $this->check(abs($drift) <= 1.0, 'inv.money', 'pieniądz w świecie ≠ kotwica + dywidendy (wyciek/kreacja)', ['drift' => $drift, 'world' => round($world, 2), 'base' => (float) $base, 'dividends' => $div]);
+
+        // 9) POKRYCIE: sekcje handlowe siedzą w warunkach (pusty arkusz = pominięte) — bez tego progu QA potrafiło
+        // zameldować „OK — 119 asercji" i nikt nie widział, że test handlu w ogóle się nie odbył
+        $this->check($this->checks >= self::EXPECTED_CHECKS - 1, 'qa.coverage', "za mało asercji: {$this->checks} (oczekiwano co najmniej " . self::EXPECTED_CHECKS . ")");
+
         // sprzątanie po sobie (też zlecenia obronne i wpisy na czacie)
         foreach (Engine::all("SELECT id FROM orders WHERE user_id=? AND status IN ('active','pending')", [$uid]) as $o) Engine::cancel((int) $o['id'], $uid);
         $pdo->prepare("UPDATE chat_messages SET deleted=1 WHERE user_id=?")->execute([$uid]);
+    }
+
+    /**
+     * Alarm: seria nieudanych przebiegów w game_state (qa_fail_streak, qa_last_ok, qa_last_checks);
+     * po ALERT_AFTER porażkach z rzędu jeden e-mail do GM (adres: game_state gm_email albo e-mail konta admin),
+     * kolejny dopiero po przerwaniu serii. Wcześniej padające QA było widać tylko w panelu, do którego
+     * trzeba samemu zajrzeć — trzy asercje leżały czerwone miesiącami.
+     */
+    private static function alert(bool $ok, int $checks, array $fails): void
+    {
+        try {
+            $streak = $ok ? 0 : ((int) (Engine::one("SELECT v FROM game_state WHERE k='qa_fail_streak'") ?: 0) + 1);
+            Engine::setState('qa_fail_streak', (string) $streak);
+            Engine::setState('qa_last_ok', $ok ? '1' : '0');
+            Engine::setState('qa_last_checks', (string) $checks);
+            Engine::setState('qa_last_run_at', Db::now());
+            if ($ok || $streak !== self::ALERT_AFTER) return;
+            $to = (string) (Engine::one("SELECT v FROM game_state WHERE k='gm_email'") ?: '');
+            if ($to === '') $to = (string) (Engine::one("SELECT email FROM users WHERE role='admin' AND email IS NOT NULL AND email<>'' ORDER BY id LIMIT 1") ?: '');
+            if ($to === '') { Log::write('warn', 'qa', 'qa.alert', "QA pada $streak razy z rzędu, ale brak adresu GM (ustaw e-mail admina w Koncie)"); return; }
+            if (!class_exists('Mailer')) require_once __DIR__ . '/Mailer.php';
+            $body = "QA gry Makleria nie przechodzi $streak razy z rzędu.\n\nOstatni przebieg: $checks asercji, błędy:\n- "
+                  . implode("\n- ", array_slice($fails, 0, 12)) . "\n\nSzczegóły: panel GM -> Dziennik (źródło: qa).";
+            Mailer::send($to, "⚠️ Makleria: QA pada ($streak z rzędu)", $body);
+            Log::write('warn', 'qa', 'qa.alert', "wysłano alarm QA do GM (seria $streak)");
+        } catch (\Throwable $e) { Log::write('warn', 'qa', 'qa.alert', 'alarm QA nie wysłany: ' . $e->getMessage()); }
     }
 
     /* ---------- pomocnicze ---------- */

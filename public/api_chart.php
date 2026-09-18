@@ -24,7 +24,9 @@ $maxBars = 110;
 
 /** agregacja listy świec do <= $maxBars słupków (koszyk = kolejne $per sztuk) */
 function bucket(array $rows, int $per): array {
-    if ($per <= 1) return array_values($rows);
+    // bez agregacji też normalizuj wiersz (klucz 's' = sesja) — inaczej oś czasu w trybie Auto była pusta,
+    // dopóki świec dziennych nie było więcej niż 110
+    if ($per <= 1) return array_map(fn($r) => ['o' => (float) $r['o'], 'h' => (float) $r['h'], 'l' => (float) $r['l'], 'c' => (float) $r['c'], 'v' => (int) $r['v'], 's' => (int) ($r['session'] ?? $r['s'] ?? 0)], array_values($rows));
     $out = [];
     foreach (array_values($rows) as $i => $r) {
         $b = intdiv($i, $per);
