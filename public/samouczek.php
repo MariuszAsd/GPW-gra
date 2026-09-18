@@ -12,7 +12,7 @@ $kroki = [
      'Startujesz ze 100 000 PLN i inwestujesz na długo — bez limitu czasu. Twój wynik to stopa zwrotu od startu: kupujesz akcje taniej, sprzedajesz drożej, a rynek żyje — spółki publikują raporty, płacą dywidendy, zdarzają się krachy i hossy. Ranking i ligi liczą się w procentach, więc nowy gracz może wygrać z weteranem.',
      'ranking.php', 'Zobacz ranking'],
     ['🕐', 'Godziny handlu',
-     'Giełda działa jak prawdziwa: handel trwa 7:50–22:00. Po zamknięciu kursy stoją, a zlecenia złożysz dopiero po otwarciu. Jedna sesja = jeden dzień giełdowy.',
+     'Giełda działa jak prawdziwa: handel trwa 7:50–22:00. Po zamknięciu kursy stoją, a zlecenia złożysz dopiero po otwarciu. Jedna sesja = jeden dzień giełdowy. Pierwsze 10 minut po otwarciu to FAZA OTWARCIA (fixing): zlecenia z limitem zbierają się w arkuszu, a o 8:00 aukcja ustala jeden kurs otwarcia dla każdej spółki — ten, przy którym skojarzy się najwięcej akcji. Chcesz kupić na otwarciu? Złóż zlecenie z limitem przed 8:00.',
      'market.php', 'Sprawdź status rynku'],
     ['📊', 'Rynek — Twoja mapa',
      'Moduł Rynek ma podzakładki na górze: NOTOWANIA (tabela spółek: kurs, zmiana, BID/ASK, obrót — kropka pokazuje płynność), BRANŻE (trendy sektorowe: która branża ciągnie, która tonie), REKOMENDACJE (wyceny analityków + skaner sygnałów AT), IPO (oferty publiczne) i NEWSY I ESPI. Kliknij wiersz w Notowaniach, żeby otworzyć spółkę.',

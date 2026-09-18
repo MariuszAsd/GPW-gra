@@ -55,7 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($a === 'qa') {
         require_once __DIR__ . '/../src/Qa.php';
         $r = Qa::run();
-        flash($r['ok'] ? "✅ QA: wszystkie {$r['checks']} asercji OK." : '❌ QA znalazł błędy: ' . implode(' | ', array_slice($r['fails'], 0, 3)), $r['ok'] ? 'ok' : 'err');
+        flash(!empty($r['skipped']) ? '⏳ Faza otwarcia (fixing) — QA nie testuje handlu do ' . Engine::fixingEnd() . '.' : ($r['ok'] ? "✅ QA: wszystkie {$r['checks']} asercji OK." : '❌ QA znalazł błędy: ' . implode(' | ', array_slice($r['fails'], 0, 3))), $r['ok'] ? 'ok' : 'err');
     } elseif ($a === 'stock') {
         $pdo->prepare("UPDATE stocks SET bias=?, volatility=?, profit_trend=?, dividend_payout=? WHERE id=?")->execute([
             (float) str_replace(',', '.', $_POST['bias'] ?? '0'),
@@ -222,6 +222,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         Engine::setState('market_hours_enabled', $en ? '1' : '0');
         Engine::setState('market_open_time', $vt($_POST['mh_open'] ?? '', '07:50'));
         Engine::setState('market_close_time', $vt($_POST['mh_close'] ?? '', '22:00'));
+        Engine::setState('market_fixing_minutes', (string) max(0, min(60, (int) ($_POST['mh_fixing'] ?? 10))));   // faza otwarcia (0 = bez fixingu)
         flash($en ? 'Godziny handlu zapisane — poza nimi świat gry stoi.' : 'Godziny handlu WYŁĄCZONE — rynek działa całą dobę.');
     } elseif ($a === 'reset') {
         $pdo->exec("UPDATE stocks SET bias=0, volatility=1, profit_trend=0");
@@ -361,7 +362,9 @@ layout_header('Panel GM', $user, 'gm');
   <?php [$mhOn, $mhOpen2, $mhClose2] = Engine::marketHours(); ?>
   <h2 style="margin-top:18px">🕐 Godziny handlu — teraz: <?= Engine::marketIsOpen() ? '<span class="up">rynek otwarty</span>' : '<span class="down">rynek zamknięty</span>' ?>
     <span class="muted" style="font-size:12px">(czas PL: <?= Engine::nowWarsaw()->format('H:i') ?>)</span></h2>
-  <p class="muted" style="margin:4px 0 8px">Poza godzinami handlu świat gry stoi: kursy zamrożone, boty śpią, zlecenia graczy odrzucane. Sesja = jeden dzień giełdowy (rolluje się na pierwszym ticku po otwarciu).</p>
+  <p class="muted" style="margin:4px 0 8px">Poza godzinami handlu świat gry stoi: kursy zamrożone, boty śpią, zlecenia graczy odrzucane. Sesja = jeden dzień giełdowy (rolluje się na pierwszym ticku po otwarciu).
+     Pierwsze minuty po otwarciu to <b>faza otwarcia (fixing)</b>: zlecenia z limitem zbierają się w arkuszu, PKC jest niedostępne, a po jej końcu aukcja ustala jeden kurs otwarcia dla każdej spółki (maks. wolumen).
+     Teraz: <b><?= ['closed' => 'zamknięte', 'preopen' => 'faza otwarcia do ' . Engine::fixingEnd(), 'open' => 'notowania ciągłe'][Engine::marketPhase()] ?></b>.</p>
   <form method="post" class="row" style="align-items:flex-end">
     <input type="hidden" name="action" value="hours_cfg">
     <div><label>Włączone</label>
@@ -371,6 +374,7 @@ layout_header('Panel GM', $user, 'gm');
       </select></div>
     <div><label>Otwarcie</label><input name="mh_open" value="<?= h($mhOpen2) ?>" style="width:80px" placeholder="07:50"></div>
     <div><label>Zamknięcie</label><input name="mh_close" value="<?= h($mhClose2) ?>" style="width:80px" placeholder="22:00"></div>
+    <div><label>Fixing (min)</label><input name="mh_fixing" type="number" min="0" max="60" value="<?= Engine::fixingMinutes() ?>" style="width:70px" title="Długość fazy otwarcia; 0 = od razu notowania ciągłe"></div>
     <button class="btn sm">Zapisz</button>
   </form>
 

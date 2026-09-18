@@ -12,6 +12,7 @@ layout_header('Pomoc', $user, 'help');
   <a href="#pkc">Zlecenie PKC</a>
   <a href="#plynnosc">Płynność i obrót</a>
   <a href="#waznosc">Ważność zlecenia</a>
+  <a href="#fixing">Fixing (otwarcie)</a>
   <a href="#sl">Stop-Loss</a>
   <a href="#trailing">SL kroczący</a>
   <a href="#tp">Take-Profit</a>
@@ -81,6 +82,18 @@ layout_header('Pomoc', $user, 'help');
   <p><b>Bezterminowe</b> — czeka w arkuszu, aż je zrealizujesz lub anulujesz.
      <b>Do końca sesji</b> — jeśli do końca bieżącej sesji się nie zrealizuje, samo zniknie,
      a zarezerwowana gotówka/akcje wrócą do Ciebie.</p>
+</div>
+
+<div class="panel help-sec" id="fixing">
+  <h3>🔔 Faza otwarcia (fixing) — jeden kurs otwarcia</h3>
+  <p>Przez pierwsze minuty po otwarciu giełdy (7:50–8:00) rynek nie handluje ciągle: <b>zlecenia z limitem zbierają się w arkuszu</b>,
+     PKC jest niedostępne, boty też tylko kwotują. O 8:00 aukcja otwarcia ustala dla każdej spółki <b>jeden kurs</b> —
+     ten, przy którym skojarzy się największa liczba akcji (przy remisie: mniejsza nierównowaga, potem cena najbliższa
+     ostatniego kursu) — i wszystkie krzyżujące się zlecenia realizują się właśnie po nim. Kupujący z wyższym limitem
+     płacą kurs otwarcia (różnica wraca na konto), sprzedający z niższym limitem dostają kurs otwarcia.</p>
+  <div class="help-ex">💡 Newsy z nocy i ranka trafiają w kurs właśnie na fixingu — dlatego otwarcie potrafi „skoczyć”.
+     Chcesz wejść na otwarciu? Złóż zlecenie z limitem przed 8:00. Boisz się luki? Poczekaj na notowania ciągłe.
+     Kurs z fixingu jest „kursem otwarcia sesji” dla widełek i zmiany dziennej.</div>
 </div>
 
 <div class="panel help-sec" id="sl">

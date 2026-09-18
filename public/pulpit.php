@@ -93,7 +93,7 @@ function stock_row(array $w, bool $premium, bool $withPl): void {
   <h1>Dzień dobry, <?= h($user['username']) ?></h1>
   <?= session_tag($sessionNo) ?>
   <?php if ($mhOn): ?>
-    <span class="tag" style="<?= $mhIsOpen ? 'color:var(--up);border-color:var(--up)' : 'color:var(--faint)' ?>"><?= $mhIsOpen ? "rynek otwarty do $mhClose" : "rynek zamknięty · otwarcie $mhOpen" ?></span>
+    <span class="tag" style="<?= $mhIsOpen ? 'color:var(--up);border-color:var(--up)' : 'color:var(--faint)' ?>"><?= $mhIsOpen ? (Engine::marketPhase() === 'preopen' ? 'faza otwarcia (fixing) do ' . Engine::fixingEnd() : "rynek otwarty do $mhClose") : "rynek zamknięty · otwarcie $mhOpen" ?></span>
   <?php endif; ?>
 </div>
 

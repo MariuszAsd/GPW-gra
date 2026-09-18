@@ -17,7 +17,7 @@
 final class Qa
 {
     /** Pełny przebieg = tyle asercji. Gdy dodajesz asercję, podnieś tę liczbę (i w CLAUDE.md). */
-    public const EXPECTED_CHECKS = 144;
+    public const EXPECTED_CHECKS = 146;
     /** Po tylu nieudanych przebiegach z rzędu GM dostaje e-mail (raz na serię). */
     public const ALERT_AFTER = 2;
 
@@ -32,6 +32,11 @@ final class Qa
         $q = new self();
         $q->base = rtrim($baseUrl ?: (string) ($cfg['app_url'] ?? ''), '/');
         if ($q->base === '') return ['ok' => false, 'checks' => 0, 'fails' => ['brak app_url w config']];
+        if (Engine::marketPhase() === 'preopen') {
+            // faza otwarcia: PKC niedostępne, arkusz się nie kojarzy — testy handlu dałyby fałszywe błędy (i alarm)
+            Log::write('info', 'qa', 'qa.skip', 'faza otwarcia (fixing) — QA pomija przebieg, wróci po ' . Engine::fixingEnd());
+            return ['ok' => true, 'checks' => 0, 'fails' => [], 'skipped' => true];
+        }
         $q->jar = tempnam(sys_get_temp_dir(), 'qa_ck_');
         try { $q->execute((float) $cfg['starting_cash']); }
         catch (Throwable $e) { $q->fail('qa.crash', $e->getMessage() . ' @ ' . basename($e->getFile()) . ':' . $e->getLine()); }
@@ -248,6 +253,11 @@ final class Qa
             $txMax = (int) (Engine::one("SELECT COALESCE(MAX(id),0) FROM transactions") ?: 0);
             $qtyB4 = (int) (Engine::one("SELECT qty FROM wallets WHERE user_id=? AND stock_id=?", [$uid, $sid]) ?: 0);
             $restB4 = (int) Engine::one("SELECT COUNT(*) FROM orders WHERE user_id=? AND status='active'", [$uid]);
+            // 5a-ter) AUKCJA OTWARCIA (czysta funkcja): cena maks. wolumenu, remis -> mniejsza nierównowaga -> najbliżej odniesienia
+            $fx = Engine::fixingPrice([['price' => 10.5, 'qty' => 100], ['price' => 10.2, 'qty' => 50]], [['price' => 10.0, 'qty' => 80], ['price' => 10.4, 'qty' => 100]], 10.3);
+            $this->check($fx !== null && abs($fx[0] - 10.4) < 0.001 && $fx[1] === 100, 'fixing.price', 'kurs otwarcia: oczekiwano 10,40 / 100 szt., jest ' . json_encode($fx));
+            $this->check(Engine::fixingPrice([['price' => 9.0, 'qty' => 10]], [['price' => 9.5, 'qty' => 10]], 9.2) === null, 'fixing.nocross', 'fixing bez krzyżujących się zleceń powinien dać null');
+
             // 5a-bis) STOP-BUY: rezerwacja ilość × limit, zlecenie pending z progiem, anulowanie ze zwrotem, walidacja progu
             $sbPx = (float) Engine::one("SELECT price FROM stocks WHERE id=?", [$sid]);
             $sbTrig = round($sbPx * 1.03, 2); $sbLim = round($sbTrig * 1.01, 2);

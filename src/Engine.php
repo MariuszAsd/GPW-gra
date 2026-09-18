@@ -90,6 +90,7 @@ final class Engine
         $side = strtolower($side);
         if (!in_array($side, ['buy', 'sell'], true)) return [false, 'Nieznany typ zlecenia.'];
         if ($qty <= 0) return [false, 'Nieprawidłowa ilość.'];
+        if (self::marketPhase() === 'preopen') return [false, '⏳ Faza otwarcia (fixing do ' . self::fixingEnd() . '): przyjmujemy tylko zlecenia z limitem — zrealizują się po kursie otwarcia.'];
         if (($m = self::haltMessage($stockId)) !== null) return [false, $m];
         $pdo = Db::pdo();
         $own = !$pdo->inTransaction();
@@ -597,8 +598,10 @@ final class Engine
 
     /* ---------- Kojarzenie zleceń (pełne rozliczenie księgi) ---------- */
 
-    public static function matchBook(int $stockId, array &$tickTrades = []): int
+    public static function matchBook(int $stockId, array &$tickTrades = [], ?float $fixPrice = null): int
     {
+        // FAZA OTWARCIA: arkusz tylko się zbiera — kojarzy dopiero aukcja otwarcia (podaje cenę fixingu)
+        if ($fixPrice === null && self::marketPhase() === 'preopen') return 0;
         $pdo = Db::pdo();
         // ZAWSZE w transakcji: guardy przejęcia zleceń i względne UPDATE-y są bezpieczne tylko,
         // gdy blokady wierszy trzymają się do commita. Z HTTP (place_order/editOrder) matchBook
@@ -627,8 +630,16 @@ final class Engine
                 // cena transakcji = cena zlecenia OCZEKUJĄCEGO (starszego wg created_at, remis: id) —
                 // jak na prawdziwej giełdzie: kto czeka w arkuszu, handluje po swojej cenie; agresor
                 // bierze co jest. Spójne z priorytetem kolejki wyżej (edycja = świeży czas = agresor).
-                $bResting = [$b['created_at'], (int) $b['id']] < [$s['created_at'], (int) $s['id']];
-                $p   = $bResting ? (float) $b['price'] : (float) $s['price'];
+                if ($fixPrice !== null) {
+                    // AUKCJA OTWARCIA: wszystkie transakcje po JEDNEJ cenie; kupno z limitem poniżej niej
+                    // i sprzedaż z limitem powyżej niej nie wchodzą (listy są posortowane, więc break)
+                    if ((float) $b['price'] < $fixPrice - 1e-9) break;
+                    if ((float) $s['price'] > $fixPrice + 1e-9) break;
+                    $p = $fixPrice;
+                } else {
+                    $bResting = [$b['created_at'], (int) $b['id']] < [$s['created_at'], (int) $s['id']];
+                    $p   = $bResting ? (float) $b['price'] : (float) $s['price'];
+                }
                 $q   = (int) min($b['qty'], $s['qty']);
                 $val = round($q * $p, 2);
 
@@ -1981,6 +1992,112 @@ final class Engine
         return $hm >= $open && $hm < $close;
     }
 
+    /* ---------- Faza otwarcia (fixing) ---------- */
+
+    /** Długość fazy otwarcia w minutach (GM: market_fixing_minutes; 0 = bez fixingu, od razu notowania ciągłe). */
+    public static function fixingMinutes(): int
+    {
+        $v = self::one("SELECT v FROM game_state WHERE k='market_fixing_minutes'");
+        return ($v === false || $v === null || $v === '') ? 10 : max(0, min(60, (int) $v));
+    }
+
+    /**
+     * Faza rynku: 'closed' (poza godzinami), 'preopen' (od otwarcia przez N minut: zlecenia z limitem zbierają się
+     * w arkuszu, nic się nie kojarzy, PKC niedostępne), 'open' (notowania ciągłe). Bez godzin handlu (testy) zawsze 'open'.
+     * Wynik dla bieżącej minuty jest zapamiętany w procesie — matchBook pyta o fazę przy każdej spółce.
+     */
+    public static function marketPhase(?string $hm = null): string
+    {
+        static $cacheHm = null, $cachePhase = null;
+        $hmNow = $hm ?? self::nowWarsaw()->format('H:i');
+        if ($hm === null && $cacheHm === $hmNow) return $cachePhase;
+        [$en, $open] = self::marketHours();
+        if (!$en) $phase = 'open';
+        elseif (!self::marketIsOpen($hmNow)) $phase = 'closed';
+        else {
+            $fx = self::fixingMinutes();
+            [$oh, $om] = array_map('intval', explode(':', $open));
+            [$h, $m] = array_map('intval', explode(':', $hmNow));
+            $phase = ($fx > 0 && ($h * 60 + $m) < ($oh * 60 + $om + $fx)) ? 'preopen' : 'open';
+        }
+        if ($hm === null) { $cacheHm = $hmNow; $cachePhase = $phase; }
+        return $phase;
+    }
+
+    /** Godzina końca fazy otwarcia ('HH:MM'). */
+    public static function fixingEnd(): string
+    {
+        [, $open] = self::marketHours();
+        [$oh, $om] = array_map('intval', explode(':', $open));
+        $t = $oh * 60 + $om + self::fixingMinutes();
+        return sprintf('%02d:%02d', intdiv($t, 60) % 24, $t % 60);
+    }
+
+    /**
+     * Kurs otwarcia z aukcji (czysta funkcja, jak fixing na GPW): cena, przy której skojarzy się NAJWIĘKSZY wolumen.
+     * Remis: mniejsza nierównowaga (niezaspokojona strona), potem cena najbliższa odniesienia (ostatni kurs).
+     * $buys/$sells: listy ['price'=>, 'qty'=>]. Zwraca [cena, wolumen] albo null, gdy nic się nie krzyżuje.
+     */
+    public static function fixingPrice(array $buys, array $sells, float $ref): ?array
+    {
+        $cands = [];
+        foreach ($buys as $b)  $cands[(string) round((float) $b['price'], 2)] = round((float) $b['price'], 2);
+        foreach ($sells as $s) $cands[(string) round((float) $s['price'], 2)] = round((float) $s['price'], 2);
+        $best = null;
+        foreach ($cands as $p) {
+            $bv = 0; $sv = 0;
+            foreach ($buys as $b)  if ((float) $b['price'] >= $p - 1e-9) $bv += (int) $b['qty'];
+            foreach ($sells as $s) if ((float) $s['price'] <= $p + 1e-9) $sv += (int) $s['qty'];
+            $vol = min($bv, $sv);
+            if ($vol <= 0) continue;
+            $key = [$vol, -abs($bv - $sv), -abs($p - $ref)];
+            if ($best === null || $key > $best[0]) $best = [$key, $p, $vol];
+        }
+        return $best === null ? null : [$best[1], $best[2]];
+    }
+
+    /**
+     * AUKCJA OTWARCIA: po fazie zbierania zleceń każda spółka dostaje JEDEN kurs otwarcia (maks. wolumen)
+     * i wszystkie krzyżujące się zlecenia realizują się po nim. Bez krzyżujących się zleceń kurs otwarcia
+     * = ostatni kurs (notowania ciągłe ruszają od niego). Zwraca liczbę spółek z fixingiem.
+     */
+    public static function openingAuction(int $tick): int
+    {
+        $pdo = Db::pdo();
+        $nowTs = Db::now();
+        $n = 0; $vol = 0; $moves = [];
+        foreach (self::all("SELECT id, ticker, price, halted_until FROM stocks") as $st) {
+            $sid = (int) $st['id'];
+            if ($st['halted_until'] !== null && $st['halted_until'] !== '' && (string) $st['halted_until'] > $nowTs) continue;
+            $buys  = self::all("SELECT price, qty FROM orders WHERE stock_id=? AND side='buy'  AND status='active'", [$sid]);
+            $sells = self::all("SELECT price, qty FROM orders WHERE stock_id=? AND side='sell' AND status='active'", [$sid]);
+            if (!$buys || !$sells) continue;
+            $fx = self::fixingPrice($buys, $sells, (float) $st['price']);
+            if ($fx === null) continue;
+            [$p, $v] = $fx;
+            $tt = [];
+            $done = self::matchBook($sid, $tt, $p);
+            if ($done <= 0) continue;
+            $n++; $vol += $v;
+            $chg = (float) $st['price'] > 0 ? ($p / (float) $st['price'] - 1) * 100 : 0.0;
+            $moves[] = [$st['ticker'], $chg];
+            Log::write('info', 'engine', 'fixing.stock', sprintf('%s: kurs otwarcia %s (%+.2f%%), wolumen %d', $st['ticker'], number_format($p, 2, ',', ' '), $chg, $v),
+                ['stock_id' => $sid, 'price' => $p, 'volume' => $v]);
+        }
+        // kurs otwarcia dnia = cena z fixingu (spółki bez fixingu: ostatni kurs, ustawiony na rolce sesji)
+        $pdo->exec("UPDATE stocks SET day_open_price = price");
+        if ($n > 0) {
+            usort($moves, fn($a, $b) => abs($b[1]) <=> abs($a[1]));
+            $top = array_slice($moves, 0, 3);
+            $body = "Aukcja otwarcia ustaliła kursy dla $n spółek. Największe ruchy na otwarciu: "
+                  . implode(', ', array_map(fn($m) => $m[0] . ' ' . ($m[1] >= 0 ? '+' : '') . number_format($m[1], 1, ',', ' ') . '%', $top)) . '.';
+            $pdo->prepare("INSERT INTO news (headline,body,type,scope,target_id,is_espi,impact_strength,publish_tick,expire_tick,published_at) VALUES (?,?,'NEU','MARKET',NULL,0,0,?,?,?)")
+                ->execute(["🔔 Otwarcie sesji: fixing na $n spółkach", $body, $tick, $tick + 30, $nowTs]);
+        }
+        Log::write('info', 'engine', 'fixing.open', "aukcja otwarcia: $n spółek z fixingiem, wolumen $vol", ['stocks' => $n, 'volume' => $vol]);
+        return $n;
+    }
+
     /* ---------- Sesje giełdowe i cel gry ---------- */
 
     /**
@@ -2351,11 +2468,27 @@ final class Engine
         self::applyNewsImpact($t);   // aktywne newsy lekko ruszają fundamentem (z zanikiem)
         self::applyMarketMoves($t);  // GM „market maker": zaplanowany, stopniowy ruch popytu/podaży
 
-        self::checkStops();
-        self::runBots();
-        self::arbitrage();   // boty domykają lukę kurs -> wartość fundamentalna (kurs podąża za sterowaniem)
+        $phase = self::marketPhase();
+        if ($phase === 'preopen') {
+            // FAZA OTWARCIA (fixing): boty kwotują i arkusz się buduje, ale nic się nie kojarzy — stopy i arbitraż czekają
+            self::runBots();
+        } else {
+            [$hoursOn] = self::marketHours();
+            $today = self::nowWarsaw()->format('Y-m-d');
+            if ($hoursOn && self::fixingMinutes() > 0 && self::one("SELECT v FROM game_state WHERE k='fixing_date'") !== $today) {
+                // pierwszy tick po fazie otwarcia: aukcja ustala kursy otwarcia, potem notowania ciągłe
+                self::setState('fixing_date', $today);
+                try { self::openingAuction($t); } catch (\Throwable $e) { if (!$pdo->inTransaction()) throw $e; Log::write('error', 'engine', 'fixing.fail', $e->getMessage()); }
+            } elseif (!$hoursOn && self::fixingMinutes() > 0 && $t % max(1, (int) (self::one("SELECT v FROM game_state WHERE k='ticks_per_session'") ?: 20)) === 0) {
+                // bez godzin handlu (testy): aukcja na starcie każdej sesji tickowej, żeby ścieżka fixingu żyła też lokalnie
+                try { self::openingAuction($t); } catch (\Throwable $e) { if (!$pdo->inTransaction()) throw $e; Log::write('error', 'engine', 'fixing.fail', $e->getMessage()); }
+            }
+            self::checkStops();
+            self::runBots();
+            self::arbitrage();   // boty domykają lukę kurs -> wartość fundamentalna (kurs podąża za sterowaniem)
 
-        foreach (self::all("SELECT id FROM stocks") as $st) self::matchBook((int) $st['id']);
+            foreach (self::all("SELECT id FROM stocks") as $st) self::matchBook((int) $st['id']);
+        }
         try { self::checkHalts($t); } catch (\Throwable $e) { if (!Db::pdo()->inTransaction()) throw $e; Log::write('warn', 'engine', 'halt.check', $e->getMessage()); }
         self::recordCandles($t);
         // cache sygnału AT per spółka (skaner na Rynku i rekomendacje czytają kolumnę)
@@ -2388,6 +2521,7 @@ final class Engine
      */
     public static function subRound(): void
     {
+        if (self::marketPhase() === 'preopen') return;   // faza otwarcia: arkusz się zbiera, kojarzy dopiero fixing
         $pdo = Db::pdo();
         $pdo->beginTransaction();
         try {

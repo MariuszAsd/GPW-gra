@@ -382,6 +382,8 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
     <h2>Zlecenie</h2>
     <?php if (!Engine::marketIsOpen() && !in_array($user['role'] ?? '', ['admin', 'qa'], true)): [, $mhO, $mhC] = Engine::marketHours(); ?>
       <p class="flash info" style="margin:0 0 10px">Giełda zamknięta — handel trwa <?= h($mhO) ?>–<?= h($mhC) ?>. Zlecenia złożysz po otwarciu.</p>
+    <?php elseif (Engine::marketPhase() === 'preopen'): ?>
+      <p class="flash info" style="margin:0 0 10px">⏳ Faza otwarcia (fixing) do <?= h(Engine::fixingEnd()) ?>: zlecenia z limitem zbierają się w arkuszu i zrealizują się po jednym kursie otwarcia. PKC dostępne po fixingu.</p>
     <?php endif; ?>
     <form method="post" action="place_order.php">
       <input type="hidden" name="stock_id" value="<?= $id ?>">
@@ -394,7 +396,7 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
       </div>
       <div class="seg" style="margin-top:0;align-items:center">
         <button type="button" class="on" id="tt-limit" title="Zlecenie z limitem ceny — czeka w arkuszu">LIMIT</button>
-        <button type="button" id="tt-pkc" title="Po każdej cenie — kupuje/sprzedaje natychmiast z arkusza">PKC</button>
+        <button type="button" id="tt-pkc" title="Po każdej cenie — kupuje/sprzedaje natychmiast z arkusza" <?= Engine::marketPhase() === 'preopen' ? 'disabled title="PKC dostępne po fixingu"' : '' ?>>PKC</button>
         <button type="button" id="tt-stop" title="Kup, gdy kurs przebije próg — zlecenie czeka na wybicie">STOP-BUY</button>
         <?= tip('LIMIT: podajesz swoją cenę i czekasz na realizację. PKC: bierzesz od razu to, co jest w arkuszu. STOP-BUY: kupno aktywuje się dopiero, gdy kurs przebije Twój próg (łapanie wybić).', 'limit') ?>
       </div>

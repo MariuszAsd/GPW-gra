@@ -66,7 +66,7 @@ layout_header('Rynek', $user, 'market');
 <?php [$mhOn, $mhOpen, $mhClose] = Engine::marketHours(); $mhIsOpen = Engine::marketIsOpen(); ?>
 <div class="page-head"><h1>Rynek</h1><?= session_tag($sessionNo) ?>
   <?php if ($mhOn): ?>
-    <span class="tag" style="<?= $mhIsOpen ? 'color:var(--up);border-color:var(--up)' : 'color:var(--faint)' ?>"><?= $mhIsOpen ? "● otwarty do $mhClose" : "○ zamknięty · otwarcie $mhOpen" ?></span>
+    <span class="tag" style="<?= $mhIsOpen ? 'color:var(--up);border-color:var(--up)' : 'color:var(--faint)' ?>"><?= $mhIsOpen ? (Engine::marketPhase() === 'preopen' ? '⏳ faza otwarcia (fixing) do ' . Engine::fixingEnd() : "● otwarty do $mhClose") : "○ zamknięty · otwarcie $mhOpen" ?></span>
   <?php endif; ?>
   <span class="muted hide-m">zmiana liczona od otwarcia sesji · kliknij, aby handlować</span></div>
 <?php market_subnav('not'); ?>
