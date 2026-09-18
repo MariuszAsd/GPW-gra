@@ -364,11 +364,11 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
     <div class="panel" style="margin-top:16px">
       <h2 style="margin:0 0 8px">Twoje zlecenia na <?= h($s['ticker']) ?> <span class="muted" style="text-transform:none;letter-spacing:0;font-size:12px">· zmień cenę/ilość albo anuluj</span></h2>
       <table><thead><tr><th>Typ</th><th class="num">Ilość</th><th class="num">Cena</th><th></th></tr></thead><tbody>
-        <?php foreach ($myStockOrders as $o): $isStopO = $o['status'] === 'pending'; ?>
+        <?php foreach ($myStockOrders as $o): $isSBO = $o['side'] === 'buy' && $o['status'] === 'pending'; $isStopO = $o['status'] === 'pending' && !$isSBO; ?>
         <tr>
-          <td><?php if ($isStopO): ?><span class="chg" style="color:var(--gold);background:var(--gold-bg)">OBRONNE</span><?php else: ?><span class="chg <?= $o['side'] === 'buy' ? 'p' : 'n' ?>"><?= $o['side'] === 'buy' ? 'KUPNO' : 'SPRZEDAŻ' ?></span><?php endif; ?></td>
+          <td><?php if ($isSBO): ?><span class="chg p" title="Kupno aktywuje się, gdy kurs przebije próg">⏫ STOP-BUY</span><?php elseif ($isStopO): ?><span class="chg" style="color:var(--gold);background:var(--gold-bg)">OBRONNE</span><?php else: ?><span class="chg <?= $o['side'] === 'buy' ? 'p' : 'n' ?>"><?= $o['side'] === 'buy' ? 'KUPNO' : 'SPRZEDAŻ' ?></span><?php endif; ?></td>
           <td class="num"><?= (int) $o['qty'] ?></td>
-          <td class="num"><?php if ($isStopO): ?><span class="mono" style="font-size:12px"><?= $o['sl_price'] !== null ? 'SL ' . money($o['sl_price']) : '' ?><?= $o['sl_price'] !== null && $o['tp_price'] !== null ? ' · ' : '' ?><?= $o['tp_price'] !== null ? 'TP ' . money($o['tp_price']) : '' ?></span><?php else: ?><?= money($o['price']) ?><?php endif; ?></td>
+          <td class="num"><?php if ($isSBO): ?><span class="mono" style="font-size:12px">próg <?= money($o['tp_price']) ?> · limit <?= money($o['price']) ?></span><?php elseif ($isStopO): ?><span class="mono" style="font-size:12px"><?= $o['sl_price'] !== null ? 'SL ' . money($o['sl_price']) : '' ?><?= $o['sl_price'] !== null && $o['tp_price'] !== null ? ' · ' : '' ?><?= $o['tp_price'] !== null ? 'TP ' . money($o['tp_price']) : '' ?></span><?php else: ?><?= money($o['price']) ?><?php endif; ?></td>
           <td style="text-align:right"><div style="display:flex;gap:6px;justify-content:flex-end;align-items:flex-start;flex-wrap:wrap"><?= order_edit_form($o, 'stock.php?id=' . $id) ?><a class="btn sm ghost" href="order.php?id=<?= (int) $o['id'] ?>">Szczegóły</a><form method="post" action="cancel_order.php"><input type="hidden" name="order_id" value="<?= (int) $o['id'] ?>"><button class="btn sm ghost">Anuluj</button></form></div></td>
         </tr>
         <?php endforeach; ?>
@@ -395,13 +395,21 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
       <div class="seg" style="margin-top:0;align-items:center">
         <button type="button" class="on" id="tt-limit" title="Zlecenie z limitem ceny — czeka w arkuszu">LIMIT</button>
         <button type="button" id="tt-pkc" title="Po każdej cenie — kupuje/sprzedaje natychmiast z arkusza">PKC</button>
-        <?= tip('LIMIT: podajesz swoją cenę i czekasz na realizację. PKC: bierzesz od razu to, co jest w arkuszu.', 'limit') ?>
+        <button type="button" id="tt-stop" title="Kup, gdy kurs przebije próg — zlecenie czeka na wybicie">STOP-BUY</button>
+        <?= tip('LIMIT: podajesz swoją cenę i czekasz na realizację. PKC: bierzesz od razu to, co jest w arkuszu. STOP-BUY: kupno aktywuje się dopiero, gdy kurs przebije Twój próg (łapanie wybić).', 'limit') ?>
       </div>
       <label>Ilość <span class="muted">(masz: <?= $owned ?> szt.)</span></label>
       <input type="number" name="qty" id="qty" min="1" value="10" required>
       <div id="f-price">
         <label>Cena limit (PLN)</label>
         <input type="number" step="0.01" name="price" id="price" value="<?= number_format($s['price'], 2, '.', '') ?>" required>
+      </div>
+      <div id="f-stopbuy" style="display:none">
+        <label>Kup, gdy kurs przebije (PLN)<?= tip('Próg aktywacji — POWYŻEJ bieżącego kursu. Dopóki kurs jest niżej, zlecenie tylko czeka. Po przebiciu gra sama wystawia kupno z limitem.', 'stopbuy') ?></label>
+        <input type="number" step="0.01" name="trigger" id="trigger" value="<?= number_format($s['price'] * 1.05, 2, '.', '') ?>">
+        <label>Limit ceny — maksimum, jakie zapłacisz (PLN)</label>
+        <input type="number" step="0.01" name="limit" id="limit" value="<?= number_format($s['price'] * 1.05 * 1.02, 2, '.', '') ?>">
+        <p class="muted" style="font-size:11px;margin:4px 0 0">Gotówka (ilość × limit) jest zarezerwowana od razu, do aktywacji albo anulowania — Portfel → Zlecenia.</p>
       </div>
       <div id="f-validity">
         <label>Ważność zlecenia<?= tip('Bezterminowe czeka aż je anulujesz. Sesyjne samo znika z końcem sesji, a rezerwacja wraca.', 'waznosc') ?></label>
@@ -454,28 +462,37 @@ const side=document.getElementById('side'), qty=document.getElementById('qty'), 
 const val=document.getElementById('val'), sub=document.getElementById('submit'), type=document.getElementById('type');
 const tk=<?= json_encode($s['ticker']) ?>, curPx=<?= json_encode((float) $s['price']) ?>;
 const FEE=<?= json_encode($feePct / 100) ?>, FEETXT=<?= json_encode($feeTxt) ?>;
-function upd(){ const est=type.value==='market', buy=side.value==='buy';
-  const px=est?curPx:(parseFloat(price.value)||0);
+const trig=document.getElementById('trigger'), lim=document.getElementById('limit'); let limTouched=false;
+trig.oninput=()=>{ if(!limTouched) lim.value=((parseFloat(trig.value)||0)*1.02).toFixed(2); upd(); };
+lim.oninput=()=>{ limTouched=true; upd(); };
+function upd(){ const est=type.value==='market', stop=type.value==='stop', buy=side.value==='buy';
+  const px=est?curPx:(stop?(parseFloat(lim.value)||0):(parseFloat(price.value)||0));
   const v=(parseFloat(qty.value)||0)*px, fee=v*FEE, pre=est?'≈ ':'';
   const fmt=n=>n.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' PLN';
   document.getElementById('val-label').textContent='Wartość akcji'+(est?' (szacunkowo)':'');
   val.textContent=pre+fmt(v);
   document.getElementById('fee-label').textContent=buy?'Prowizja przy kupnie':'Prowizja ('+FEETXT+'%)';
   document.getElementById('fee').textContent=buy?fmt(0):'− '+pre+fmt(fee);
-  document.getElementById('tot-label').textContent=buy?'Razem do zapłaty':'Otrzymasz na konto';
+  document.getElementById('tot-label').textContent=buy?(stop?'Rezerwacja (ilość × limit)':'Razem do zapłaty'):'Otrzymasz na konto';
   document.getElementById('tot').textContent=pre+fmt(buy?v:v-fee);
   document.getElementById('fee-note').textContent=buy?FEETXT+'% prowizji zapłacisz dopiero przy sprzedaży tych akcji.':''; }
 function setSide(s){ side.value=s;
   document.getElementById('tb-buy').classList.toggle('on',s==='buy');
   document.getElementById('tb-sell').classList.toggle('on',s==='sell');
-  document.getElementById('f-sltp').style.display=s==='buy'?'':'none';
+  document.getElementById('tt-stop').style.display=s==='buy'?'':'none';   // stop-buy tylko dla kupna
+  if(s==='sell'&&type.value==='stop') setType('limit');
+  document.getElementById('f-sltp').style.display=(s==='buy'&&type.value!=='stop')?'':'none';
   sub.className='btn '+s; sub.textContent=(s==='buy'?'Kup ':'Sprzedaj ')+tk; upd(); }
 function setType(t){ type.value=t;
   document.getElementById('tt-limit').classList.toggle('on',t==='limit');
   document.getElementById('tt-pkc').classList.toggle('on',t==='market');
+  document.getElementById('tt-stop').classList.toggle('on',t==='stop');
   document.getElementById('f-price').style.display=t==='limit'?'':'none';
   document.getElementById('f-validity').style.display=t==='limit'?'':'none';
+  document.getElementById('f-stopbuy').style.display=t==='stop'?'':'none';
+  document.getElementById('f-sltp').style.display=(side.value==='buy'&&t!=='stop')?'':'none';
   price.required=(t==='limit'); upd(); }
+document.getElementById('tt-stop').onclick=()=>setType('stop');
 document.getElementById('tb-buy').onclick=()=>setSide('buy');
 document.getElementById('tb-sell').onclick=()=>setSide('sell');
 document.getElementById('tt-limit').onclick=()=>setType('limit');

@@ -18,10 +18,11 @@
  */
 final class Reconcile
 {
-    /** Rozjazdy gotówki: zamrożone ≠ Σ aktywnych zleceń kupna, albo ujemne saldo. */
+    /** Rozjazdy gotówki: zamrożone ≠ Σ zleceń kupna (aktywne + stop-buy), albo ujemne saldo. */
     public static function cashIssues(): array
     {
-        $should = "COALESCE((SELECT SUM(o.qty*o.price) FROM orders o WHERE o.user_id=u.id AND o.side='buy' AND o.status='active'),0)";
+        // kupna aktywne + stop-buy czekające na przebicie (pending) — oba trzymają rezerwację ilość × cena
+        $should = "COALESCE((SELECT SUM(o.qty*o.price) FROM orders o WHERE o.user_id=u.id AND o.side='buy' AND o.status IN ('active','pending')),0)";
         $rows = Engine::all("SELECT u.id, u.username, u.is_bot, u.cash, u.cash_reserved, $should AS should_be
                              FROM users u WHERE ABS(u.cash_reserved - $should) > 0.005 OR u.cash < -0.005
                              ORDER BY u.is_bot, u.id");
@@ -53,7 +54,7 @@ final class Reconcile
         if ($total < -0.005) return [(float) $r['cash'], (float) $r['cash_reserved'], 'ujemna suma — pominięte, wymaga ręcznej decyzji', 0];
         if ($need > $total + 0.005) {
             $keep = 0.0; $cancel = 0;
-            foreach (Engine::all("SELECT id, qty, price FROM orders WHERE user_id=? AND side='buy' AND status='active' ORDER BY id ASC", [(int) $r['id']]) as $o) {
+            foreach (Engine::all("SELECT id, qty, price FROM orders WHERE user_id=? AND side='buy' AND status IN ('active','pending') ORDER BY id ASC", [(int) $r['id']]) as $o) {
                 $v = round((float) $o['qty'] * (float) $o['price'], 2);
                 if ($keep + $v <= $total + 0.005) $keep = round($keep + $v, 2); else $cancel++;
             }
@@ -104,7 +105,7 @@ final class Reconcile
                 if ($toCancel > 0) {
                     // od najnowszych: tyle, ile nie mieści się w sumie (plan liczył od najstarszych, które zostają)
                     $keep = 0.0; $total = round((float) $r['cash'] + (float) $r['cash_reserved'], 2);
-                    foreach (Engine::all("SELECT id, qty, price FROM orders WHERE user_id=? AND side='buy' AND status='active' ORDER BY id ASC", [(int) $r['id']]) as $o) {
+                    foreach (Engine::all("SELECT id, qty, price FROM orders WHERE user_id=? AND side='buy' AND status IN ('active','pending') ORDER BY id ASC", [(int) $r['id']]) as $o) {
                         $v = round((float) $o['qty'] * (float) $o['price'], 2);
                         if ($keep + $v <= $total + 0.005) { $keep = round($keep + $v, 2); continue; }
                         $cancel->execute([(int) $o['id']]); $nCancel += $cancel->rowCount();
