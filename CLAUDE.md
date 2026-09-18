@@ -19,6 +19,10 @@ raporty i dywidendy, newsroom generuje wiadomości, zdarzają się krachy, hossy
 
 **Sesja** = dzień giełdowy. **Tick** = puls rynku (cron co minutę). Godziny handlu 07:50–22:00
 Europe/Warsaw — poza nimi świat stoi (kursy zamrożone, boty śpią, zlecenia odrzucane).
+Pierwsze 10 minut po otwarciu to **faza otwarcia (fixing)**: `Engine::marketPhase()` = `preopen`, zlecenia z limitem
+zbierają się (matchBook nie kojarzy, PKC odrzucane, QA pomija przebieg), a pierwszy tick po 08:00 uruchamia
+`Engine::openingAuction()` — jeden kurs otwarcia na spółkę (maks. wolumen, `Engine::fixingPrice`). GM ustawia
+długość fazy (`market_fixing_minutes`, 0 = wyłączone). Bez godzin handlu (testy) aukcja idzie na starcie każdej sesji tickowej.
 
 ### Główne moduły gry
 Rynek i arkusz zleceń (limit/PKC, stop-buy „kup, gdy przebije”, SL/TP, SL kroczący) · boty o 5 strategiach z własnym DNA ·
@@ -36,7 +40,7 @@ config.php            jedna konfiguracja (env → config.local.php → domyślne
 migrate.php           tworzy/aktualizuje schemat            seed.php  zasiewa świat
 verify.php            testy integralności (gotówka/akcje)
 cron/tick.php         puls rynku (blokada pliku cron/tick.lock)
-cron/qa_probe.php     QA-bot: gra przez HTTP jak gracz, 144 asercji
+cron/qa_probe.php     QA-bot: gra przez HTTP jak gracz, 146 asercji
 src/                  logika (patrz niżej)
 public/               warstwa web — każda strona to jeden plik PHP
 .github/workflows/    deploy, health, raport, trace, reinstall
@@ -56,7 +60,7 @@ public/               warstwa web — każda strona to jeden plik PHP
 | `Bank.php` | lokaty · `Seasons.php` sezon · `Daily.php` misje · `Achievements.php` odznaki |
 | `Tokens.php` | tokeny premium, pakiety, trial, **polecenia** · `Payments.php` PayU |
 | `Recommendations.php` | rekomendacje DM · `Moderation.php` filtr słów · `Mailer.php`, `PasswordReset.php` |
-| `Qa.php` | definicje 144 asercji QA-bota (w tym `inv.money` — suma pieniądza w świecie) |
+| `Qa.php` | definicje 146 asercji QA-bota (w tym `inv.money` — suma pieniądza w świecie) |
 | `Fund.php` | fundusz indeksowy MAK40: jednostki = indeks/10, pula `game_state.fund_pool` w świecie, zysk/stratę rozlicza skarbiec |
 | `Reconcile.php` | rekoncyliacja rezerwacji (panel GM): podgląd rozjazdów escrow + korekta na kliknięcie, nigdy sama |
 
@@ -108,7 +112,7 @@ php migrate.php && php seed.php          # świeży świat (nadpisuje data/tycoo
 php cron/tick.php 100                    # 100 ticków; wpisy logów source='qa' to normalny szum
 php -S 127.0.0.1:8123 -t public &        # serwer w tle
 APP_URL=http://127.0.0.1:8123 php cron/qa_probe.php
-# MUSI wypisać: ✅ QA OK — asercji: 144
+# MUSI wypisać: ✅ QA OK — asercji: 146
 ```
 
 **Test na MySQL jest obowiązkowy dla zmian dotykających transakcji/wyścigów** (produkcja to MySQL,
@@ -154,7 +158,7 @@ Logi bywają duże — parsuj je skryptem, nie wklejaj w całości.
 
 ## 6. Stan na dziś i znane sprawy
 
-- Schemat **v41**. QA lokalnie: **144/144**.
+- Schemat **v41**. QA lokalnie: **146/146**.
 - Na produkcji QA zgłaszał **3 asercje** escrow: osierocone rezerwacje sprzed lipcowych poprawek wyścigów
   (jeden gracz z ujemnym `cash_reserved`, dwóch z zamrożoną gotówką bez zleceń). To blizna, nie wyciek.
   W panelu GM (sekcja „Zdrowie gry") jest **Rekoncyliacja rezerwacji**: podgląd rozjazdów i przycisk korekty
