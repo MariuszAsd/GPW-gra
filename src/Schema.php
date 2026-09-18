@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 39;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 40;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -71,6 +71,7 @@ final class Schema
                 price          $money NOT NULL,
                 fundamental    $money NOT NULL,
                 day_open_price $money NOT NULL DEFAULT 0,
+                day_turnover   $money NOT NULL DEFAULT 0,   -- obrót bieżącej sesji (Σ ilość×cena transakcji); zerowany na rolce sesji — Rynek/API czytają liczbę zamiast sumować świece
                 -- DNA reakcji na świat:
                 beta                 $f NOT NULL DEFAULT 1,
                 volatility           $f NOT NULL DEFAULT 1,
@@ -602,6 +603,9 @@ final class Schema
             "CREATE INDEX ix_equity ON equity_history (user_id, t)",
             "CREATE INDEX ix_eqsnap ON equity_snapshots (kind, period)",
             "CREATE INDEX ix_league ON league_results (kind, period, rank)",
+            "CREATE INDEX ix_tx_stock ON transactions (stock_id, id)",       // „ostatnie transakcje" spółki i retencja — seek po spółce zamiast skanu całej tabeli
+            "CREATE INDEX ix_news_exp ON news (expire_tick)",                 // „żywe" newsy (expire_tick > tick) to ułamek archiwum — bez indeksu każdy tick czytał całą tabelę
+            "CREATE INDEX ix_news_pub ON news (publish_tick)",                // „co się właśnie ukazało" (publish_tick > tick-4) dla reakcji botów
             "CREATE INDEX ix_tx_buyorder ON transactions (buy_order_id)",
             "CREATE INDEX ix_tx_sellorder ON transactions (sell_order_id)",
             "CREATE INDEX ix_notif ON notifications (user_id, read_at)",

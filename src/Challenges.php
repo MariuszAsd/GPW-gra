@@ -111,7 +111,9 @@ final class Challenges
             $pdo->prepare("UPDATE users SET cash = cash + ? WHERE id = ?")->execute([$total, $userId]);  // zwrot przy duplikacie
             return [false, 'Już jesteś zapisany na to wyzwanie.'];
         }
-        $pdo->prepare("UPDATE challenges SET pot = pot + ? WHERE id = ? AND status='signup'")->execute([$fee, $challengeId]);
+        // bez warunku na status: warunkowy INSERT wyżej już dowiódł, że edycja była w 'signup'; na MySQL ten UPDATE
+        // potrafił przegrać wyścig ze start() z ticka i wpisowe znikało z puli, choć zeszło z konta
+        $pdo->prepare("UPDATE challenges SET pot = pot + ? WHERE id = ?")->execute([$fee, $challengeId]);
         Engine::ledger($userId, -$total, 'wyzwanie', 'Wpisowe na wyzwanie „' . $ch['name'] . '” (buy-in ' . number_format($buyin, 0, ',', ' ') . ' + wpisowe ' . number_format($fee, 0, ',', ' ') . ')', 'wyzwania.php');
         Log::write('info', 'player', 'challenge.join', "zapis do wyzwania #$challengeId", ['user_id' => $userId, 'buyin' => $buyin, 'fee' => $fee]);
         Engine::notify($userId, 'challenge', '⚔️ Zapisano do: ' . $ch['name'] . '. Zablokowano ' . number_format($total, 2, ',', ' ')
@@ -193,7 +195,8 @@ final class Challenges
             if ($del->rowCount() === 0) continue;   // ktoś już rozliczył — nie zwracaj dwa razy
             $refund = round((float) $orphan['buyin'] + (float) $orphan['fee'], 2);
             Db::pdo()->prepare("UPDATE users SET cash = cash + ? WHERE id = ?")->execute([$refund, (int) $orphan['user_id']]);
-            Db::pdo()->prepare("UPDATE challenges SET pot = pot - ? WHERE id = ?")->execute([round((float) $orphan['fee'], 2), (int) $orphan['challenge_id']]);
+            // korekta puli tylko w trwającej edycji i nigdy poniżej zera (rozliczona edycja ma pot=0 — odjęcie robiło pulę ujemną)
+            Db::pdo()->prepare("UPDATE challenges SET pot = CASE WHEN pot - ? < 0 THEN 0 ELSE pot - ? END WHERE id = ? AND status='running'")->execute([round((float) $orphan['fee'], 2), round((float) $orphan['fee'], 2), (int) $orphan['challenge_id']]);
             Engine::notify((int) $orphan['user_id'], 'challenge', '⚔️ Twój zapis wpadł już po starcie edycji — pełny zwrot ' . number_format($refund, 2, ',', ' ') . ' PLN.', 'wyzwania.php');
             Log::write('warn', 'engine', 'challenge.orphan', 'sierocy zapis #' . $orphan['id'] . ' zwrócony', []);
         }
@@ -435,11 +438,16 @@ final class Challenges
                  . ($prize > 0 ? ', nagroda ' . number_format($prize, 2, ',', ' ') . ' PLN 🏆' : '')
                  . '. Akcje i gotówka wróciły na konto główne.';
             Engine::notify((int) $cp['user_id'], 'challenge', $msg, 'wyzwania.php');
-            if ($rank === 1) Engine::award((int) $cp['user_id'], 'zwyciezca_wyzwania');
-            // Tokeny inwestora za podium (monetyzacja zdobywalna grą, nie tylko portfelem)
-            if (!class_exists('Tokens')) require_once __DIR__ . '/Tokens.php';
-            if ($rank === 1) Tokens::grant((int) $cp['user_id'], 10, 'challenge', 'wygrana: ' . $ch['name']);
-            elseif ($rank <= 3) Tokens::grant((int) $cp['user_id'], 5, 'challenge', 'podium: ' . $ch['name']);
+            // Odznaka i tokeny za podium tylko przy REALNEJ rywalizacji (co najmniej dwóch ludzi w edycji).
+            // Skład dopełniają fundusze gry do 2-3 uczestników, więc samotny gracz zawsze był „na podium"
+            // i farmił tokeny premium za samo zapisanie się.
+            if (!isset($humansInEdition)) $humansInEdition = (int) Engine::one("SELECT COUNT(*) FROM challenge_players cp JOIN users u ON u.id=cp.user_id WHERE cp.challenge_id=? AND u.is_bot=0", [(int) $ch['id']]);
+            if ($humansInEdition >= 2) {
+                if ($rank === 1) Engine::award((int) $cp['user_id'], 'zwyciezca_wyzwania');
+                if (!class_exists('Tokens')) require_once __DIR__ . '/Tokens.php';
+                if ($rank === 1) Tokens::grant((int) $cp['user_id'], 10, 'challenge', 'wygrana: ' . $ch['name']);
+                elseif ($rank <= 3) Tokens::grant((int) $cp['user_id'], 5, 'challenge', 'podium: ' . $ch['name']);
+            }
             // punkty sezonowe (tylko edycje z serii — progi nagród i karnet w src/Seasons.php)
             if (!empty($ch['series_id'])) {
                 if (!class_exists('Seasons')) require_once __DIR__ . '/Seasons.php';

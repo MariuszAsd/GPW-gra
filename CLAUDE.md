@@ -36,7 +36,7 @@ config.php            jedna konfiguracja (env → config.local.php → domyślne
 migrate.php           tworzy/aktualizuje schemat            seed.php  zasiewa świat
 verify.php            testy integralności (gotówka/akcje)
 cron/tick.php         puls rynku (blokada pliku cron/tick.lock)
-cron/qa_probe.php     QA-bot: gra przez HTTP jak gracz, 134 asercje
+cron/qa_probe.php     QA-bot: gra przez HTTP jak gracz, 136 asercji
 src/                  logika (patrz niżej)
 public/               warstwa web — każda strona to jeden plik PHP
 .github/workflows/    deploy, health, raport, trace, reinstall
@@ -56,7 +56,8 @@ public/               warstwa web — każda strona to jeden plik PHP
 | `Bank.php` | lokaty · `Seasons.php` sezon · `Daily.php` misje · `Achievements.php` odznaki |
 | `Tokens.php` | tokeny premium, pakiety, trial, **polecenia** · `Payments.php` PayU |
 | `Recommendations.php` | rekomendacje DM · `Moderation.php` filtr słów · `Mailer.php`, `PasswordReset.php` |
-| `Qa.php` | definicje 134 asercji QA-bota |
+| `Qa.php` | definicje 136 asercji QA-bota (w tym `inv.money` — suma pieniądza w świecie) |
+| `Reconcile.php` | rekoncyliacja rezerwacji (panel GM): podgląd rozjazdów escrow + korekta na kliknięcie, nigdy sama |
 
 `public/_boot.php` — wspólny bootstrap każdej strony: sesja, `require_login()`, layout, helpery
 (`h()`, `money()`, `flash()`, `redirect()`, `explainer()`, `tip()`).
@@ -65,8 +66,11 @@ public/               warstwa web — każda strona to jeden plik PHP
 
 ## 3. ŻELAZNE ZASADY — złamanie = zepsuta gra
 
-1. **Ekonomia jest zamknięta.** Pieniądze nie powstają z powietrza. Jedyne legalne źródła nowej
-   gotówki: dywidendy spółek i odsetki ze skarbca. Każda inna operacja musi mieć pokrycie.
+1. **Ekonomia jest zamknięta.** Pieniądze nie powstają z powietrza. Jedyne legalne źródło nowej
+   gotówki to dywidendy spółek (odsetki lokat i nagrody lig płaci skarbiec, czyli zebrane prowizje).
+   Pilnuje tego asercja QA `inv.money`: `Engine::worldCash()` musi równać się kotwicy `world_cash_base`
+   + `dividends_paid`. Kapitał startowy nowego gracza (+) i zapłata za akcje z IPO (−) przesuwają kotwicę
+   przez `Engine::worldCashAdjust()` — każde nowe źródło/ujście gotówki MUSI ją tak samo przesuwać.
 2. **Escrow musi się zgadzać co do grosza.** Niezmienniki, które sprawdza QA:
    - `users.cash_reserved` = Σ (qty × price) aktywnych zleceń KUPNA tego gracza,
    - `wallets.qty_reserved` = Σ ilości aktywnych zleceń SPRZEDAŻY + zleceń obronnych,
@@ -78,7 +82,7 @@ public/               warstwa web — każda strona to jeden plik PHP
    serię realnych błędów (podwójne zwroty escrow, handel na anulowanym zleceniu) — nie cofaj go.
 4. **Zmiana schematu = 3 kroki naraz:** dopisz kolumnę/tabelę w `Schema.php`, podbij `Schema::VERSION`,
    dopisz migrację o tym numerze w `Migrator.php`. Migracje są idempotentne i odpalają się same
-   na produkcji przy pierwszym żądaniu po deployu. Aktualnie **wersja 37**.
+   na produkcji przy pierwszym żądaniu po deployu. Aktualnie **wersja 40**.
 5. **Sekretów nie commituj.** `config.local.php` i `.env` są w `.gitignore`. Dane bazy produkcyjnej
    żyją w sekretach GitHuba i workflow sam buduje z nich `config.local.php` na serwerze.
 6. **Uważaj na polskie znaki w kodzie PHP.** Cudzysłów `"` wewnątrz komentarza SQL w stringu PHP
@@ -100,7 +104,7 @@ php migrate.php && php seed.php          # świeży świat (nadpisuje data/tycoo
 php cron/tick.php 100                    # 100 ticków; wpisy logów source='qa' to normalny szum
 php -S 127.0.0.1:8123 -t public &        # serwer w tle
 APP_URL=http://127.0.0.1:8123 php cron/qa_probe.php
-# MUSI wypisać: ✅ QA OK — asercji: 134
+# MUSI wypisać: ✅ QA OK — asercji: 136
 ```
 
 **Test na MySQL jest obowiązkowy dla zmian dotykających transakcji/wyścigów** (produkcja to MySQL,
@@ -146,11 +150,14 @@ Logi bywają duże — parsuj je skryptem, nie wklejaj w całości.
 
 ## 6. Stan na dziś i znane sprawy
 
-- Schemat **v37**. QA lokalnie: **134/134**.
-- Na produkcji QA zgłasza **3 z 134** asercji: osierocone rezerwacje sprzed lipcowych poprawek
-  wyścigów (jeden gracz ma ujemne `cash_reserved`, dwóch ma zamrożoną gotówkę bez zleceń).
-  Wartości są **stałe** — to blizna, nie trwający wyciek. Czeka na decyzję właściciela:
-  proponowana „Rekoncyliacja rezerwacji" w panelu GM (podgląd różnic + jeden przycisk korekty z wpisem w dzienniku).
+- Schemat **v40**. QA lokalnie: **136/136**.
+- Na produkcji QA zgłaszał **3 asercje** escrow: osierocone rezerwacje sprzed lipcowych poprawek wyścigów
+  (jeden gracz z ujemnym `cash_reserved`, dwóch z zamrożoną gotówką bez zleceń). To blizna, nie wyciek.
+  W panelu GM (sekcja „Zdrowie gry") jest **Rekoncyliacja rezerwacji**: podgląd rozjazdów i przycisk korekty
+  (suma „wolne + zamrożone" każdego gracza zostaje, każdy wiersz trafia do dziennika). **Klika tylko właściciel.**
+- Retencja: silnik sam sprząta stare zlecenia botów (14 dni) i transakcje bot–bot (30 dni) partiami po 5000
+  wierszy co 5 ticków (`Engine::pruneBotHistory`, kursory `prune_*_cursor` w `game_state`). Gracze zostają w całości.
+- QA po 2 nieudanych przebiegach z rzędu wysyła e-mail do GM (`gm_email` w `game_state` albo e-mail admina).
 - Bramka PayU niepodpięta (brak sekretów `PAYU_*`) — sklep pokazuje „wkrótce". To świadome.
 - Gra ma na razie kilku graczy — przy priorytetach pamiętaj, że **wzrost i retencja są ważniejsze
   niż kolejna mechanika**.

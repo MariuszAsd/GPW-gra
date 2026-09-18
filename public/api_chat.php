@@ -25,6 +25,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $st->execute([$u['id'], $msgClean, Db::now(), $u['id'], $cutoff]);
     if ($st->rowCount() === 0) { echo json_encode(['ok' => false, 'err' => 'Nie tak szybko — odczekaj chwilę.']); exit; }
     if ($modHits) Moderation::report((int) $u['id'], 'czat', null, $msg, $modHits);
+    try { Daily::missions((int) $u['id']); } catch (Throwable $e) { /* misja „napisz na czacie" — nie psuje wpisu */ }
     if (mt_rand(1, 20) === 1) {   // retencja: trzymaj ~500 ostatnich wpisów (rzadko, nie przy każdym wpisie)
         $edge = Engine::one("SELECT id FROM chat_messages ORDER BY id DESC LIMIT 1 OFFSET 500");
         if ($edge) Db::pdo()->prepare("DELETE FROM chat_messages WHERE id <= ?")->execute([$edge]);

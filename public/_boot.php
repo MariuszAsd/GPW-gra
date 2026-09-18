@@ -18,6 +18,7 @@ require_once __DIR__ . '/../src/PasswordReset.php';
 require_once __DIR__ . '/../src/Daily.php';
 require_once __DIR__ . '/../src/Moderation.php';
 require_once __DIR__ . '/../src/Bank.php';
+require_once __DIR__ . '/../src/Reconcile.php';
 
 // Secure gdy połączenie po HTTPS (produkcja) — ciasteczko sesji nie wycieknie przy przypadkowym HTTP.
 // Lokalnie (HTTP) zostaje bez Secure, żeby logowanie działało bez certyfikatu.

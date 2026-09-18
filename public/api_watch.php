@@ -20,6 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         echo json_encode(['ok' => false, 'err' => "Limit obserwowanych: $limit spółek."]); exit;
     }
     $pdo->prepare("INSERT INTO watchlist (user_id, stock_id, created_at) VALUES (?,?,?)")->execute([$uid, $sid, Db::now()]);
+    try { Daily::missions($uid); } catch (Throwable $e) { /* misja „obserwuj" — nie psuje gwiazdki */ }
     echo json_encode(['ok' => true, 'on' => true]); exit;
 }
 

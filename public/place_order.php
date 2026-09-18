@@ -67,5 +67,7 @@ if ($ok && $side === 'buy' && $filledAny) {
     $crash = Engine::one("SELECT id FROM news WHERE scope='MARKET' AND type='NEG' AND impact_strength <= -0.8 AND expire_tick > ?", [$tk]);
     if ($crash) Engine::award((int) $user['id'], 'kupil_w_krachu');
 }
+// misje dnia rozliczane od razu po zleceniu (nie tylko przy wejściu na Pulpit) — na konto WŁAŚCICIELA
+if ($ok) { try { Daily::missions(Engine::challengeOwner((int) $user['id'])); } catch (Throwable $e) { /* misje nie psują zlecenia */ } }
 flash($msg, $ok ? 'ok' : 'err');
 redirect('stock.php?id=' . $sid);

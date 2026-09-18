@@ -16,7 +16,8 @@ if (!$o || (!in_array((int) $o['user_id'], $mine, true) && ($user['role'] ?? '')
 $isStop = $o['sl_price'] !== null || $o['tp_price'] !== null;
 $fills = Engine::all("SELECT t.*, CASE WHEN t.buy_order_id=? THEN 'buy' ELSE 'sell' END AS my_side
                       FROM transactions t WHERE t.buy_order_id=? OR t.sell_order_id=? ORDER BY t.id", [$oid, $oid, $oid]);
-$logs = Engine::all("SELECT * FROM logs WHERE context LIKE ? ORDER BY id", ['%"order_id":' . $oid . '%']);
+// pełne id, nie prefiks: „order_id":44 pasowało też do 441, 4400… (oś czasu pokazywała cudze wpisy)
+$logs = Engine::all("SELECT * FROM logs WHERE context LIKE ? OR context LIKE ? ORDER BY id", ['%"order_id":' . $oid . ',%', '%"order_id":' . $oid . '}%']);
 
 // oś czasu: złożenie -> fille -> log SL/TP/anulowań -> stan końcowy
 $events = [];
