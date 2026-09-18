@@ -21,7 +21,7 @@ raporty i dywidendy, newsroom generuje wiadomości, zdarzają się krachy, hossy
 Europe/Warsaw — poza nimi świat stoi (kursy zamrożone, boty śpią, zlecenia odrzucane).
 
 ### Główne moduły gry
-Rynek i arkusz zleceń (limit/PKC, SL/TP, SL kroczący) · boty o 5 strategiach z własnym DNA ·
+Rynek i arkusz zleceń (limit/PKC, stop-buy „kup, gdy przebije”, SL/TP, SL kroczący) · boty o 5 strategiach z własnym DNA ·
 newsroom (ESPI, fundamenty, nastroje, technika) · raporty finansowe i dywidendy · analiza techniczna
 (10 wskaźników) · IPO z zapisami i redukcją · wyzwania (konkursy na osobnych portfelach) · sezon i liga ·
 lokaty bankowe · odznaki, misje dnia, seria logowań · tokeny inwestora (premium, PayU) · czat i fora spółek ·
@@ -36,7 +36,7 @@ config.php            jedna konfiguracja (env → config.local.php → domyślne
 migrate.php           tworzy/aktualizuje schemat            seed.php  zasiewa świat
 verify.php            testy integralności (gotówka/akcje)
 cron/tick.php         puls rynku (blokada pliku cron/tick.lock)
-cron/qa_probe.php     QA-bot: gra przez HTTP jak gracz, 136 asercji
+cron/qa_probe.php     QA-bot: gra przez HTTP jak gracz, 140 asercji
 src/                  logika (patrz niżej)
 public/               warstwa web — każda strona to jeden plik PHP
 .github/workflows/    deploy, health, raport, trace, reinstall
@@ -56,7 +56,7 @@ public/               warstwa web — każda strona to jeden plik PHP
 | `Bank.php` | lokaty · `Seasons.php` sezon · `Daily.php` misje · `Achievements.php` odznaki |
 | `Tokens.php` | tokeny premium, pakiety, trial, **polecenia** · `Payments.php` PayU |
 | `Recommendations.php` | rekomendacje DM · `Moderation.php` filtr słów · `Mailer.php`, `PasswordReset.php` |
-| `Qa.php` | definicje 136 asercji QA-bota (w tym `inv.money` — suma pieniądza w świecie) |
+| `Qa.php` | definicje 140 asercji QA-bota (w tym `inv.money` — suma pieniądza w świecie) |
 | `Reconcile.php` | rekoncyliacja rezerwacji (panel GM): podgląd rozjazdów escrow + korekta na kliknięcie, nigdy sama |
 
 `public/_boot.php` — wspólny bootstrap każdej strony: sesja, `require_login()`, layout, helpery
@@ -72,7 +72,8 @@ public/               warstwa web — każda strona to jeden plik PHP
    + `dividends_paid`. Kapitał startowy nowego gracza (+) i zapłata za akcje z IPO (−) przesuwają kotwicę
    przez `Engine::worldCashAdjust()` — każde nowe źródło/ujście gotówki MUSI ją tak samo przesuwać.
 2. **Escrow musi się zgadzać co do grosza.** Niezmienniki, które sprawdza QA:
-   - `users.cash_reserved` = Σ (qty × price) aktywnych zleceń KUPNA tego gracza,
+   - `users.cash_reserved` = Σ (qty × price) zleceń KUPNA tego gracza ze statusem `active` **i `pending`**
+     (stop-buy czeka na przebicie progu z zarezerwowaną gotówką ilość × limit; próg siedzi w `tp_price`),
    - `wallets.qty_reserved` = Σ ilości aktywnych zleceń SPRZEDAŻY + zleceń obronnych,
    - nigdzie ujemnej gotówki ani ujemnych ilości akcji.
 3. **Wzorzec „claim-first" przy każdej zmianie statusu.** Najpierw atomowo przejmij wiersz
@@ -104,7 +105,7 @@ php migrate.php && php seed.php          # świeży świat (nadpisuje data/tycoo
 php cron/tick.php 100                    # 100 ticków; wpisy logów source='qa' to normalny szum
 php -S 127.0.0.1:8123 -t public &        # serwer w tle
 APP_URL=http://127.0.0.1:8123 php cron/qa_probe.php
-# MUSI wypisać: ✅ QA OK — asercji: 136
+# MUSI wypisać: ✅ QA OK — asercji: 140
 ```
 
 **Test na MySQL jest obowiązkowy dla zmian dotykających transakcji/wyścigów** (produkcja to MySQL,
@@ -150,7 +151,7 @@ Logi bywają duże — parsuj je skryptem, nie wklejaj w całości.
 
 ## 6. Stan na dziś i znane sprawy
 
-- Schemat **v40**. QA lokalnie: **136/136**.
+- Schemat **v40**. QA lokalnie: **140/140**.
 - Na produkcji QA zgłaszał **3 asercje** escrow: osierocone rezerwacje sprzed lipcowych poprawek wyścigów
   (jeden gracz z ujemnym `cash_reserved`, dwóch z zamrożoną gotówką bez zleceń). To blizna, nie wyciek.
   W panelu GM (sekcja „Zdrowie gry") jest **Rekoncyliacja rezerwacji**: podgląd rozjazdów i przycisk korekty

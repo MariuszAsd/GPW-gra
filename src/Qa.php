@@ -17,7 +17,7 @@
 final class Qa
 {
     /** Pełny przebieg = tyle asercji. Gdy dodajesz asercję, podnieś tę liczbę (i w CLAUDE.md). */
-    public const EXPECTED_CHECKS = 136;
+    public const EXPECTED_CHECKS = 140;
     /** Po tylu nieudanych przebiegach z rzędu GM dostaje e-mail (raz na serię). */
     public const ALERT_AFTER = 2;
 
@@ -233,6 +233,24 @@ final class Qa
             $txMax = (int) (Engine::one("SELECT COALESCE(MAX(id),0) FROM transactions") ?: 0);
             $qtyB4 = (int) (Engine::one("SELECT qty FROM wallets WHERE user_id=? AND stock_id=?", [$uid, $sid]) ?: 0);
             $restB4 = (int) Engine::one("SELECT COUNT(*) FROM orders WHERE user_id=? AND status='active'", [$uid]);
+            // 5a-bis) STOP-BUY: rezerwacja ilość × limit, zlecenie pending z progiem, anulowanie ze zwrotem, walidacja progu
+            $sbPx = (float) Engine::one("SELECT price FROM stocks WHERE id=?", [$sid]);
+            $sbTrig = round($sbPx * 1.03, 2); $sbLim = round($sbTrig * 1.01, 2);
+            $sbCash = $this->cash($uid); $sbRes = (float) Engine::one("SELECT cash_reserved FROM users WHERE id=?", [$uid]);
+            $this->http('POST', '/place_order.php', ['stock_id' => $sid, 'side' => 'buy', 'type' => 'stop', 'qty' => 1, 'trigger' => (string) $sbTrig, 'limit' => (string) $sbLim, 'price' => '', 'sl_price' => '', 'tp_price' => '']);
+            $sb = Engine::row("SELECT * FROM orders WHERE user_id=? AND stock_id=? AND side='buy' AND status='pending' ORDER BY id DESC LIMIT 1", [$uid, $sid]);
+            $this->check($sb !== null && abs((float) $sb['tp_price'] - $sbTrig) < 0.001 && abs((float) $sb['price'] - $sbLim) < 0.001 && (int) $sb['qty'] === 1,
+                'stopbuy.create', 'stop-buy nie powstał lub ma zły próg/limit');
+            if ($sb) {
+                $this->moneyEq($sbCash - $this->cash($uid), $sbLim, 'stopbuy.reserve', 'stop-buy nie zarezerwował ilość × limit');
+                $this->http('POST', '/cancel_order.php', ['order_id' => (int) $sb['id']]);
+                $stSb = Engine::one("SELECT status FROM orders WHERE id=?", [$sb['id']]);
+                $resSb = (float) Engine::one("SELECT cash_reserved FROM users WHERE id=?", [$uid]);
+                $this->check($stSb === 'cancelled' && abs($this->cash($uid) - $sbCash) < 0.011 && abs($resSb - $sbRes) < 0.011, 'stopbuy.cancel', "anulowanie stop-buy nie zwróciło rezerwacji (status: $stSb)");
+            }
+            [$okSb] = Engine::placeStopBuy($uid, $sid, 1, round($sbPx * 0.9, 2), round($sbPx * 0.9, 2));
+            $this->check(!$okSb, 'stopbuy.valid', 'stop-buy przyjął próg PONIŻEJ kursu');
+
             $cashB4 = $this->cash($uid);
             $this->http('POST', '/place_order.php', ['stock_id' => $sid, 'side' => 'buy', 'type' => 'market', 'qty' => 2, 'price' => '', 'sl_price' => '', 'tp_price' => '']);
             $fills = Engine::all("SELECT qty, price FROM transactions WHERE buyer_id=? AND stock_id=? AND id>?", [$uid, $sid, $txMax]);
@@ -295,9 +313,9 @@ final class Qa
         $this->check($neg === 0, 'inv.negatives', "ujemne salda/ilości: $neg rekordów");
 
         $badCash = Engine::all(
-            "SELECT u.id, u.cash_reserved, COALESCE((SELECT SUM(o.qty*o.price) FROM orders o WHERE o.user_id=u.id AND o.side='buy' AND o.status='active'),0) AS should_be
-             FROM users u WHERE ABS(u.cash_reserved - COALESCE((SELECT SUM(o.qty*o.price) FROM orders o WHERE o.user_id=u.id AND o.side='buy' AND o.status='active'),0)) > 0.02");
-        $this->check(count($badCash) === 0, 'inv.cash_reserved', 'rezerwacje gotówki ≠ aktywne zlecenia kupna', ['users' => array_slice($badCash, 0, 3)]);
+            "SELECT u.id, u.cash_reserved, COALESCE((SELECT SUM(o.qty*o.price) FROM orders o WHERE o.user_id=u.id AND o.side='buy' AND o.status IN ('active','pending')),0) AS should_be
+             FROM users u WHERE ABS(u.cash_reserved - COALESCE((SELECT SUM(o.qty*o.price) FROM orders o WHERE o.user_id=u.id AND o.side='buy' AND o.status IN ('active','pending')),0)) > 0.02");
+        $this->check(count($badCash) === 0, 'inv.cash_reserved', 'rezerwacje gotówki ≠ aktywne zlecenia kupna + stop-buy', ['users' => array_slice($badCash, 0, 3)]);
 
         $badQty = Engine::all(
             "SELECT w.user_id, w.stock_id, w.qty_reserved, COALESCE((SELECT SUM(o.qty) FROM orders o WHERE o.user_id=w.user_id AND o.stock_id=w.stock_id AND o.side='sell' AND o.status IN ('active','pending')),0) AS should_be

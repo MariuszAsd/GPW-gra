@@ -301,6 +301,49 @@ final class Engine
         return [true, "Zlecenie obronne ($lbl) na $qty szt. przyjęte.", $oid];
     }
 
+    /**
+     * STOP-BUY („kup, gdy przebije"): zlecenie KUPNA czekające na wybicie. Gdy kurs WZROŚNIE do progu
+     * aktywacji, staje się zwykłym zleceniem z limitem (cena maksymalna) i idzie do arkusza (checkStops).
+     * Gotówka (ilość × limit) jest zarezerwowana od razu — jak w każdym zleceniu kupna — więc aktywacja
+     * nigdy nie odbija się od pustego konta, a rezerwacje zgadzają się co do grosza (QA liczy je razem
+     * z aktywnymi kupnami). Próg trzymamy w tp_price (jak TP: poziom NAD kursem), sl_price zostaje puste.
+     */
+    public static function placeStopBuy(int $userId, int $stockId, int $qty, float $trigger, float $limit): array
+    {
+        if ($qty <= 0) return [false, 'Nieprawidłowa ilość.'];
+        if (($m = self::haltMessage($stockId)) !== null) return [false, $m];
+        $price = (float) self::one("SELECT price FROM stocks WHERE id=?", [$stockId]);
+        if ($price <= 0) return [false, 'Nie ma takiej spółki.'];
+        $trigger = round($trigger, 2); $limit = round($limit, 2);
+        if ($trigger <= $price) return [false, 'Próg aktywacji stop-buy musi być POWYŻEJ bieżącego kursu (' . number_format($price, 2, ',', ' ') . ') — taniej kupisz zwykłym zleceniem z limitem.'];
+        if ($limit < $trigger) return [false, 'Limit ceny nie może być niższy niż próg aktywacji (' . number_format($trigger, 2, ',', ' ') . ').'];
+        if ($limit > round($trigger * 1.10, 2)) return [false, 'Limit ceny może być najwyżej 10% nad progiem aktywacji (do ' . number_format($trigger * 1.10, 2, ',', ' ') . ' PLN).'];
+        if (($m = self::priceBandMessage($stockId, 'buy', $limit)) !== null) return [false, $m];
+        $cost = round($qty * $limit, 2);
+        $pdo = Db::pdo();
+        $own = !$pdo->inTransaction();
+        if ($own) $pdo->beginTransaction();
+        try {
+            // rezerwacja ATOMOWO (guard cash>=): podwójny klik nie zejdzie poniżej zera
+            $up = $pdo->prepare("UPDATE users SET cash=cash-?, cash_reserved=cash_reserved+? WHERE id=? AND cash >= ?");
+            $up->execute([$cost, $cost, $userId, $cost]);
+            if ($up->rowCount() === 0) {
+                if ($own) $pdo->rollBack();
+                $cash = (float) self::one("SELECT cash FROM users WHERE id=?", [$userId]);
+                return [false, 'Za mało gotówki: stop-buy rezerwuje ilość × limit = ' . number_format($cost, 2, ',', ' ') . ' PLN (masz ' . number_format($cash, 2, ',', ' ') . ' PLN).'];
+            }
+            $pdo->prepare("INSERT INTO orders (user_id, stock_id, side, qty, qty_init, price, status, sl_price, tp_price, created_at) VALUES (?,?,'buy',?,?,?,'pending',NULL,?,?)")
+                ->execute([$userId, $stockId, $qty, $qty, $limit, $trigger, Db::now()]);
+            $oid = (int) $pdo->lastInsertId();
+            if ($own) $pdo->commit();
+        } catch (\Throwable $e) {
+            if ($own && $pdo->inTransaction()) $pdo->rollBack();
+            throw $e;
+        }
+        return [true, "⏫ Stop-buy przyjęty: $qty szt. z limitem " . number_format($limit, 2, ',', ' ') . ' PLN, gdy kurs przebije '
+            . number_format($trigger, 2, ',', ' ') . ' PLN (zarezerwowano ' . number_format($cost, 2, ',', ' ') . ' PLN — Portfel → Zlecenia).', $oid];
+    }
+
     /** zwolnij rezerwację pozostałej części zlecenia */
     private static function release(array $o): void
     {
@@ -1164,6 +1207,34 @@ final class Engine
             $hitSL = $o['sl_price'] !== null && (float) $o['cur'] <= (float) $o['sl_price'];
             $hitTP = $o['tp_price'] !== null && (float) $o['cur'] >= (float) $o['tp_price'];
             if (!$hitSL && !$hitTP) continue;
+
+            if ($o['side'] === 'buy') {
+                // STOP-BUY: kurs przebił próg aktywacji (tp_price) -> zlecenie staje się zwykłym kupnem z limitem.
+                // PRZEJMIJ pending -> active atomowo: anulowanie w tej samej chwili wygrywa wyścig i nic nie ruszamy.
+                // Świeży created_at = zlecenie jest AGRESOREM: bierze oferty z arkusza po ICH cenie (jak na giełdzie),
+                // a nie po swoim limicie — matchBook liczy priorytet i cenę transakcji po czasie złożenia (sekundy;
+                // remis rozstrzyga id, a nasze jest starsze — stąd +1 s, żeby oferty botów z tej samej sekundy były „starsze").
+                $claim = $pdo->prepare("UPDATE orders SET status='active', created_at=? WHERE id=? AND status='pending'");
+                $claim->execute([date('Y-m-d H:i:s', time() + 1), $o['id']]);
+                if ($claim->rowCount() !== 1) continue;
+                $txFrom = (int) (self::one("SELECT MAX(id) FROM transactions") ?: 0);
+                self::matchBook((int) $o['stock_id']);   // od razu do arkusza — gotówka zarezerwowana od złożenia
+                $txTo = (int) (self::one("SELECT MAX(id) FROM transactions") ?: $txFrom);
+                $bought = (int) (self::one("SELECT COALESCE(SUM(qty),0) FROM transactions WHERE buy_order_id=? AND id>?", [$o['id'], $txFrom]) ?: 0);
+                $rest = (int) $o['qty'] - $bought;
+                $lim = number_format((float) $o['price'], 2, ',', ' ');
+                $msg = $bought > 0
+                    ? "kupiono $bought z " . (int) $o['qty'] . ' szt.' . ($rest > 0 ? " — reszta ($rest szt.) czeka w arkuszu z limitem $lim PLN" : '')
+                    : "zlecenie czeka w arkuszu z limitem $lim PLN (brak ofert sprzedaży w limicie)";
+                Log::write('info', 'engine', 'stops.buy', sprintf('Stop-buy %s: kurs %s przebił próg %s — %s', $o['ticker'],
+                    number_format((float) $o['cur'], 2, ',', ' '), number_format((float) $o['tp_price'], 2, ',', ' '), $msg),
+                    ['user_id' => (int) $o['user_id'], 'order_id' => (int) $o['id'], 'qty' => (int) $o['qty'], 'tx_from' => $txFrom, 'tx_to' => $txTo, 'placed_at' => (string) $o['created_at']]);
+                if (self::isHumanOwned((int) $o['user_id'])) {
+                    self::notify((int) $o['user_id'], 'stop', '⏫ Stop-buy ' . $o['ticker'] . ' aktywowany przy ' . number_format((float) $o['cur'], 2, ',', ' ') . ' PLN — ' . $msg, 'order.php?id=' . (int) $o['id']);
+                    if ($bought > 0) self::award((int) $o['user_id'], 'stopbuy_zadzialal');
+                }
+                continue;
+            }
 
             // PRZEJMIJ najpierw (pending -> triggered atomowo): jeśli gracz w tej samej chwili anulował
             // stopa, przegramy wyścig (rowCount=0) i nie zwolnimy escrow po raz drugi.

@@ -13,7 +13,8 @@ if (!$o || (!in_array((int) $o['user_id'], $mine, true) && ($user['role'] ?? '')
     redirect('portfolio.php');
 }
 
-$isStop = $o['sl_price'] !== null || $o['tp_price'] !== null;
+$isStopBuy = $o['side'] === 'buy' && $o['tp_price'] !== null;   // stop-buy: próg aktywacji siedzi w tp_price (poziom NAD kursem, jak TP)
+$isStop = !$isStopBuy && ($o['sl_price'] !== null || $o['tp_price'] !== null);
 $fills = Engine::all("SELECT t.*, CASE WHEN t.buy_order_id=? THEN 'buy' ELSE 'sell' END AS my_side
                       FROM transactions t WHERE t.buy_order_id=? OR t.sell_order_id=? ORDER BY t.id", [$oid, $oid, $oid]);
 // pełne id, nie prefiks: „order_id":44 pasowało też do 441, 4400… (oś czasu pokazywała cudze wpisy)
@@ -21,11 +22,16 @@ $logs = Engine::all("SELECT * FROM logs WHERE context LIKE ? OR context LIKE ? O
 
 // oś czasu: złożenie -> fille -> log SL/TP/anulowań -> stan końcowy
 $events = [];
-$typLbl = $isStop ? 'OBRONNE (SL/TP)' : ($o['side'] === 'buy' ? 'KUPNO z limitem' : 'SPRZEDAŻ z limitem');
-$events[] = ['t' => $o['created_at'], 'cls' => '', 'm' => "Złożono zlecenie: $typLbl",
-    'd' => $isStop
+// stop-buy po aktywacji dostaje świeży created_at (priorytet agresora) — czas złożenia bierzemy z dziennika aktywacji
+$placedAt = $o['created_at'];
+if ($isStopBuy) foreach ($logs as $lg) if ($lg['event'] === 'stops.buy') { $ctx0 = json_decode((string) $lg['context'], true) ?: []; if (!empty($ctx0['placed_at'])) $placedAt = (string) $ctx0['placed_at']; }
+$typLbl = $isStopBuy ? 'STOP-BUY (kup, gdy przebije)' : ($isStop ? 'OBRONNE (SL/TP)' : ($o['side'] === 'buy' ? 'KUPNO z limitem' : 'SPRZEDAŻ z limitem'));
+$events[] = ['t' => $placedAt, 'cls' => '', 'm' => "Złożono zlecenie: $typLbl",
+    'd' => $isStopBuy
+        ? (int) $o['qty_init'] . ' szt. · próg aktywacji ' . money($o['tp_price']) . ' PLN · limit ' . money($o['price']) . ' PLN (zarezerwowano ' . money((int) $o['qty_init'] * (float) $o['price']) . ' PLN)'
+        : ($isStop
         ? 'pakiet ' . (int) $o['qty_init'] . ' szt. · ' . ($o['sl_price'] !== null ? 'SL ' . money($o['sl_price']) . ' PLN' : '') . ($o['sl_price'] !== null && $o['tp_price'] !== null ? ' · ' : '') . ($o['tp_price'] !== null ? 'TP ' . money($o['tp_price']) . ' PLN' : '')
-        : (int) $o['qty_init'] . ' szt. po ' . money($o['price']) . ' PLN' . ($o['expires_session'] !== null ? ' · ważne do końca sesji #' . (int) $o['expires_session'] : ' · bezterminowe')];
+        : (int) $o['qty_init'] . ' szt. po ' . money($o['price']) . ' PLN' . ($o['expires_session'] !== null ? ' · ważne do końca sesji #' . (int) $o['expires_session'] : ' · bezterminowe'))];
 
 foreach ($fills as $f) {
     $v = $f['qty'] * $f['price'];
@@ -37,7 +43,10 @@ foreach ($fills as $f) {
 $slFills = [];
 foreach ($logs as $lg) {
     $ctx = json_decode((string) $lg['context'], true) ?: [];
-    if (in_array($lg['event'], ['stops.sl', 'stops.tp'], true)) {
+    if ($lg['event'] === 'stops.buy') {
+        // aktywacja stop-buy: od tej chwili zlecenie jest zwykłym kupnem z limitem; jego transakcje są już wyżej w osi czasu
+        $events[] = ['t' => $lg['ts'], 'cls' => 'warn', 'm' => '⚡ Kurs przebił próg — stop-buy aktywowany', 'd' => $lg['message']];
+    } elseif (in_array($lg['event'], ['stops.sl', 'stops.tp'], true)) {
         $events[] = ['t' => $lg['ts'], 'cls' => 'warn', 'm' => '⚡ ' . ($lg['event'] === 'stops.sl' ? 'Wyzwolił się Stop-Loss' : 'Wyzwolił się Take-Profit'), 'd' => $lg['message']];
         if (!empty($ctx['tx_from'])) {
             $slFills = Engine::all("SELECT * FROM transactions WHERE id > ? AND id <= ? AND seller_id = ? AND stock_id = ? ORDER BY id",
@@ -55,7 +64,7 @@ foreach ($logs as $lg) {
     }
 }
 
-$stMap = ['active' => ['aktywne — czeka w arkuszu', ''], 'pending' => ['obronne — czeka na wyzwolenie', 'warn'],
+$stMap = ['active' => [$isStopBuy ? 'aktywowane — kupno czeka w arkuszu z limitem' : 'aktywne — czeka w arkuszu', ''], 'pending' => [$isStopBuy ? 'stop-buy — czeka, aż kurs przebije próg' : 'obronne — czeka na wyzwolenie', 'warn'],
           'filled' => ['zrealizowane w całości', 'ok'], 'cancelled' => ['anulowane', ''],
           'expired' => ['wygasło z końcem sesji (zwrot rezerwacji)', ''], 'triggered' => ['wyzwolone — pakiet sprzedany zleceniem obronnym', 'warn']];
 [$stTxt, $stCls] = $stMap[$o['status']] ?? [$o['status'], ''];
@@ -80,7 +89,7 @@ foreach ($slFills as $f) { $sum += $f['qty'] * $f['price']; $qsum += $f['qty']; 
 </div>
 
 <div class="stats" style="grid-template-columns:repeat(4,1fr)">
-  <div class="stat"><div class="k">Typ</div><div class="v" style="font-size:16px"><?= $isStop ? '🛡️ OBRONNE' : ($o['side'] === 'buy' ? 'KUPNO' : 'SPRZEDAŻ') ?><?= tip($isStop ? 'Zlecenie obronne pilnuje kursu i samo sprzedaje pakiet po przekroczeniu progu SL lub TP.' : 'Zlecenie z limitem ceny — realizuje się po podanej cenie albo lepszej.', $isStop ? 'sl' : 'limit') ?></div></div>
+  <div class="stat"><div class="k">Typ</div><div class="v" style="font-size:16px"><?= $isStopBuy ? '⏫ STOP-BUY' : ($isStop ? '🛡️ OBRONNE' : ($o['side'] === 'buy' ? 'KUPNO' : 'SPRZEDAŻ')) ?><?= tip($isStopBuy ? 'Kupno czeka, aż kurs przebije próg aktywacji — wtedy staje się zwykłym zleceniem z limitem (maksymalna cena).' : ($isStop ? 'Zlecenie obronne pilnuje kursu i samo sprzedaje pakiet po przekroczeniu progu SL lub TP.' : 'Zlecenie z limitem ceny — realizuje się po podanej cenie albo lepszej.'), $isStopBuy ? 'stopbuy' : ($isStop ? 'sl' : 'limit')) ?></div></div>
   <div class="stat"><div class="k">Status</div><div class="v <?= $stCls === 'ok' ? 'up' : '' ?>" style="font-size:16px"><?= h($stTxt) ?></div></div>
   <div class="stat"><div class="k">Zrealizowano</div><div class="v" style="font-size:16px"><?= $qsum ?> / <?= (int) $o['qty_init'] ?> szt.</div></div>
   <div class="stat"><div class="k"><?= $qsum > 0 ? 'Śr. cena / wartość' : 'Kurs teraz' ?></div>

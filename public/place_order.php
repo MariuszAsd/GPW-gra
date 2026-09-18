@@ -8,7 +8,7 @@ require_market_open($user, 'stock.php?id=' . (int) ($_POST['stock_id'] ?? 0));
 
 $sid   = (int) ($_POST['stock_id'] ?? 0);
 $side  = $_POST['side'] ?? 'buy';
-$type  = ($_POST['type'] ?? 'limit') === 'market' ? 'market' : 'limit';
+$type  = in_array($_POST['type'] ?? 'limit', ['market', 'stop'], true) ? $_POST['type'] : 'limit';   // limit | market (PKC) | stop (stop-buy)
 $qty   = (int) ($_POST['qty'] ?? 0);
 $price = (float) str_replace(',', '.', $_POST['price'] ?? '0');
 $sl    = ($_POST['sl_price'] ?? '') !== '' ? (float) str_replace(',', '.', $_POST['sl_price']) : null;
@@ -17,7 +17,14 @@ $tp    = ($_POST['tp_price'] ?? '') !== '' ? (float) str_replace(',', '.', $_POS
 // wolne akcje PRZED zleceniem — do policzenia, ile REALNIE dokupił ten pakiet (auto-SL/TP)
 $freeBefore = (int) (Engine::one("SELECT qty FROM wallets WHERE user_id=? AND stock_id=?", [$user['id'], $sid]) ?: 0);
 $filledAny = false;
-if ($type === 'market') {
+if ($type === 'stop') {
+    // STOP-BUY: kupno czekające na przebicie progu (tylko strona kupna; do sprzedaży po spadku służy Stop-Loss)
+    $trigger = (float) str_replace(',', '.', $_POST['trigger'] ?? '0');
+    $limit   = ($_POST['limit'] ?? '') !== '' ? (float) str_replace(',', '.', $_POST['limit']) : round($trigger * 1.02, 2);
+    $price   = $limit; $oid = 0;
+    if ($side !== 'buy') { $ok = false; $msg = 'Stop-buy działa tylko dla kupna. Sprzedaż po spadku kursu to Stop-Loss (Portfel → pozycja).'; }
+    else [$ok, $msg, $oid] = Engine::retryOnLock(fn() => Engine::placeStopBuy((int) $user['id'], $sid, $qty, $trigger, $limit)) + [2 => 0];
+} elseif ($type === 'market') {
     [$ok, $msg] = Engine::retryOnLock(fn() => Engine::marketOrder((int) $user['id'], $sid, $side, $qty));
     $filledAny = $ok;   // PKC = realizacja natychmiast albo błąd
 } else {
@@ -37,16 +44,16 @@ if ($type === 'market') {
         else                  $msg = "📥 Zlecenie " . ($side === 'buy' ? 'kupna' : 'sprzedaży') . " $qty szt. po " . number_format($price, 2, ',', ' ') . " PLN złożone — czeka w arkuszu na $czas (Portfel → Zlecenia).";
     }
 }
-Log::write($ok ? 'info' : 'warn', 'player', 'order.place', ($ok ? 'przyjęte' : 'odrzucone') . ": $type $side {$qty}szt" . ($type === 'limit' ? " @ $price" : '') . " (spółka #$sid)",
+Log::write($ok ? 'info' : 'warn', 'player', 'order.place', ($ok ? 'przyjęte' : 'odrzucone') . ": $type $side {$qty}szt" . ($type === 'limit' ? " @ $price" : ($type === 'stop' ? " @ limit $price, próg " . ($trigger ?? 0) : '')) . " (spółka #$sid)",
     ['user' => $user['username'], 'msg' => $msg]);
 $jTk = (string) Engine::one("SELECT ticker FROM stocks WHERE id=?", [$sid]);
 Engine::journal((int) $user['id'], 'order',
     ($ok ? '📝 Złożono zlecenie: ' : '⛔ Zlecenie odrzucone: ')
-    . ($type === 'market' ? 'PKC' : 'limit') . ' ' . ($side === 'buy' ? 'kupno' : 'sprzedaż') . " {$qty} szt. {$jTk}"
-    . ($type === 'limit' ? ' @ ' . number_format($price, 2, ',', ' ') : '')
+    . ($type === 'market' ? 'PKC' : ($type === 'stop' ? 'stop-buy' : 'limit')) . ' ' . ($side === 'buy' ? 'kupno' : 'sprzedaż') . " {$qty} szt. {$jTk}"
+    . ($type === 'limit' ? ' @ ' . number_format($price, 2, ',', ' ') : ($type === 'stop' ? ' (próg ' . number_format($trigger ?? 0, 2, ',', ' ') . ', limit ' . number_format($price, 2, ',', ' ') . ')' : ''))
     . ($ok ? '.' : ' — ' . $msg),
     $ok && !empty($oid) ? 'order.php?id=' . (int) $oid : 'stock.php?id=' . $sid);
-if ($ok && $side === 'buy' && ($sl !== null || $tp !== null)) {
+if ($ok && $side === 'buy' && $type !== 'stop' && ($sl !== null || $tp !== null)) {   // stop-buy nic jeszcze nie kupił — SL/TP ustawisz po aktywacji
     // zlecenie obronne NA KUPIONY PAKIET (nie na całą pozycję): tyle, ile REALNIE dokupiło to
     // zlecenie (przyrost wolnych akcji), a nie cały wolny stan portfela (który obejmuje stare akcje)
     $free = (int) (Engine::one("SELECT qty FROM wallets WHERE user_id=? AND stock_id=?", [$user['id'], $sid]) ?: 0);

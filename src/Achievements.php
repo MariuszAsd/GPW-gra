@@ -18,6 +18,7 @@ final class Achievements
             'rentier'             => ['🏖️', 'Rentier',                  'Trzymasz jednocześnie 5 spółek wypłacających dywidendę.'],
             'sl_zadzialal'        => ['🛡️', 'Uratowany przez stopa',    'Twój Stop-Loss zadziałał i uciął stratę.'],
             'tp_zadzialal'        => ['🎯', 'Zysk w kieszeni',          'Twój Take-Profit zadziałał i zrealizował zysk.'],
+            'stopbuy_zadzialal'   => ['⏫', 'Łowca wybić',              'Twój stop-buy złapał wybicie — kupno aktywowało się po przebiciu progu.'],
             'rajd_10'             => ['🚀', 'Rajd',                     '+10% kapitału w jednej sesji.'],
             'lekcja_pokory'       => ['🎢', 'Lekcja pokory',            '-10% kapitału w jednej sesji. Bywa.'],
             'kupil_w_krachu'      => ['🩸', 'Kupował, gdy lała się krew', 'Kupiłeś akcje w trakcie krachu rynkowego.'],

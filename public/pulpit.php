@@ -33,7 +33,7 @@ $watchPremium = Tokens::hasPass($uid, 'analityk');
 $steps = [
     ['done' => (bool) Engine::one("SELECT 1 FROM transactions WHERE buyer_id=? OR seller_id=? LIMIT 1", [$uid, $uid]),
      'txt' => 'Kup pierwsze akcje — wejdź na Rynek i kliknij spółkę', 'link' => 'market.php'],
-    ['done' => (bool) Engine::one("SELECT 1 FROM orders WHERE user_id=? AND (sl_price IS NOT NULL OR tp_price IS NOT NULL) LIMIT 1", [$uid]),
+    ['done' => (bool) Engine::one("SELECT 1 FROM orders WHERE user_id=? AND side='sell' AND (sl_price IS NOT NULL OR tp_price IS NOT NULL) LIMIT 1", [$uid]),   // tylko obronne (stop-buy też ma tp_price)
      'txt' => 'Ustaw Stop-Loss lub Take-Profit — ochronę pozycji znajdziesz w Portfelu', 'link' => 'portfolio.php'],
     ['done' => (bool) Engine::one("SELECT 1 FROM challenge_players WHERE user_id=? LIMIT 1", [$uid]),
      'txt' => 'Zapisz się do wyzwania — konkurs z pulą nagród', 'link' => 'wyzwania.php'],

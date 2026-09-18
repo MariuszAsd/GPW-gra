@@ -15,6 +15,7 @@ layout_header('Pomoc', $user, 'help');
   <a href="#sl">Stop-Loss</a>
   <a href="#trailing">SL kroczący</a>
   <a href="#tp">Take-Profit</a>
+  <a href="#stopbuy">Stop-buy</a>
   <a href="#dywidenda">Dywidendy</a>
   <a href="#wydarzenia">Wydarzenia</a>
   <a href="#wyzwania">Wyzwania</a>
@@ -124,6 +125,26 @@ layout_header('Pomoc', $user, 'help');
   </svg>
   <div class="help-ex">💡 SL i TP możesz ustawić razem na tym samym pakiecie — co pierwsze się wyzwoli, to sprzedaje.
      Oba widzisz w Portfelu jako zlecenie <b>OBRONNE</b> i możesz je anulować.</div>
+</div>
+
+<div class="panel help-sec" id="stopbuy">
+  <h3>⏫ Stop-buy — kup, gdy kurs przebije</h3>
+  <p>Odwrotność Take-Profitu: zlecenie <b>kupna</b> z progiem <b>powyżej</b> kursu. Dopóki kurs jest niżej, nic się
+     nie dzieje. Gdy przebije próg aktywacji, gra wystawia zwykłe kupno z <b>limitem</b> (maksymalna cena, jaką
+     akceptujesz — domyślnie 2% nad progiem) i bierze akcje z arkusza. Tak łapie się wybicia z konsolidacji
+     albo potwierdzenie trendu bez siedzenia przed ekranem.</p>
+  <svg class="help-svg" viewBox="0 0 560 150">
+    <line x1="20" y1="120" x2="540" y2="120" stroke="var(--line)"/>
+    <polyline points="30,90 110,96 190,88 270,94 350,86 430,50 500,40" fill="none" stroke="var(--up)" stroke-width="2"/>
+    <circle cx="430" cy="50" r="5" fill="var(--up)" class="pulse"/>
+    <line x1="20" y1="50" x2="540" y2="50" stroke="var(--gold)" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <text x="28" y="44" fill="var(--gold)" font-size="12" font-weight="bold">próg aktywacji</text>
+    <text x="440" y="70" fill="var(--up)" font-size="12">KUPNO! ⏫</text>
+    <text x="280" y="142" fill="var(--soft)" font-size="12" text-anchor="middle">kurs kręci się pod progiem → przebija → gra kupuje z limitem</text>
+  </svg>
+  <div class="help-ex">💡 Gotówka na stop-buy (ilość × limit) jest zarezerwowana od chwili złożenia — jak przy każdym kupnie —
+     więc aktywacja nigdy nie odbije się od pustego konta. Zlecenie widzisz w Portfelu jako <b>STOP-BUY</b> i możesz je
+     anulować (rezerwacja wraca). Silnik sprawdza próg co tick, tak jak SL/TP.</div>
 </div>
 
 <div class="panel help-sec" id="dywidenda">
