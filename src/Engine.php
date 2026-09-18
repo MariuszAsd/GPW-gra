@@ -331,6 +331,119 @@ final class Engine
         if ($st->rowCount() === 0) $pdo->prepare("INSERT INTO game_state (k, v) VALUES ('treasury', ?)")->execute([(string) round($amount, 2)]);
     }
 
+    /** Stan skarbca gry (zebrane prowizje minus wypłacone odsetki, nagrody i dopłaty). */
+    public static function treasury(): float
+    {
+        return (float) (self::one("SELECT v FROM game_state WHERE k='treasury'") ?: 0);
+    }
+
+    /** Zwrot do skarbca (np. dopłata do odwołanego wyzwania). */
+    public static function treasuryGive(float $amount): void
+    {
+        if ($amount > 0) self::addTreasury(round($amount, 2));
+    }
+
+    /**
+     * Pobranie ze skarbca Z GUARDEM: tylko gdy skarbiec ma pokrycie. Zwraca false, gdy brakuje.
+     * Skarbiec to pieniądz wewnątrz świata gry (prowizje od obrotu), więc nagroda z niego nie łamie
+     * zamkniętej ekonomii — tylko zawraca do graczy to, co zeszło z ich transakcji.
+     */
+    public static function treasuryTake(float $amount): bool
+    {
+        $amount = round($amount, 2);
+        if ($amount <= 0) return false;
+        // game_state.v jest tekstem — bez CAST porównanie „v >= kwota" idzie po znakach ('9' > '10')
+        $st = Db::pdo()->prepare("UPDATE game_state SET v = ROUND(v - ?, 2) WHERE k='treasury' AND CAST(v AS DECIMAL(15,2)) >= ?");
+        $st->execute([$amount, $amount]);
+        return $st->rowCount() === 1;
+    }
+
+    /** Nagrody lig z ustawień GM (game_state), z domyślnymi wartościami. */
+    public static function leaguePrizes(): array
+    {
+        $g = fn(string $k, $def) => ($v = self::one("SELECT v FROM game_state WHERE k=?", [$k])) === false || $v === null ? $def : $v;
+        return [
+            'week'  => [(float) $g('league_prize_1', 10000), (float) $g('league_prize_2', 5000), (float) $g('league_prize_3', 2500)],
+            'month' => [(int) $g('league_tokens_1', 20), (int) $g('league_tokens_2', 10), (int) $g('league_tokens_3', 5)],
+        ];
+    }
+
+    /**
+     * Rozliczenie lig okresowych przy przejściu sesji w NOWY tydzień / miesiąc.
+     * Baza i koniec okresu to migawki equity_snapshots (start poprzedniego i start nowego okresu),
+     * więc wynik jest liczony dokładnie od granicy do granicy. Liczą się tylko gracze, którzy w okresie
+     * zawarli choć jedną transakcję — nagroda jest za granie, nie za trzymanie gotówki.
+     * Tydzień: nagrody PLN ze skarbca (guard: bez pokrycia nie ma wypłaty, jest wpis w dzienniku).
+     * Miesiąc: tokeny inwestora (nie dotykają ekonomii PLN).
+     */
+    public static function settleLeagues(string $rollDate, int $session): void
+    {
+        $now = self::periodKeys($rollDate);
+        foreach (['week', 'month'] as $kind) {
+            $stateKey = "league_{$kind}_current";
+            $prev = self::one("SELECT v FROM game_state WHERE k=?", [$stateKey]);
+            if ($prev === false || $prev === null || $prev === '') { self::setState($stateKey, $now[$kind]); continue; }
+            if ($prev === $now[$kind]) continue;
+            self::setState($stateKey, $now[$kind]);   // najpierw przestaw okres — rozliczenie tylko raz
+            try { self::settleLeague($kind, (string) $prev, $now[$kind], $session); }
+            catch (\Throwable $e) { Log::write('error', 'engine', 'league.fail', "$kind $prev: " . $e->getMessage()); }
+        }
+    }
+
+    private static function settleLeague(string $kind, string $prev, string $cur, int $session): void
+    {
+        if (!class_exists('Tokens')) require_once __DIR__ . '/Tokens.php';
+        $pdo = Db::pdo();
+        $start = []; $end = [];
+        foreach (self::all("SELECT user_id, equity, created_at FROM equity_snapshots WHERE kind=? AND period=?", [$kind, $prev]) as $s) $start[(int) $s['user_id']] = $s;
+        foreach (self::all("SELECT user_id, equity FROM equity_snapshots WHERE kind=? AND period=?", [$kind, $cur]) as $s) $end[(int) $s['user_id']] = (float) $s['equity'];
+        $rows = [];
+        foreach (self::all("SELECT id, username FROM users WHERE is_bot=0 AND role='player'") as $u) {
+            $uid = (int) $u['id'];
+            if (!isset($start[$uid], $end[$uid]) || (float) $start[$uid]['equity'] <= 0) continue;
+            $since = (string) $start[$uid]['created_at'];
+            $trades = (int) self::one(
+                "SELECT (SELECT COUNT(*) FROM transactions WHERE buyer_id=? AND created_at >= ?) + (SELECT COUNT(*) FROM transactions WHERE seller_id=? AND created_at >= ?)",
+                [$uid, $since, $uid, $since]);
+            if ($trades < 1) continue;   // bez handlu w okresie — poza klasyfikacją
+            $rows[] = ['uid' => $uid, 'name' => $u['username'], 'ret' => ($end[$uid] / (float) $start[$uid]['equity'] - 1) * 100];
+        }
+        if (!$rows) { Log::write('info', 'engine', 'league.empty', "liga $kind $prev: nikt nie handlował"); return; }
+        usort($rows, fn($a, $b) => $b['ret'] <=> $a['ret']);
+        $prizes = self::leaguePrizes()[$kind];
+        $label  = $kind === 'week' ? 'tygodnia' : 'miesiąca';
+        $ins = $pdo->prepare("INSERT INTO league_results (kind, period, user_id, rank, ret_pct, prize, tokens, paid_at) VALUES (?,?,?,?,?,?,?,?)");
+        $podium = [];
+        foreach ($rows as $i => $r) {
+            $rank = $i + 1; $prize = 0.0; $tokens = 0;
+            if ($rank <= 3) {
+                if ($kind === 'week') {
+                    $prize = round((float) $prizes[$rank - 1], 2);
+                    if ($prize > 0 && self::treasuryTake($prize)) {
+                        $pdo->prepare("UPDATE users SET cash = cash + ? WHERE id=?")->execute([$prize, $r['uid']]);
+                        self::ledger($r['uid'], $prize, 'nagroda', "Liga $label $prev: " . $rank . '. miejsce (' . ($r['ret'] >= 0 ? '+' : '') . number_format($r['ret'], 1, ',', ' ') . '%)', 'ranking.php?wg=tydzien');
+                    } elseif ($prize > 0) {
+                        Log::write('warn', 'engine', 'league.nofunds', "liga $label $prev: skarbiec bez pokrycia na nagrodę $prize dla #{$r['uid']}");
+                        $prize = 0.0;
+                    }
+                } else {
+                    $tokens = (int) $prizes[$rank - 1];
+                    if ($tokens > 0) Tokens::grant($r['uid'], $tokens, 'league', "Liga $label $prev: $rank. miejsce");
+                }
+                $medal = ['🥇', '🥈', '🥉'][$rank - 1];
+                $what = $prize > 0 ? number_format($prize, 0, ',', ' ') . ' PLN ze skarbca gry' : ($tokens > 0 ? "$tokens Tokenów" : 'bez nagrody');
+                self::notify($r['uid'], 'league', "$medal Liga $label $prev: $rank. miejsce (" . ($r['ret'] >= 0 ? '+' : '') . number_format($r['ret'], 1, ',', ' ') . "%) — $what.", 'ranking.php?wg=' . ($kind === 'week' ? 'tydzien' : 'miesiac'));
+                $podium[] = $medal . ' ' . $r['name'] . ' ' . ($r['ret'] >= 0 ? '+' : '') . number_format($r['ret'], 1, ',', ' ') . '%';
+            }
+            try { $ins->execute([$kind, $prev, $r['uid'], $rank, round($r['ret'], 2), $prize, $tokens, Db::now()]); } catch (\PDOException $e) { /* już rozliczone */ }
+        }
+        $pdo->prepare("INSERT INTO news (headline,body,type,scope,target_id,is_espi,impact_strength,publish_tick,expire_tick,published_at) VALUES (?,?,'NEU','MARKET',NULL,0,0,?,?,?)")
+            ->execute(["🏆 Liga $label $prev rozstrzygnięta: " . $rows[0]['name'] . ' na czele',
+                       'Podium: ' . implode(' · ', $podium) . '. Stopa zwrotu liczona od początku okresu.',
+                       (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?: 0), (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?: 0) + 30, Db::now()]);
+        Log::write('info', 'engine', 'league.settled', "liga $label $prev: " . implode(' · ', $podium), []);
+    }
+
     /**
      * Powtarza operację, która przegrała z bazą wyścig o blokady (zakleszczenie / przekroczony czas
      * oczekiwania). Na MySQL żądanie gracza biegnie równolegle z wielosekundową transakcją ticka, więc
@@ -1738,7 +1851,7 @@ final class Engine
                 self::setState('session_date', $today);
                 self::setState('session_start_tick', (string) $tick);
                 // świeży świat / pierwsze uruchomienie po aktualizacji: baza lig od razu, nie dopiero jutro
-                try { self::takeSnapshots($today); } catch (\Throwable $e) { /* nie blokuje ticka */ }
+                try { self::takeSnapshots($today); self::settleLeagues($today, $prev); } catch (\Throwable $e) { /* nie blokuje ticka */ }
                 return;
             }
             $n = $prev + 1;
@@ -1757,6 +1870,8 @@ final class Engine
         } catch (\Throwable $e) { /* data tej sesji już zapisana — pomiń */ }
         // baza lig tygodnia i miesiąca: migawka kapitału każdego gracza na starcie sesji (raz na okres)
         try { self::takeSnapshots((string) $rollDate); } catch (\Throwable $e) { Log::write('warn', 'engine', 'snapshot.fail', $e->getMessage()); }
+        // nowy tydzień/miesiąc = rozliczenie poprzedniego okresu ligi (nagrody ze skarbca / tokeny)
+        try { self::settleLeagues((string) $rollDate, $n); } catch (\Throwable $e) { Log::write('error', 'engine', 'league.fail', $e->getMessage()); }
         // świece dzienne D1 (wykresy tydzień/miesiąc/rok): zrzut ZAMYKANEJ sesji,
         // koniecznie PRZED nadpisaniem day_open_price nowym kursem otwarcia
         try {

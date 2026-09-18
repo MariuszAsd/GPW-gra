@@ -43,6 +43,22 @@ $medals = ['🥇', '🥈', '🥉'];
 <?php liga_subnav('ranking'); ?>
 <?php subnav([['start', 'ranking.php', 'Od startu'], ['miesiac', 'ranking.php?wg=miesiac', 'Liga miesiąca'], ['tydzien', 'ranking.php?wg=tydzien', 'Liga tygodnia']], $wg); ?>
 
+<?php if ($kind !== 'all'):
+    $last = Engine::all("SELECT l.period, l.rank, l.ret_pct, l.prize, l.tokens, u.username FROM league_results l JOIN users u ON u.id=l.user_id
+                         WHERE l.kind=? AND l.period=(SELECT MAX(period) FROM league_results WHERE kind=?) ORDER BY l.rank LIMIT 3", [$kind, $kind]);
+    $pz = Engine::leaguePrizes()[$kind]; ?>
+  <div class="panel" style="margin-bottom:10px;padding:10px 14px">
+    <b><?= $kind === 'week' ? '🏆 Nagrody ligi tygodnia' : '🪙 Nagrody ligi miesiąca' ?>:</b>
+    <?php if ($kind === 'week'): ?>
+      <?= money($pz[0]) ?> / <?= money($pz[1]) ?> / <?= money($pz[2]) ?> PLN <span class="muted">— ze skarbca gry (zebrane prowizje), po zamknięciu tygodnia; liczą się gracze z choć jedną transakcją w tygodniu.</span>
+    <?php else: ?>
+      <?= (int) $pz[0] ?> / <?= (int) $pz[1] ?> / <?= (int) $pz[2] ?> Tokenów <span class="muted">— po zamknięciu miesiąca; liczą się gracze z choć jedną transakcją w miesiącu.</span>
+    <?php endif; ?>
+    <?php if ($last): ?><br><span class="muted">Ostatnio rozliczony okres <?= h($last[0]['period']) ?>:</span>
+      <?php foreach ($last as $r): ?><span class="tag"><?= ['🥇','🥈','🥉'][$r['rank']-1] ?? $r['rank'] ?> <?= h($r['username']) ?> <?= ($r['ret_pct'] >= 0 ? '+' : '') . number_format((float) $r['ret_pct'], 1, ',', ' ') ?>%<?= (float) $r['prize'] > 0 ? ' · ' . money($r['prize']) . ' PLN' : ((int) $r['tokens'] > 0 ? ' · ' . (int) $r['tokens'] . ' Tokenów' : '') ?></span> <?php endforeach; ?>
+    <?php endif; ?>
+  </div>
+<?php endif; ?>
 <div class="panel" style="padding:0;overflow:hidden">
   <div class="tbl-scroll">
     <table>

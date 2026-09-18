@@ -133,6 +133,8 @@ final class Challenges
             $claim = $pdo->prepare("UPDATE challenges SET status='cancelled', pot=0 WHERE id=? AND status IN ('signup','running')");
             $claim->execute([$challengeId]);
             if ($claim->rowCount() !== 1) { if ($own) $pdo->rollBack(); return; }
+            // dopłata skarbca wraca do skarbca — inaczej ten pieniądz zniknąłby ze świata (pula zerowana, nikt nie wypłacony)
+            if ((float) ($ch['treasury_bonus'] ?? 0) > 0) Engine::treasuryGive((float) $ch['treasury_bonus']);
             foreach (Engine::all("SELECT cp.*, u.is_bot FROM challenge_players cp JOIN users u ON u.id=cp.user_id WHERE cp.challenge_id=?", [$challengeId]) as $cp) {
                 if (!empty($cp['shadow_user_id'])) {
                     self::settlePlayer($ch, $cp);                                       // subkonto (buy-in w obecnej formie) wraca w całości
@@ -268,6 +270,21 @@ final class Challenges
             } else {
                 Engine::notify((int) $cp['user_id'], 'challenge', '⚔️ ' . $ch['name'] . ' WYSTARTOWAŁO! Handlujesz portfelem '
                     . number_format((float) $cp['buyin'], 0, ',', ' ') . ' PLN do końca sesji #' . $end . '. Powodzenia!', 'wyzwania.php');
+            }
+        }
+        // DOPŁATA SKARBCA do puli: procent zebranych wpisowych (cap), tylko gdy w edycji gra choć jeden człowiek.
+        // Skarbiec to prowizje od obrotu, czyli pieniądz już obecny w świecie — wraca do graczy jako nagroda.
+        $humans = (int) Engine::one("SELECT COUNT(*) FROM challenge_players cp JOIN users u ON u.id=cp.user_id WHERE cp.challenge_id=? AND u.is_bot=0", [$cid]);
+        if ($humans > 0) {
+            $pctV = Engine::one("SELECT v FROM game_state WHERE k='challenge_bonus_pct'");
+            $capV = Engine::one("SELECT v FROM game_state WHERE k='challenge_bonus_cap'");
+            $pct = ($pctV === false || $pctV === null) ? 50.0 : (float) $pctV;
+            $cap = ($capV === false || $capV === null) ? 20000.0 : (float) $capV;
+            $potNow = (float) Engine::one("SELECT pot FROM challenges WHERE id=?", [$cid]);
+            $bonus = round(min($potNow * max(0, $pct) / 100, max(0, $cap)), 2);
+            if ($bonus > 0 && Engine::treasuryTake($bonus)) {
+                $pdo->prepare("UPDATE challenges SET pot = pot + ?, treasury_bonus = ? WHERE id=?")->execute([$bonus, $bonus, $cid]);
+                Log::write('info', 'engine', 'challenge.bonus', $ch['name'] . ': skarbiec dokłada ' . number_format($bonus, 2, ',', ' ') . ' PLN do puli', []);
             }
         }
         $pot = (float) Engine::one("SELECT pot FROM challenges WHERE id=?", [$cid]);

@@ -548,6 +548,24 @@ final class Migrator
                 )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
                 "CREATE INDEX ix_eqsnap ON equity_snapshots (kind, period)",
             ],
+            39 => [
+                // SKARBIEC JAKO PULA NAGRÓD: liga tygodnia wypłaca nagrody PLN ze skarbca (prowizje wracają do graczy),
+                // liga miesiąca daje tokeny, a skarbiec dokłada bonus do puli każdego wyzwania z człowiekiem.
+                "ALTER TABLE challenges ADD COLUMN treasury_bonus DECIMAL(15,2) NOT NULL DEFAULT 0",
+                "CREATE TABLE league_results (
+                    id " . (Db::driver() === 'mysql' ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT') . ",
+                    kind     VARCHAR(8) NOT NULL,
+                    period   VARCHAR(10) NOT NULL,
+                    user_id  INT NOT NULL,
+                    rank     INT NOT NULL,
+                    ret_pct  DECIMAL(9,2) NOT NULL,
+                    prize    DECIMAL(15,2) NOT NULL DEFAULT 0,
+                    tokens   INT NOT NULL DEFAULT 0,
+                    paid_at  VARCHAR(19) NOT NULL,
+                    UNIQUE (kind, period, user_id)
+                )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
+                "CREATE INDEX ix_league ON league_results (kind, period, rank)",
+            ],
         ];
     }
 

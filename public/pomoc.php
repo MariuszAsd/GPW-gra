@@ -243,7 +243,9 @@ layout_header('Pomoc', $user, 'help');
         Każdy szczebel daje odznakę i Tokeny inwestora. Postęp widzisz w Portfelu.</li>
     <li><b>Ranking</b> — wszyscy gracze według stopy zwrotu od startu.</li>
     <li><b>Liga miesiąca i liga tygodnia</b> — stopa zwrotu liczona od początku okresu (baza to Twój kapitał na starcie
-        tygodnia lub miesiąca), więc co miesiąc i co tydzień wszyscy startują od zera.</li>
+        tygodnia lub miesiąca), więc co miesiąc i co tydzień wszyscy startują od zera. Podium tygodnia dostaje nagrody w PLN
+        ze <b>skarbca gry</b> (zebrane prowizje od obrotu wracają do graczy), podium miesiąca — Tokeny inwestora.
+        Liczą się gracze z choć jedną transakcją w okresie.</li>
     <li><b>Wyzwania</b> — osobne konkursy z wpisowym, na oddzielnym portfelu (zakładka Liga).</li>
   </ul>
   <p>Sesja to „dzień giełdowy" gry — kursy żyją cały czas, spółki publikują <b>raporty miesięczne</b>,

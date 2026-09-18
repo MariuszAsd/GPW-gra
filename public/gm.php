@@ -33,6 +33,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($a === 'invite') {
         Engine::setState('invite_code', trim($_POST['invite_code'] ?? ''));
         flash(trim($_POST['invite_code'] ?? '') === '' ? 'Rejestracja otwarta (bez kodu).' : 'Ustawiono kod zaproszenia.');
+    } elseif ($a === 'prizes') {
+        // nagrody lig i dopłata skarbca do wyzwań — pieniądz ze skarbca (prowizje), nie z powietrza
+        foreach (['league_prize_1', 'league_prize_2', 'league_prize_3', 'challenge_bonus_cap'] as $k) {
+            Engine::setState($k, (string) max(0, (float) str_replace([' ', ','], ['', '.'], (string) ($_POST[$k] ?? '0'))));
+        }
+        foreach (['league_tokens_1', 'league_tokens_2', 'league_tokens_3'] as $k) Engine::setState($k, (string) max(0, (int) ($_POST[$k] ?? 0)));
+        Engine::setState('challenge_bonus_pct', (string) max(0, min(200, (float) str_replace(',', '.', (string) ($_POST['challenge_bonus_pct'] ?? '50')))));
+        flash('Zapisano nagrody lig i dopłatę do wyzwań.');
     } elseif ($a === 'fee') {
         Engine::setState('fee_rate', (string) max(0, min(5, (float) str_replace(',', '.', $_POST['fee_rate'] ?? '0.5'))));
         flash('Ustawiono prowizję od obrotu.');
@@ -497,8 +505,30 @@ $modTop = Engine::all("SELECT m.user_id, u.username, COUNT(*) n, MAX(m.created_a
       <button class="btn sm">Ustaw</button>
     </form>
     <h2 style="margin-top:18px">💰 Skarbiec gry: <span class="up mono"><?= money($treasury) ?> PLN</span></h2>
-    <p class="muted">Zebrane prowizje od obrotu (płaci sprzedający przy każdej transakcji — gracze i boty). Do wykorzystania na eventy / market making.
+    <p class="muted">Zebrane prowizje od obrotu (płaci sprzedający przy każdej transakcji — gracze i boty). Skarbiec finansuje odsetki z lokat,
+       nagrody ligi tygodnia i dopłaty do puli wyzwań — pieniądz wraca do graczy, nic nie powstaje z powietrza.
        Spółki wypłaciły dotąd <b class="mono"><?= money($divPaid) ?> PLN</b> dywidend (świeża gotówka w świecie gry).</p>
+    <?php $pz = Engine::leaguePrizes();
+      $bp = Engine::one("SELECT v FROM game_state WHERE k='challenge_bonus_pct'"); $bp = ($bp === false || $bp === null) ? 50 : (float) $bp;
+      $bc = Engine::one("SELECT v FROM game_state WHERE k='challenge_bonus_cap'"); $bc = ($bc === false || $bc === null) ? 20000 : (float) $bc; ?>
+    <form method="post" class="row" style="align-items:flex-end;margin-top:8px">
+      <input type="hidden" name="action" value="prizes">
+      <div><label>Liga tygodnia — 1. miejsce (PLN)</label><input type="number" step="100" min="0" name="league_prize_1" value="<?= (int) $pz['week'][0] ?>" style="width:110px"></div>
+      <div><label>2. miejsce</label><input type="number" step="100" min="0" name="league_prize_2" value="<?= (int) $pz['week'][1] ?>" style="width:100px"></div>
+      <div><label>3. miejsce</label><input type="number" step="100" min="0" name="league_prize_3" value="<?= (int) $pz['week'][2] ?>" style="width:100px"></div>
+      <div><label>Liga miesiąca — tokeny 1/2/3</label>
+        <input type="number" min="0" name="league_tokens_1" value="<?= (int) $pz['month'][0] ?>" style="width:60px">
+        <input type="number" min="0" name="league_tokens_2" value="<?= (int) $pz['month'][1] ?>" style="width:60px">
+        <input type="number" min="0" name="league_tokens_3" value="<?= (int) $pz['month'][2] ?>" style="width:60px"></div>
+      <div><label>Dopłata do puli wyzwania (% wpisowych)</label><input type="number" step="5" min="0" max="200" name="challenge_bonus_pct" value="<?= rtrim(rtrim((string) $bp, '0'), '.') ?: '0' ?>" style="width:90px"></div>
+      <div><label>maks. dopłata (PLN)</label><input type="number" step="1000" min="0" name="challenge_bonus_cap" value="<?= (int) $bc ?>" style="width:110px"></div>
+      <button class="btn sm">Zapisz</button>
+    </form>
+    <?php $lastW = Engine::all("SELECT l.period, l.rank, l.ret_pct, l.prize, u.username FROM league_results l JOIN users u ON u.id=l.user_id WHERE l.kind='week' AND l.period=(SELECT MAX(period) FROM league_results WHERE kind='week') ORDER BY l.rank LIMIT 3");
+      if ($lastW): ?>
+      <p class="muted" style="margin-top:8px">Ostatnia liga tygodnia (<?= h($lastW[0]['period']) ?>):
+        <?php foreach ($lastW as $r): ?><span class="tag"><?= ['🥇','🥈','🥉'][$r['rank']-1] ?? $r['rank'] ?> <?= h($r['username']) ?> <?= ($r['ret_pct'] >= 0 ? '+' : '') . number_format((float) $r['ret_pct'], 1, ',', ' ') ?>% · <?= money($r['prize']) ?> PLN</span> <?php endforeach; ?></p>
+    <?php endif; ?>
     <form method="post" class="inline">
       <input type="hidden" name="action" value="fee">
       <label style="display:inline">Prowizja (% wartości):</label>
