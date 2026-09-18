@@ -13,6 +13,7 @@ $stockVal = (float) (Engine::one("SELECT COALESCE(SUM((w.qty + w.qty_reserved) *
 $equity = (float) $user['cash'] + (float) $user['cash_reserved'] + $stockVal + Engine::lockedFunds($uid);
 $startEq = (float) (Engine::one("SELECT start_equity FROM users WHERE id=?", [$uid]) ?: 0);
 $ret = $startEq > 0 ? ($equity / $startEq - 1) * 100 : 0;
+$bm = Engine::benchmark($uid);   // czy pobiłeś indeks: Ty vs MAK40 od tej samej chwili
 $eqSeries = array_reverse(array_map('floatval', Engine::col("SELECT equity FROM equity_history WHERE user_id=? ORDER BY t DESC LIMIT 150", [$uid])));
 $eqSvg = equity_svg($eqSeries, 72);
 
@@ -100,6 +101,7 @@ function stock_row(array $w, bool $premium, bool $withPl): void {
 <div class="stats">
   <div class="stat"><div class="k">Kapitał</div><div class="v"><?= money($equity) ?></div></div>
   <div class="stat"><div class="k">Wynik od startu</div><div class="v <?= $ret >= 0 ? 'up' : 'down' ?>"><?= ($ret >= 0 ? '+' : '') . number_format($ret, 1, ',', ' ') ?>%</div></div>
+  <div class="stat"><div class="k">vs MAK40<?= tip('Twoja stopa zwrotu minus zmiana Indeksu MAK40 liczona od tej samej chwili (Twój start). Dodatnia = pobijasz rynek, ujemna = zwykły fundusz indeksowy zarobiłby więcej.', 'fundusz') ?></div><div class="v <?= $bm['alpha'] >= 0 ? 'up' : 'down' ?>"><?= ($bm['alpha'] >= 0 ? '+' : '') . number_format($bm['alpha'], 1, ',', ' ') ?> pp<span style="font-size:11px;display:block;font-weight:500;letter-spacing:0;text-transform:none;color:var(--faint)">indeks <?= ($bm['ret_index'] >= 0 ? '+' : '') . number_format($bm['ret_index'], 1, ',', ' ') ?>%</span></div></div>
   <div class="stat"><div class="k">Wolna gotówka</div><div class="v"><?= money($user['cash']) ?></div></div>
   <div class="stat"><div class="k">Pozycje</div><div class="v"><?= count($pos) ?></div></div>
 </div>

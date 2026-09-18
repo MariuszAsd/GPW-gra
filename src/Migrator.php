@@ -580,6 +580,25 @@ final class Migrator
                 Db::driver() === 'mysql' ? "ALTER TABLE transactions ALTER COLUMN candled SET DEFAULT 0" : null,
                 Db::driver() === 'mysql' ? "ALTER TABLE user_follows CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci" : null,
             ],
+            41 => [
+                // FUNDUSZ INDEKSOWY MAK40 + „CZY POBIŁEŚ INDEKS?”: jednostki funduszu (wycena wg indeksu), punkt odniesienia
+                // gracza (ta sama chwila dla jego kapitału i dla indeksu) oraz wartość indeksu w migawkach lig.
+                "ALTER TABLE users ADD COLUMN bench_tick INT NULL",
+                "ALTER TABLE users ADD COLUMN bench_index DECIMAL(12,2) NULL",
+                "ALTER TABLE users ADD COLUMN bench_equity DECIMAL(15,2) NULL",
+                "ALTER TABLE equity_snapshots ADD COLUMN index_value DECIMAL(12,2) NULL",
+                "CREATE TABLE fund_positions (
+                    user_id INT NOT NULL PRIMARY KEY,
+                    units DECIMAL(15,4) NOT NULL DEFAULT 0,
+                    cost  DECIMAL(15,2) NOT NULL DEFAULT 0,
+                    updated_at VARCHAR(19) NOT NULL
+                )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
+                // istniejący gracze: punkt odniesienia = najstarszy dostępny punkt ich historii kapitału i indeks z tej samej chwili;
+                // bez historii zostaje NULL i ustawi się leniwie (Engine::benchmark) przy pierwszym wejściu na Pulpit
+                "UPDATE users SET bench_tick = (SELECT MIN(eh.t) FROM equity_history eh WHERE eh.user_id = users.id) WHERE is_bot = 0 AND bench_tick IS NULL",
+                "UPDATE users SET bench_equity = (SELECT eh.equity FROM equity_history eh WHERE eh.user_id = users.id AND eh.t = users.bench_tick LIMIT 1) WHERE is_bot = 0 AND bench_tick IS NOT NULL",
+                "UPDATE users SET bench_index = (SELECT ih.value FROM index_history ih WHERE ih.t >= users.bench_tick ORDER BY ih.t ASC LIMIT 1) WHERE is_bot = 0 AND bench_tick IS NOT NULL",
+            ],
         ];
     }
 

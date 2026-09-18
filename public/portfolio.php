@@ -16,6 +16,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bank_break'])) {
     flash($msg, $ok ? 'ok' : 'err');
     redirect('portfolio.php?tab=lok');
 }
+// fundusz MAK40: kupno za kwotę / sprzedaż jednostek (też z KONTA GŁÓWNEGO)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['fund_buy'])) {
+    $amount = (float) str_replace([' ', ','], ['', '.'], (string) ($_POST['fund_amount'] ?? '0'));
+    [$ok, $msg] = Engine::retryOnLock(fn() => Fund::buy($uidReal, $amount));
+    flash($msg, $ok ? 'ok' : 'err');
+    redirect('portfolio.php?tab=lok');
+}
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['fund_sell'])) {
+    $u = trim(str_replace([' ', ','], ['', '.'], (string) ($_POST['fund_units'] ?? '')));
+    [$ok, $msg] = Engine::retryOnLock(fn() => Fund::sell($uidReal, $u === '' ? null : (float) $u));
+    flash($msg, $ok ? 'ok' : 'err');
+    redirect('portfolio.php?tab=lok');
+}
 
 $pos = Engine::all("SELECT w.stock_id, s.ticker, s.name, s.price, w.qty, w.qty_reserved, w.avg_price
                     FROM wallets w JOIN stocks s ON s.id=w.stock_id
@@ -82,6 +95,7 @@ $depIpo = round($locked - $chLocked, 2);                   // lokaty + zapisy IP
 $equity = $user['cash'] + $user['cash_reserved'] + $value + $locked;
 $plPct = $cost > 0 ? $pl / $cost * 100 : 0;
 $deposits = ($user['ctx'] ?? '') !== 'challenge' ? Bank::activeFor($uidReal) : [];
+$fundPos = ($user['ctx'] ?? '') !== 'challenge' ? Fund::position($uidReal) : ['units' => 0.0, 'cost' => 0.0, 'value' => 0.0, 'pl' => 0.0];
 
 // --- drabinka: stopa zwrotu od kapitału startowego (bez celu i bez limitu czasu) ---
 [$sessionNo] = Engine::sessionInfo();
@@ -127,6 +141,9 @@ layout_header('Portfel', $user, 'portfolio');
   <?php if ($depIpo > 0): ?>
   <div class="stat"><div class="k">Lokaty i zapisy IPO</div><div class="v"><?= money($depIpo) ?></div></div>
   <?php endif; ?>
+  <?php if ($fundPos['value'] > 0): ?>
+  <div class="stat"><div class="k">Fundusz MAK40</div><div class="v"><?= money($fundPos['value']) ?><span class="<?= $fundPos['pl'] >= 0 ? 'up' : 'down' ?>" style="font-size:12px;display:block;font-weight:600;letter-spacing:0;text-transform:none"><?= ($fundPos['pl'] >= 0 ? '+' : '') . money($fundPos['pl']) ?> PLN</span></div></div>
+  <?php endif; ?>
   <?php if ($chLocked > 0): ?>
   <div class="stat"><div class="k">Zablokowane w wyzwaniu</div><div class="v"><?= money($chLocked) ?><span class="muted" style="font-size:11px;display:block;font-weight:500;letter-spacing:0;text-transform:none">buy-in — wciąż Twój majątek</span></div></div>
   <?php endif; ?>
@@ -136,7 +153,7 @@ layout_header('Portfel', $user, 'portfolio');
 <div class="subtabs">
   <button class="on" data-tab="poz">Pozycje<?= $pos ? ' (' . count($pos) . ')' : '' ?></button>
   <button data-tab="zle">Zlecenia<?= $orders ? ' (' . count($orders) . ')' : '' ?></button>
-  <button data-tab="lok">Lokaty<?= $deposits ? ' (' . count($deposits) . ')' : '' ?></button>
+  <button data-tab="lok">Lokaty i fundusz<?= ($deposits || $fundPos['units'] > 0) ? ' (' . (count($deposits) + ($fundPos['units'] > 0 ? 1 : 0)) . ')' : '' ?></button>
   <button data-tab="his">Historia</button>
 </div>
 
@@ -260,7 +277,40 @@ layout_header('Portfel', $user, 'portfolio');
 <?php if (($user['ctx'] ?? '') === 'challenge'): ?>
   <div class="panel"><h2>Lokaty</h2>
     <p class="muted">Portfel wyzwania gra wyłącznie akcjami — lokaty znajdziesz na koncie głównym.</p></div>
-<?php else: [$curSession] = Engine::sessionInfo(); ?>
+<?php else: [$curSession] = Engine::sessionInfo();
+  $navF = Fund::nav(); $bm = Engine::benchmark($uidReal);
+  $feeTxtF = rtrim(rtrim(number_format(Engine::feeRate() * 100, 2, ',', ''), '0'), ','); ?>
+  <div class="panel" style="margin-bottom:16px">
+    <h2>📊 Fundusz indeksowy MAK40
+      <?= tip('Jednostki funduszu podążają za Indeksem MAK40 (cały rynek ważony kapitalizacją): 1 jednostka = indeks / 10 PLN. Kupujesz za dowolną kwotę, sprzedajesz kiedy chcesz (prowizja jak od akcji). Wartość jednostek liczy się do Twojego kapitału.', 'fundusz') ?>
+    </h2>
+    <div class="ch-grid">
+      <div class="ch-stat"><small>Wycena jednostki</small><b class="mono"><?= number_format($navF, 2, ',', ' ') ?> PLN</b></div>
+      <div class="ch-stat"><small>Twoje jednostki</small><b class="mono"><?= number_format($fundPos['units'], 4, ',', ' ') ?></b></div>
+      <div class="ch-stat"><small>Wartość</small><b class="mono"><?= money($fundPos['value']) ?> PLN</b></div>
+      <div class="ch-stat"><small>Wynik</small><b class="mono <?= $fundPos['pl'] >= 0 ? 'up' : 'down' ?>"><?= ($fundPos['pl'] >= 0 ? '+' : '') . money($fundPos['pl']) ?> PLN<?= $fundPos['cost'] > 0 ? ' (' . ($fundPos['pl'] >= 0 ? '+' : '') . number_format($fundPos['pl'] / $fundPos['cost'] * 100, 1, ',', ' ') . '%)' : '' ?></b></div>
+    </div>
+    <div style="display:flex;gap:18px;flex-wrap:wrap;margin-top:10px">
+      <form method="post" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+        <input type="hidden" name="fund_buy" value="1">
+        <div><label style="font-size:11.5px">Kup za kwotę (min <?= number_format(Fund::MIN_AMOUNT, 0, ',', ' ') ?> PLN)</label>
+          <input type="number" name="fund_amount" min="<?= (int) Fund::MIN_AMOUNT ?>" step="100" placeholder="np. 5000" style="width:140px" required></div>
+        <button class="btn sm" style="width:auto">Kup jednostki</button>
+      </form>
+      <?php if ($fundPos['units'] > 0): ?>
+      <form method="post" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+        <input type="hidden" name="fund_sell" value="1">
+        <div><label style="font-size:11.5px">Sprzedaj jednostek (puste = wszystkie)</label>
+          <input type="number" name="fund_units" min="0.0001" step="0.0001" max="<?= number_format($fundPos['units'], 4, '.', '') ?>" placeholder="wszystkie" style="width:140px"></div>
+        <button class="btn sm ghost" style="width:auto">Sprzedaj</button>
+      </form>
+      <?php endif; ?>
+    </div>
+    <p class="muted" style="margin:8px 0 0;font-size:11.5px">Prowizja <?= $feeTxtF ?>% przy sprzedaży (jak od akcji); zysk lub stratę funduszu rozlicza skarbiec gry.
+      Indeks MAK40 od Twojego startu: <b class="<?= $bm['ret_index'] >= 0 ? 'up' : 'down' ?>"><?= ($bm['ret_index'] >= 0 ? '+' : '') . number_format($bm['ret_index'], 1, ',', ' ') ?>%</b>,
+      Ty: <b class="<?= $bm['ret_player'] >= 0 ? 'up' : 'down' ?>"><?= ($bm['ret_player'] >= 0 ? '+' : '') . number_format($bm['ret_player'], 1, ',', ' ') ?>%</b> —
+      <?= $bm['alpha'] >= 0 ? 'pobijasz indeks' : 'indeks wygrywa' ?> o <?= number_format(abs($bm['alpha']), 1, ',', ' ') ?> pkt proc.</p>
+  </div>
   <div class="panel" style="margin-bottom:16px">
     <h2>Lokaty — bezpieczny procent
       <?= tip('Zamrażasz gotówkę na N sesji za stały procent (wypłata automatyczna). Kapitał lokaty CAŁY CZAS liczy się do Twojego kapitału w rankingu i celu gry. Zerwanie przed terminem zwraca kapitał, ale odsetki przepadają.', '') ?>

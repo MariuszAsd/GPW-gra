@@ -17,7 +17,7 @@
 final class Qa
 {
     /** Pełny przebieg = tyle asercji. Gdy dodajesz asercję, podnieś tę liczbę (i w CLAUDE.md). */
-    public const EXPECTED_CHECKS = 140;
+    public const EXPECTED_CHECKS = 144;
     /** Po tylu nieudanych przebiegach z rzędu GM dostaje e-mail (raz na serię). */
     public const ALERT_AFTER = 2;
 
@@ -165,6 +165,21 @@ final class Qa
         [$c, $b] = $this->http('POST', '/api_watch.php', ['stock_id' => $sid]);
         $this->check($c === 200 && str_contains($b, '"on":false'), 'watch.off', 'drugie kliknięcie nie wyłączyło obserwowania');
 
+        // fundusz MAK40: kupno = gotówka do puli funduszu (w świecie), sprzedaż = wypłata wg wyceny minus prowizja,
+        // zysk/strata ze skarbca — suma pieniądza w świecie bez zmian (potwierdza to inv.money na końcu przebiegu)
+        if (!class_exists('Fund')) require_once __DIR__ . '/Fund.php';
+        $fCash = $this->cash($uid); $fPool = Fund::pool();
+        [$okF, $mF] = Fund::buy($uid, 500.0);
+        $fPos = Fund::position($uid);
+        $this->check($okF && $fPos['units'] > 0 && abs(($fCash - $this->cash($uid)) - 500.0) < 0.011, 'fund.buy', "kupno jednostek MAK40: $mF");
+        $this->moneyEq(Fund::pool() - $fPool, 500.0, 'fund.pool', 'pula funduszu nie wzrosła o kwotę zakupu');
+        if ($okF) {
+            $fVal = round($fPos['units'] * Fund::nav(), 2);
+            $fExp = round($fVal - round($fVal * Engine::feeRate(), 2), 2);   // ta sama wycena (brak ticka między kupnem a sprzedażą)
+            [$okS, $mS] = Fund::sell($uid, null);
+            $this->check($okS && abs(($this->cash($uid) - ($fCash - 500.0)) - $fExp) < 0.02 && Fund::position($uid)['units'] == 0.0, 'fund.sell', "sprzedaż jednostek: $mS");
+            $this->moneyEq(Fund::pool(), $fPool, 'fund.pool_back', 'pula funduszu nie wróciła do stanu sprzed testu');
+        }
         // lokaty: gotówka schodzi co do grosza, kapitał NIE znika (lockedFunds), zerwanie zwraca wszystko
         if (!class_exists('Bank')) require_once __DIR__ . '/Bank.php';
         $cashB = $this->cash($uid);

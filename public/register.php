@@ -38,6 +38,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ->execute([$username, password_hash($pass1, PASSWORD_DEFAULT), $email !== '' ? $email : null, $cfg['starting_cash'], $sessionNo, $cfg['starting_cash'], $refBy]);
             $uid = (int) Db::pdo()->lastInsertId();
             Engine::worldCashAdjust((float) $cfg['starting_cash'], "rejestracja $username");   // legalna kreacja — przesuń kotwicę sumy pieniądza
+            // „czy pobiłeś indeks?”: punkt odniesienia z chwili rejestracji (kapitał startowy i indeks z tej samej chwili)
+            try { Db::pdo()->prepare("UPDATE users SET bench_tick=?, bench_index=?, bench_equity=? WHERE id=?")
+                    ->execute([(int) (Engine::one("SELECT v FROM game_state WHERE k='tick'") ?: 0), Engine::indexValue(), (float) $cfg['starting_cash'], $uid]); } catch (Throwable $e) { /* ustawi się leniwie */ }
             // baza ligi tygodnia i miesiąca od momentu dołączenia — nowy gracz liczy się w procentach od dziś
             try { Engine::snapshotUser($uid, (float) $cfg['starting_cash']); } catch (Throwable $e) { /* migawka nie blokuje rejestracji */ }
             Log::write('info', 'auth', 'register', "nowe konto: $username" . ($refBy ? " (z polecenia #$refBy)" : ''), ['uid' => $uid]);

@@ -20,6 +20,7 @@ layout_header('Pomoc', $user, 'help');
   <a href="#wydarzenia">Wydarzenia</a>
   <a href="#wyzwania">Wyzwania</a>
   <a href="#lokaty">Lokaty</a>
+  <a href="#fundusz">Fundusz MAK40</a>
   <a href="#widelki">Widełki</a>
   <a href="#ipo">IPO</a>
   <a href="#prowizja">Prowizja</a>
@@ -218,6 +219,16 @@ layout_header('Pomoc', $user, 'help');
   <div class="help-ex">💡 Ile mogę stracić? Najwyżej wpisowe + to, co stracisz handlując portfelem wyzwania.
      Ile mogę wygrać? Nagrodę z puli (przy 10 graczach 1. miejsce bierze ok. połowy) + zysk z handlu.
      Wyzwanie to najszybsza droga do tokenów i punktów sezonu — a przegrana kosztuje mniej niż wygląda.</div>
+</div>
+
+<div class="panel help-sec" id="fundusz">
+  <h3>📊 Fundusz indeksowy MAK40 — „kup cały rynek”</h3>
+  <p>Jednostki funduszu podążają za <b>Indeksem MAK40</b> (wszystkie spółki ważone kapitalizacją): 1 jednostka = indeks / 10 PLN.
+     Kupujesz za dowolną kwotę (Portfel → Lokaty i fundusz), sprzedajesz kiedy chcesz — prowizja jak od akcji, przy sprzedaży.
+     Wartość jednostek cały czas <b>liczy się do Twojego kapitału</b> w rankingu i ligach.</p>
+  <div class="help-ex">💡 <b>Czy pobiłeś indeks?</b> Pulpit i Ranking pokazują „vs MAK40”: Twoją stopę zwrotu minus zmianę indeksu liczoną
+     od tej samej chwili (od Twojego startu albo od początku tygodnia/miesiąca w ligach). Dodatni wynik = wybierasz spółki lepiej,
+     niż zrobiłby to fundusz indeksowy. Ujemny = spokojne „kup cały rynek” dałoby więcej. To najuczciwsza miara inwestora.</div>
 </div>
 
 <div class="panel help-sec" id="lokaty">

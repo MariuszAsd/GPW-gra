@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 40;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 41;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {
@@ -31,6 +31,9 @@ final class Schema
                 joined_session INT NOT NULL DEFAULT 1,   -- sesja dołączenia (liczy się od niej limit celu)
                 goal_session   INT NULL,                 -- sesja, w której gracz osiągnął cel (NULL = jeszcze nie)
                 start_equity   $money NOT NULL DEFAULT 0, -- kapitał startowy (baza do wyniku % w rankingu)
+                bench_tick   INT NULL,                     -- „czy pobiłeś indeks?”: punkt odniesienia (tick, wartość indeksu i kapitał gracza z TEJ SAMEJ chwili)
+                bench_index  DECIMAL(12,2) NULL,
+                bench_equity $money NULL,
                 tokens INT NOT NULL DEFAULT 0,             -- Tokeny inwestora (waluta premium; księga w token_ledger)
                 email VARCHAR(120) NULL,                   -- do odzyskiwania hasła (opcjonalny; unikalny gdy podany)
                 goal_target DECIMAL(15,2) NULL,            -- osobisty cel gry (NULL = domyślny z panelu GM)
@@ -231,6 +234,7 @@ final class Schema
                 period     VARCHAR(10) NOT NULL,
                 session    INT NOT NULL,
                 equity     $money NOT NULL,
+                index_value DECIMAL(12,2) NULL,   -- indeks w chwili migawki (benchmark ligi: indeks w tym tygodniu/miesiącu)
                 created_at VARCHAR(19) NOT NULL,
                 UNIQUE (user_id, kind, period)
             )",
@@ -514,6 +518,14 @@ final class Schema
                 end_session   INT NOT NULL,
                 status VARCHAR(10) NOT NULL DEFAULT 'active',   -- active|paid|broken
                 created_at VARCHAR(19) NOT NULL
+            )",
+
+            // --- FUNDUSZ INDEKSOWY MAK40: jednostki wyceniane wg indeksu (src/Fund.php); pula w game_state.fund_pool ---
+            "fund_positions" => "CREATE TABLE fund_positions (
+                user_id INT NOT NULL PRIMARY KEY,
+                units DECIMAL(15,4) NOT NULL DEFAULT 0,   -- jednostki (ułamkowe)
+                cost  DECIMAL(15,2) NOT NULL DEFAULT 0,   -- łączny koszt zakupu (pula oddaje go przy sprzedaży; resztę rozlicza skarbiec)
+                updated_at VARCHAR(19) NOT NULL
             )",
 
             // --- IPO Z ZAPISAMI (oferta publiczna: zapisy po cenie emisyjnej, redukcja, debiut) ---

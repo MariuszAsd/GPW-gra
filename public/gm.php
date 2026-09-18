@@ -515,7 +515,8 @@ $modTop = Engine::all("SELECT m.user_id, u.username, COUNT(*) n, MAX(m.created_a
     <h2 style="margin-top:18px">💰 Skarbiec gry: <span class="up mono"><?= money($treasury) ?> PLN</span></h2>
     <p class="muted">Zebrane prowizje od obrotu (płaci sprzedający przy każdej transakcji — gracze i boty). Skarbiec finansuje odsetki z lokat,
        nagrody ligi tygodnia i dopłaty do puli wyzwań — pieniądz wraca do graczy, nic nie powstaje z powietrza.
-       Spółki wypłaciły dotąd <b class="mono"><?= money($divPaid) ?> PLN</b> dywidend (świeża gotówka w świecie gry).</p>
+       Spółki wypłaciły dotąd <b class="mono"><?= money($divPaid) ?> PLN</b> dywidend (świeża gotówka w świecie gry).
+       Pula funduszu MAK40 (gotówka graczy za jednostki): <b class="mono"><?= money(Fund::pool()) ?> PLN</b> — zyski i straty funduszu rozlicza skarbiec.</p>
     <?php $pz = Engine::leaguePrizes();
       $bp = Engine::one("SELECT v FROM game_state WHERE k='challenge_bonus_pct'"); $bp = ($bp === false || $bp === null) ? 50 : (float) $bp;
       $bc = Engine::one("SELECT v FROM game_state WHERE k='challenge_bonus_cap'"); $bc = ($bc === false || $bc === null) ? 20000 : (float) $bc; ?>

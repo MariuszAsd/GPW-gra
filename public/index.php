@@ -105,7 +105,7 @@ $steps = [
   </div>
   <div class="lp-preview">
     <div class="pv-head"><span class="pv-idx">1 188,41</span><span class="chg p"><span class="ar">▲</span>0,42%</span>
-      <span class="muted" style="font-size:12px;margin-left:auto">Indeks Makleria · na żywo</span></div>
+      <span class="muted" style="font-size:12px;margin-left:auto">Indeks MAK40 · na żywo</span></div>
     <svg viewBox="0 0 520 120" preserveAspectRatio="none" style="width:100%;height:96px">
       <polygon points="0,120 0,84 52,78 104,88 156,66 208,72 260,52 312,60 364,40 416,48 468,28 520,22 520,120"
         fill="var(--up)" opacity="0.10"/>
