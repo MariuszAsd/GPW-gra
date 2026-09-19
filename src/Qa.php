@@ -17,7 +17,7 @@
 final class Qa
 {
     /** Pełny przebieg = tyle asercji. Gdy dodajesz asercję, podnieś tę liczbę (i w CLAUDE.md). */
-    public const EXPECTED_CHECKS = 155;
+    public const EXPECTED_CHECKS = 157;
     /** Po tylu nieudanych przebiegach z rzędu GM dostaje e-mail (raz na serię). */
     public const ALERT_AFTER = 2;
 
@@ -200,6 +200,12 @@ final class Qa
         } else {
             for ($i = 0; $i < 5; $i++) $this->check(true, 'push.skip', 'push niedostępny na serwerze (brak openssl_pkey_derive/aes-128-gcm/curl) — pominięto');
         }
+        // język dla początkujących: słowniczek w Pomocy (z centralnego katalogu) i dymki ze słowniczka na Rynku i karcie spółki
+        [$c, $b] = $this->http('GET', '/pomoc.php');
+        $this->check($c === 200 && str_contains($b, 'id="slowniczek"') && substr_count($b, 'class="gl-term"') >= 40, 'help.glossary', 'brak słowniczka w Pomocy (lub mniej niż 40 pojęć)');
+        [$c, $b] = $this->http('GET', '/market.php');
+        [$c2, $b2] = $this->http('GET', '/stock.php?id=' . $sid);
+        $this->check($c === 200 && str_contains($b, "data-term='bid'") && $c2 === 200 && str_contains($b2, "data-term='sl'") && str_contains($b2, 'id="type-hint"'), 'help.terms', 'dymki ze słowniczka (Bid, SL) albo podpowiedź typu zlecenia nie renderują się');
         // tygodniowy raport i karta wyniku: stały token, publiczna karta bez logowania, wypisanie z e-maili tokenem, nieznany token = 404
         if (!class_exists('Weekly')) require_once __DIR__ . '/Weekly.php';
         $tokW = Weekly::shareToken($uid);

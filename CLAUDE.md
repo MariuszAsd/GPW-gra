@@ -46,7 +46,7 @@ config.php            jedna konfiguracja (env → config.local.php → domyślne
 migrate.php           tworzy/aktualizuje schemat            seed.php  zasiewa świat
 verify.php            testy integralności (gotówka/akcje)
 cron/tick.php         puls rynku (blokada pliku cron/tick.lock)
-cron/qa_probe.php     QA-bot: gra przez HTTP jak gracz, 155 asercji
+cron/qa_probe.php     QA-bot: gra przez HTTP jak gracz, 157 asercji
 src/                  logika (patrz niżej)
 public/               warstwa web — każda strona to jeden plik PHP; manifest.json + sw.js = PWA (karta.php i sw.js są publiczne celowo)
 .github/workflows/    deploy, health, raport, trace, reinstall
@@ -66,7 +66,8 @@ public/               warstwa web — każda strona to jeden plik PHP; manifest.
 | `Bank.php` | lokaty · `Seasons.php` sezon · `Daily.php` misje · `Achievements.php` odznaki |
 | `Tokens.php` | tokeny premium, pakiety, trial, **polecenia** · `Payments.php` PayU |
 | `Recommendations.php` | rekomendacje DM · `Moderation.php` filtr słów · `Mailer.php` (PHP `mail()`, przy porażce treść do dziennika), `PasswordReset.php` |
-| `Qa.php` | definicje 155 asercji QA-bota (w tym `inv.money` — suma pieniądza w świecie) |
+| `Qa.php` | definicje 157 asercji QA-bota (w tym `inv.money` — suma pieniądza w świecie) |
+| `Glossary.php` | słowniczek pojęć (klucz → nazwa, wyjaśnienie, kotwica w Pomocy); dymki `term('klucz')`, sekcja „Słowniczek” w `pomoc.php` renderuje się z niego |
 | `Push.php` | Web Push bez composera: klucze VAPID w `game_state`, JWT ES256, aes128gcm, subskrypcje `push_subscriptions`, `Push::flush()` z crona dosyła wpisy z dzwonka |
 | `Weekly.php` | „Twój tydzień w Maklerii”: podsumowanie po zamknięciu tygodnia (powiadomienie + e-mail) i publiczna karta wyniku `karta.php?u=TOKEN` z linkiem polecającym |
 | `Fund.php` | fundusz indeksowy MAK40: jednostki = indeks/10, pula `game_state.fund_pool` w świecie, zysk/stratę rozlicza skarbiec |
@@ -110,6 +111,9 @@ health check pilnuje, że z internetu odpowiadają 403/404.
    i przesłoni alias.
 8. **Nowa funkcja = krok w samouczku.** `public/samouczek.php` to jedno miejsce prawdy o tym,
    „jak grać". Dodajesz mechanikę → dopisujesz krok (i zwykle sekcję w `pomoc.php`).
+   **Nowe pojęcie = wpis w `src/Glossary.php` + dymek `term('klucz')`** przy każdym miejscu, gdzie słowo pada
+   (nagłówek tabeli, kafelek, etykieta pola). Właściciel chce gry zrozumiałej dla początkujących: żargon bez dymka
+   to błąd. Dymki są tapowalne na telefonie (klasa `.tip.open`).
 9. **Silnik i HTTP nie ścigają się na skróty.** Wszystko, co rusza świat (tick, akcje GM, rekoncyliacja), idzie pod
    `Engine::worldLock()`; strony ponawiają zakleszczenia przez `Engine::retryOnLock()`. Wysyłka push i e-maili
    zostaje **poza** transakcją ticka (`Push::flush()` w `cron/tick.php` po tickach).
@@ -129,7 +133,7 @@ php migrate.php && php seed.php          # świeży świat (nadpisuje data/tycoo
 php cron/tick.php 100                    # 100 ticków; wpisy logów source='qa' to normalny szum
 php -S 127.0.0.1:8123 -t public &        # serwer w tle
 APP_URL=http://127.0.0.1:8123 php cron/qa_probe.php
-# MUSI wypisać: ✅ QA OK — asercji: 155
+# MUSI wypisać: ✅ QA OK — asercji: 157
 ```
 
 **Test na MySQL jest obowiązkowy dla zmian dotykających transakcji/wyścigów** (produkcja to MySQL,
@@ -188,7 +192,7 @@ Katalog `data/`, `*.md` i `verify.php` nie są wysyłane na serwer (wykluczenia 
 
 ## 6. Stan na dziś i znane sprawy
 
-- Schemat **v43**. QA lokalnie: **155/155** (SQLite i MySQL). Ostatnie wdrożenia (wrzesień 2026, jedna sesja pracy):
+- Schemat **v43**. QA lokalnie: **157/157** (SQLite i MySQL). Ostatnie wdrożenia (wrzesień 2026, jedna sesja pracy):
   audyt i poprawki krytyczne → nowy model rywalizacji (%) → skarbiec jako pula nagród → paczka poprawek średnich
   (retencja, obrót dzienny, rekoncyliacja, zamknięta ekonomia w QA) → stop-buy → fundusz MAK40 i „vs indeks” →
   fixing → tygodniowy raport i karta wyniku → PWA i push. Każde poszło na `main` z zielonym health checkiem.

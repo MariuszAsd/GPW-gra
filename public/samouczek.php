@@ -60,7 +60,7 @@ $kroki = [
      'Nowe spółki wchodzą na giełdę przez OFERTĘ PUBLICZNĄ: zapisujesz się na akcje po stałej cenie emisyjnej (zakładka IPO na Rynku), o pulę konkurują też fundusze z gry. Popyt większy niż pula = REDUKCJA — dostajesz proporcjonalnie mniej, nadpłata wraca. Gorący popyt zwykle oznacza gorący debiut. Kwota zapisu cały czas liczy się do Twojego kapitału.',
      'ipo.php', 'Zobacz aktualną ofertę'],
     ['🏦', 'Lokaty — bezpieczny procent',
-     'Gotówki, której nie inwestujesz, nie musisz trzymać bezczynnie: w Portfelu (zakładka Lokaty) zamrozisz ją na kilka sesji za stały procent. Kapitał lokaty nadal liczy się do rankingu i celu gry. Zerwiesz przed terminem? Kapitał wraca, odsetki przepadają. Klasyczny dylemat inwestora: pewny mały procent czy ryzyko akcji.',
+     'Gotówki, której nie inwestujesz, nie musisz trzymać bezczynnie: w Portfelu (zakładka Lokaty) zamrozisz ją na kilka sesji za stały procent. Kapitał lokaty nadal liczy się do rankingu i lig. Zerwiesz przed terminem? Kapitał wraca, odsetki przepadają. Klasyczny dylemat inwestora: pewny mały procent czy ryzyko akcji.',
      'portfolio.php?tab=lok', 'Załóż pierwszą lokatę'],
     ['📊', 'Fundusz MAK40 i pojedynek z indeksem',
      'Nie chcesz wybierać spółek? Kup jednostki funduszu indeksowego MAK40 (Portfel → Lokaty i fundusz): podążają za całym rynkiem, kupujesz za dowolną kwotę i sprzedajesz, kiedy chcesz (prowizja jak od akcji). A jeśli wybierasz spółki sam — Pulpit i Ranking pokazują, czy pobiłeś indeks: Twoja stopa zwrotu minus zmiana MAK40 od tej samej chwili. Dodatni wynik oznacza, że jesteś lepszy niż „kup cały rynek”.',
@@ -87,7 +87,7 @@ $kroki = [
      'Za odznaki, podium wyzwań i progi sezonu zbierasz Tokeny inwestora (możesz je też doładować). W sekcji Tokeny inwestora wymienisz je na Pakiet Analityka (skaner AT, alerty, rekomendacje DZIEŃ przed innymi), Raport Premium (pełna analiza każdej spółki) albo kosmetykę: tytuły, kolory nicka, ramki. Graj regularnie — aktywni gracze dostają w prezencie darmowy okres próbny pełnego premium. Tokeny nigdy nie kupują PLN — ranking pozostaje uczciwy.',
      'sklep.php', 'Zobacz Tokeny inwestora'],
     ['❓', 'Pomoc zawsze pod ręką',
-     'Znaczki ? przy polach pokazują dymki z wyjaśnieniem. Pełne infografiki (SL/TP, zlecenia, dywidendy) znajdziesz w Pomocy. Podpowiedzi nad działami możesz wyłączyć — i włączyć ponownie tutaj.',
+     'Znaczki ? przy polach i nagłówkach pokazują dymki z wyjaśnieniem — na telefonie wystarczy tapnąć. Nie rozumiesz słowa (Bid, PKC, C/Z, buy-in…)? Wszystkie pojęcia są w Słowniczku w Pomocy, a pełne infografiki (SL/TP, zlecenia, fixing, dywidendy) obok. Podpowiedzi nad działami możesz wyłączyć — i włączyć ponownie tutaj.',
      'pomoc.php', 'Otwórz Pomoc'],
 ];
 

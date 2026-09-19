@@ -82,7 +82,7 @@ layout_header('IPO', $user, 'market');
   <h2>Historia debiutów <span class="muted" style="text-transform:none;letter-spacing:0;font-size:12px">· redukcja i wynik od ceny emisyjnej</span></h2>
   <?php if (!$history): ?><p class="muted">Pierwsza oferta z zapisami jeszcze przed nami — historia zbuduje się z czasem.</p><?php else: ?>
   <div class="tbl-scroll"><table>
-    <thead><tr><th>Spółka</th><th class="num">Cena emisyjna</th><th class="num hide-m">Redukcja</th><th class="num">Kurs dziś</th><th class="num">Od emisji</th></tr></thead>
+    <thead><tr><th>Spółka</th><th class="num">Cena emisyjna</th><th class="num hide-m">Redukcja<?= term('redukcja') ?></th><th class="num">Kurs dziś</th><th class="num">Od emisji<?= term('od_emisji') ?></th></tr></thead>
     <tbody>
     <?php foreach ($history as $hRow): $chg = $hRow['cur_price'] !== null && (float) $hRow['price'] > 0
               ? ((float) $hRow['cur_price'] / (float) $hRow['price'] - 1) * 100 : null; ?>
