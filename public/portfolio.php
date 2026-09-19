@@ -135,9 +135,9 @@ layout_header('Portfel', $user, 'portfolio');
 <?php endif; ?>
 
 <div class="stats">
-  <div class="stat"><div class="k">Kapitał</div><div class="v"><?= money($equity) ?></div></div>
-  <div class="stat"><div class="k">Gotówka</div><div class="v"><?= money($user['cash']) ?></div></div>
-  <div class="stat"><div class="k">Wartość akcji</div><div class="v"><?= money($value) ?></div></div>
+  <div class="stat"><div class="k">Kapitał<?= term('kapital') ?></div><div class="v"><?= money($equity) ?></div></div>
+  <div class="stat"><div class="k">Gotówka<?= term('gotowka') ?></div><div class="v"><?= money($user['cash']) ?></div></div>
+  <div class="stat"><div class="k">Wartość akcji<?= term('kurs') ?></div><div class="v"><?= money($value) ?></div></div>
   <?php if ($depIpo > 0): ?>
   <div class="stat"><div class="k">Lokaty i zapisy IPO</div><div class="v"><?= money($depIpo) ?></div></div>
   <?php endif; ?>
@@ -147,7 +147,7 @@ layout_header('Portfel', $user, 'portfolio');
   <?php if ($chLocked > 0): ?>
   <div class="stat"><div class="k">Zablokowane w wyzwaniu</div><div class="v"><?= money($chLocked) ?><span class="muted" style="font-size:11px;display:block;font-weight:500;letter-spacing:0;text-transform:none">buy-in — wciąż Twój majątek</span></div></div>
   <?php endif; ?>
-  <div class="stat"><div class="k">Wynik</div><div class="v <?= $pl >= 0 ? 'up' : 'down' ?>"><?= ($pl >= 0 ? '+' : '') . money($pl) ?><span style="font-size:13px"> (<?= ($plPct >= 0 ? '+' : '') . number_format($plPct, 1, ',', ' ') ?>%)</span></div></div>
+  <div class="stat"><div class="k">Wynik<?= term('wynik') ?></div><div class="v <?= $pl >= 0 ? 'up' : 'down' ?>"><?= ($pl >= 0 ? '+' : '') . money($pl) ?><span style="font-size:13px"> (<?= ($plPct >= 0 ? '+' : '') . number_format($plPct, 1, ',', ' ') ?>%)</span></div></div>
 </div>
 
 <div class="subtabs">
@@ -167,7 +167,7 @@ layout_header('Portfel', $user, 'portfolio');
   <div style="padding:14px 16px 0"><h2>Pozycje w portfelu <span class="muted" style="text-transform:none;letter-spacing:0">· kliknij pozycję — SL/TP i szczegóły</span></h2></div>
   <div class="tbl-scroll">
     <table>
-      <thead><tr><th>Instrument</th><th class="num">Ilość</th><th class="num">Kurs</th><th class="num">Kupno</th><th class="num hide-m">Wartość</th><th class="hide-m">Udział</th><th class="num">Wynik</th></tr></thead>
+      <thead><tr><th>Instrument</th><th class="num">Ilość</th><th class="num">Kurs<?= term('kurs') ?></th><th class="num">Kupno<?= term('srednia') ?></th><th class="num hide-m">Wartość</th><th class="hide-m">Udział<?= term('udzial') ?></th><th class="num">Wynik<?= term('wynik') ?></th></tr></thead>
       <tbody>
       <?php $maxPosVal = 0.0; foreach ($pos as $pp) { $vv = ((int) $pp['qty'] + (int) $pp['qty_reserved']) * (float) $pp['price']; if ($vv > $maxPosVal) $maxPosVal = $vv; }
             foreach ($pos as $p): $q = $p['qty'] + $p['qty_reserved']; $ppl = $q * ($p['price'] - $p['avg_price']);
@@ -190,8 +190,8 @@ layout_header('Portfel', $user, 'portfolio');
             <div class="pos-actions">
               <form method="post" action="set_sltp.php" class="sltp-form">
                 <div><label>Ilość (szt.)</label><input type="number" name="qty" min="1" value="<?= (int) $p['qty'] ?>"></div>
-                <div><label>Stop-Loss</label><input type="number" step="0.01" name="sl_price" placeholder="—"></div>
-                <div><label>Take-Profit</label><input type="number" step="0.01" name="tp_price" placeholder="—"></div>
+                <div><label>Stop-Loss <span class="muted">(sprzedaj, gdy spadnie do)</span><?= term('sl') ?></label><input type="number" step="0.01" name="sl_price" placeholder="—"></div>
+                <div><label>Take-Profit <span class="muted">(sprzedaj, gdy wzrośnie do)</span><?= term('tp') ?></label><input type="number" step="0.01" name="tp_price" placeholder="—"></div>
                 <div><label>SL krocz. %<?= tip('SL kroczący: próg sam podąża za rosnącym kursem, np. 8 = zawsze 8% pod szczytem.', 'sl') ?></label><input type="number" step="0.5" min="0.5" max="50" name="trail" placeholder="—"></div>
                 <input type="hidden" name="stock_id" value="<?= $sid3 ?>">
                 <button class="btn sm">Ustaw zlecenie obronne</button>
@@ -213,7 +213,7 @@ layout_header('Portfel', $user, 'portfolio');
   <div style="padding:14px 16px 0"><h2>Aktywne zlecenia <span class="muted" style="text-transform:none;letter-spacing:0">· kliknij wiersz, aby zobaczyć szczegóły</span></h2></div>
   <div class="tbl-scroll tbl-cap">
     <table>
-      <thead><tr><th>Instrument</th><th>Typ</th><th class="num">Ilość<?= tip('Ile jeszcze czeka w arkuszu / ile było w całym zleceniu. „częściowo" = część już się zrealizowała, reszta czeka na kupca/sprzedawcę.', '') ?></th><th class="num">Cena</th><th class="hide-m">Ważność</th><th></th></tr></thead>
+      <thead><tr><th>Instrument</th><th>Typ<?= term('typ_zlecenia') ?></th><th class="num">Ilość<?= tip('Ile jeszcze czeka w arkuszu / ile było w całym zleceniu. „częściowo" = część już się zrealizowała, reszta czeka na kupca/sprzedawcę.', '') ?></th><th class="num">Cena</th><th class="hide-m">Ważność<?= term('waznosc') ?></th><th></th></tr></thead>
       <tbody>
       <?php foreach ($orders as $o): $isSB = $o['side'] === 'buy' && $o['status'] === 'pending'; $isStop = $o['status'] === 'pending' && !$isSB; $init = (int) ($o['qty_init'] ?? $o['qty']); $rem = (int) $o['qty']; $done = max(0, $init - $rem); ?>
         <tr class="rowlink" onclick="location='order.php?id=<?= (int) $o['id'] ?>'" title="Kliknij — szczegóły zlecenia">
@@ -285,7 +285,7 @@ layout_header('Portfel', $user, 'portfolio');
       <?= tip('Jednostki funduszu podążają za Indeksem MAK40 (cały rynek ważony kapitalizacją): 1 jednostka = indeks / 10 PLN. Kupujesz za dowolną kwotę, sprzedajesz kiedy chcesz (prowizja jak od akcji). Wartość jednostek liczy się do Twojego kapitału.', 'fundusz') ?>
     </h2>
     <div class="ch-grid">
-      <div class="ch-stat"><small>Wycena jednostki</small><b class="mono"><?= number_format($navF, 2, ',', ' ') ?> PLN</b></div>
+      <div class="ch-stat"><small>Wycena jednostki<?= term('nav') ?></small><b class="mono"><?= number_format($navF, 2, ',', ' ') ?> PLN</b></div>
       <div class="ch-stat"><small>Twoje jednostki</small><b class="mono"><?= number_format($fundPos['units'], 4, ',', ' ') ?></b></div>
       <div class="ch-stat"><small>Wartość</small><b class="mono"><?= money($fundPos['value']) ?> PLN</b></div>
       <div class="ch-stat"><small>Wynik</small><b class="mono <?= $fundPos['pl'] >= 0 ? 'up' : 'down' ?>"><?= ($fundPos['pl'] >= 0 ? '+' : '') . money($fundPos['pl']) ?> PLN<?= $fundPos['cost'] > 0 ? ' (' . ($fundPos['pl'] >= 0 ? '+' : '') . number_format($fundPos['pl'] / $fundPos['cost'] * 100, 1, ',', ' ') . '%)' : '' ?></b></div>
@@ -313,7 +313,7 @@ layout_header('Portfel', $user, 'portfolio');
   </div>
   <div class="panel" style="margin-bottom:16px">
     <h2>Lokaty — bezpieczny procent
-      <?= tip('Zamrażasz gotówkę na N sesji za stały procent (wypłata automatyczna). Kapitał lokaty CAŁY CZAS liczy się do Twojego kapitału w rankingu i celu gry. Zerwanie przed terminem zwraca kapitał, ale odsetki przepadają.', '') ?>
+      <?= tip('Zamrażasz gotówkę na N sesji za stały procent (wypłata automatyczna). Kapitał lokaty CAŁY CZAS liczy się do Twojego kapitału w rankingu i ligach. Zerwanie przed terminem zwraca kapitał, ale odsetki przepadają.', 'lokaty') ?>
     </h2>
     <div class="ch-grid">
       <?php foreach (Bank::offers() as $term => $rate): ?>
@@ -367,7 +367,7 @@ layout_header('Portfel', $user, 'portfolio');
     <span style="float:right" class="mono <?= $realizedTotal >= 0 ? 'up' : 'down' ?>"><?= ($realizedTotal >= 0 ? '+' : '') . money($realizedTotal) ?> PLN</span></h2></div>
   <div class="tbl-scroll tbl-cap">
     <table>
-      <thead><tr><th>Instrument</th><th class="num hide-m">Sprzedane</th><th class="num hide-m">Śr. koszt</th><th class="num hide-m">Śr. sprzedaż (netto)</th><th class="num">Zrealizowany wynik</th></tr></thead>
+      <thead><tr><th>Instrument</th><th class="num hide-m">Sprzedane</th><th class="num hide-m">Śr. koszt<?= term('srednia') ?></th><th class="num hide-m">Śr. sprzedaż (netto)<?= term('prowizja') ?></th><th class="num">Zrealizowany wynik<?= term('zrealizowany') ?></th></tr></thead>
       <tbody>
       <?php foreach ($closed as $sid2 => $c): ?>
         <tr class="rowlink" onclick="location='stock.php?id=<?= (int) $sid2 ?>'">

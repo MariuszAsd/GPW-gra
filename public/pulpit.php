@@ -99,11 +99,11 @@ function stock_row(array $w, bool $premium, bool $withPl): void {
 
 <?php /* ---------- 1. KAPITAŁ ---------- */ ?>
 <div class="stats">
-  <div class="stat"><div class="k">Kapitał</div><div class="v"><?= money($equity) ?></div></div>
-  <div class="stat"><div class="k">Wynik od startu</div><div class="v <?= $ret >= 0 ? 'up' : 'down' ?>"><?= ($ret >= 0 ? '+' : '') . number_format($ret, 1, ',', ' ') ?>%</div></div>
+  <div class="stat"><div class="k">Kapitał<?= term('kapital') ?></div><div class="v"><?= money($equity) ?></div></div>
+  <div class="stat"><div class="k">Wynik od startu<?= term('stopa_zwrotu') ?></div><div class="v <?= $ret >= 0 ? 'up' : 'down' ?>"><?= ($ret >= 0 ? '+' : '') . number_format($ret, 1, ',', ' ') ?>%</div></div>
   <div class="stat"><div class="k">vs MAK40<?= tip('Twoja stopa zwrotu minus zmiana Indeksu MAK40 liczona od tej samej chwili (Twój start). Dodatnia = pobijasz rynek, ujemna = zwykły fundusz indeksowy zarobiłby więcej.', 'fundusz') ?></div><div class="v <?= $bm['alpha'] >= 0 ? 'up' : 'down' ?>"><?= ($bm['alpha'] >= 0 ? '+' : '') . number_format($bm['alpha'], 1, ',', ' ') ?> pp<span style="font-size:11px;display:block;font-weight:500;letter-spacing:0;text-transform:none;color:var(--faint)">indeks <?= ($bm['ret_index'] >= 0 ? '+' : '') . number_format($bm['ret_index'], 1, ',', ' ') ?>%</span></div></div>
-  <div class="stat"><div class="k">Wolna gotówka</div><div class="v"><?= money($user['cash']) ?></div></div>
-  <div class="stat"><div class="k">Pozycje</div><div class="v"><?= count($pos) ?></div></div>
+  <div class="stat"><div class="k">Wolna gotówka<?= term('gotowka') ?></div><div class="v"><?= money($user['cash']) ?></div></div>
+  <div class="stat"><div class="k">Pozycje<?= term('pozycja') ?></div><div class="v"><?= count($pos) ?></div></div>
 </div>
 <?php if ($eqSvg): ?>
 <div class="panel" style="margin-bottom:12px;padding:10px 14px 8px"><?= $eqSvg ?></div>

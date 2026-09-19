@@ -37,7 +37,7 @@ layout_header('Tokeny inwestora', $user, 'shop');
 </div>
 
 <div class="stats" style="grid-template-columns:repeat(auto-fit,minmax(250px,1fr));max-width:760px">
-  <div class="stat"><div class="k">Twoje saldo</div><div class="v" style="color:var(--gold)">🪙 <?= $balance ?> Tokenów</div>
+  <div class="stat"><div class="k">Twoje saldo<?= term('tokeny') ?></div><div class="v" style="color:var(--gold)">🪙 <?= $balance ?> Tokenów</div>
     <p class="muted" style="margin:8px 0 0;font-size:12px;line-height:1.5">Tokenami płacisz za pakiety premium i kosmetykę. Nigdy nie kupisz za nie wirtualnych PLN — ranking pozostaje uczciwy.</p></div>
   <div class="stat"><div class="k">Jak zdobyć tokeny?</div>
     <ul class="how-tokens">

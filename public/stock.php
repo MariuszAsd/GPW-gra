@@ -199,7 +199,7 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
       </div>
 
       <div class="tabpane" id="tab-trades">
-        <table><thead><tr><th>Czas</th><th class="num">Ilość</th><th class="num">Kurs</th></tr></thead><tbody id="trades-body">
+        <table><thead><tr><th>Czas</th><th class="num">Ilość</th><th class="num">Kurs<?= term('kurs') ?></th></tr></thead><tbody id="trades-body">
           <?php foreach ($trades as $t): ?>
             <tr><td class="muted mono"><?= h(substr($t['created_at'], 11, 8)) ?></td><td class="num"><?= (int) $t['qty'] ?></td><td class="num"><?= money($t['price']) ?></td></tr>
           <?php endforeach; if (!$trades) echo "<tr><td class='muted' colspan=3>brak transakcji</td></tr>"; ?>
@@ -207,7 +207,7 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
       </div>
 
       <div class="tabpane" id="tab-reports">
-        <table><thead><tr><th>Okres</th><th class="num">Przychody</th><th class="num">Zysk netto</th><th class="num">EPS</th><th class="num">Niespodzianka</th><th class="num">Dywidenda<?= tip('Część zysku wypłacana akcjonariuszom za każdą akcję. W dniu wypłaty kurs jest pomniejszany o jej wartość (odcięcie).', 'dywidenda') ?></th></tr></thead><tbody>
+        <table><thead><tr><th>Okres</th><th class="num">Przychody</th><th class="num">Zysk netto</th><th class="num">EPS<?= term('eps') ?></th><th class="num">Niespodzianka<?= term('niespodzianka') ?></th><th class="num">Dywidenda<?= tip('Część zysku wypłacana akcjonariuszom za każdą akcję. W dniu wypłaty kurs jest pomniejszany o jej wartość (odcięcie).', 'dywidenda') ?></th></tr></thead><tbody>
           <?php foreach ($reports as $r): $sp = (float) $r['surprise_pct']; $dv = (float) ($r['dividend'] ?? 0); ?>
             <tr><td><?= h($r['period']) ?></td><td class="num"><?= money($r['revenue']) ?></td><td class="num"><?= money($r['net_profit']) ?></td><td class="num"><?= number_format($r['eps'], 2, ',', ' ') ?></td><td class="num <?= $sp >= 0 ? 'up' : 'down' ?>"><?= ($sp >= 0 ? '+' : '') . number_format($sp, 1, ',', ' ') ?>%</td><td class="num"><?= $dv > 0 ? '<b class="up">' . money($dv) . '</b>' : '<span class="muted">—</span>' ?></td></tr>
           <?php endforeach; if (!$reports) echo "<tr><td class='muted' colspan=6>brak raportów</td></tr>"; ?>
@@ -336,11 +336,11 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
         <?php if (!empty($s['description'])): ?><p class="soft" style="margin:4px 0 12px"><?= h($s['description']) ?></p><?php endif; ?>
         <table><tbody>
           <tr><td class="muted">Sektor</td><td class="num"><?= h($s['sector']) ?></td></tr>
-          <tr><td class="muted">Kapitalizacja</td><td class="num"><?= money($mcap) ?> PLN</td></tr>
+          <tr><td class="muted">Kapitalizacja<?= term('kapitalizacja') ?></td><td class="num"><?= money($mcap) ?> PLN</td></tr>
           <tr><td class="muted">Liczba akcji</td><td class="num"><?= number_format($s['total_shares'], 0, ',', ' ') ?></td></tr>
-          <tr><td class="muted">Wartość fundamentalna</td><td class="num"><?= money($s['fundamental']) ?> PLN</td></tr>
-          <tr><td class="muted">C/Z docelowe</td><td class="num"><?= number_format($s['pe_target'], 1, ',', ' ') ?></td></tr>
-          <tr><td class="muted">EPS (roczny)</td><td class="num"><?= number_format($s['last_eps'], 2, ',', ' ') ?> PLN</td></tr>
+          <tr><td class="muted">Wartość fundamentalna<?= term('fundamentalna') ?></td><td class="num"><?= money($s['fundamental']) ?> PLN</td></tr>
+          <tr><td class="muted">C/Z docelowe<?= term('cz') ?></td><td class="num"><?= number_format($s['pe_target'], 1, ',', ' ') ?></td></tr>
+          <tr><td class="muted">EPS (roczny)<?= term('eps') ?></td><td class="num"><?= number_format($s['last_eps'], 2, ',', ' ') ?> PLN</td></tr>
           <?php $po = (float) ($s['dividend_payout'] ?? 0); ?>
           <tr><td class="muted">Polityka dywidendy<?= tip('Jaką część miesięcznego zysku spółka wypłaca akcjonariuszom. Wystarczy mieć akcje w dniu raportu.', 'dywidenda') ?></td>
               <td class="num"><?= $po > 0 ? '<b class="up">' . number_format($po * 100, 0) . '% zysku</b> <span class="muted">(~' . number_format($po / max(1, (float) $s['pe_target']) * 100, 1, ',', ' ') . '% rocznie)</span>' : '<span class="muted">nie wypłaca (reinwestuje)</span>' ?></td></tr>
@@ -400,6 +400,7 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
         <button type="button" id="tt-stop" title="Kup, gdy kurs przebije próg — zlecenie czeka na wybicie">STOP-BUY</button>
         <?= tip('LIMIT: podajesz swoją cenę i czekasz na realizację. PKC: bierzesz od razu to, co jest w arkuszu. STOP-BUY: kupno aktywuje się dopiero, gdy kurs przebije Twój próg (łapanie wybić).', 'limit') ?>
       </div>
+      <p class="muted" id="type-hint" style="font-size:12px;margin:2px 0 8px;line-height:1.4"></p>
       <label>Ilość <span class="muted">(masz: <?= $owned ?> szt.)</span></label>
       <input type="number" name="qty" id="qty" min="1" value="10" required>
       <div id="f-price">
@@ -433,10 +434,10 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
       <?php endif; ?>
       <div id="f-sltp">
         <div class="adv">
-          <div><label>Stop-Loss<?= tip('Automatyczny hamulec strat: gdy kurs SPADNIE do progu, gra sama sprzeda ten pakiet.', 'sl') ?></label><input type="number" step="0.01" name="sl_price" placeholder="—"></div>
-          <div><label>Take-Profit<?= tip('Automatyczna kasa zysku: gdy kurs WZROŚNIE do progu, gra sama sprzeda ten pakiet.', 'tp') ?></label><input type="number" step="0.01" name="tp_price" placeholder="—"></div>
+          <div><label>Stop-Loss <span class="muted">(sprzedaj, gdy spadnie do)</span><?= term('sl') ?></label><input type="number" step="0.01" name="sl_price" placeholder="np. 10% niżej"></div>
+          <div><label>Take-Profit <span class="muted">(sprzedaj, gdy wzrośnie do)</span><?= term('tp') ?></label><input type="number" step="0.01" name="tp_price" placeholder="np. 20% wyżej"></div>
         </div>
-        <p class="muted" style="font-size:11px;margin:6px 0 0">Utworzy zlecenie obronne na kupowany pakiet — widoczne i anulowalne w Portfelu.</p>
+        <p class="muted" style="font-size:11px;margin:6px 0 0">Opcjonalne. Gra sama sprzeda kupowany pakiet, gdy kurs dojdzie do progu — zlecenie zobaczysz i anulujesz w Portfelu.</p>
       </div>
       <button class="btn buy" id="submit" style="margin-top:14px">Kup <?= h($s['ticker']) ?></button>
     </form>
@@ -484,7 +485,11 @@ function setSide(s){ side.value=s;
   document.getElementById('tt-stop').style.display=s==='buy'?'':'none';   // stop-buy tylko dla kupna
   if(s==='sell'&&type.value==='stop') setType('limit');
   document.getElementById('f-sltp').style.display=(s==='buy'&&type.value!=='stop')?'':'none';
-  sub.className='btn '+s; sub.textContent=(s==='buy'?'Kup ':'Sprzedaj ')+tk; upd(); }
+  sub.className='btn '+s; sub.textContent=(s==='buy'?'Kup ':'Sprzedaj ')+tk; updHint(); upd(); }
+const HINTS={limit:{buy:'LIMIT: kupisz po swojej cenie lub taniej. Jeśli nikt tyle nie sprzedaje, zlecenie czeka w arkuszu.',sell:'LIMIT: sprzedasz po swojej cenie lub drożej. Jeśli nikt tyle nie płaci, zlecenie czeka w arkuszu.'},
+  market:{buy:'PKC: kupujesz od razu po najlepszych cenach z arkusza. Szybko, ale cena jest taka, jaką akurat oferują sprzedający.',sell:'PKC: sprzedajesz od razu po najlepszych cenach z arkusza. Szybko, ale cena jest taka, jaką akurat płacą kupujący.'},
+  stop:{buy:'STOP-BUY: nic się nie dzieje, dopóki kurs nie WZROŚNIE do progu. Wtedy gra sama kupuje z limitem — do łapania wybić.',sell:''}};
+function updHint(){ const h=document.getElementById('type-hint'); if(h) h.textContent=(HINTS[type.value]||{})[side.value]||''; }
 function setType(t){ type.value=t;
   document.getElementById('tt-limit').classList.toggle('on',t==='limit');
   document.getElementById('tt-pkc').classList.toggle('on',t==='market');
@@ -493,8 +498,9 @@ function setType(t){ type.value=t;
   document.getElementById('f-validity').style.display=t==='limit'?'':'none';
   document.getElementById('f-stopbuy').style.display=t==='stop'?'':'none';
   document.getElementById('f-sltp').style.display=(side.value==='buy'&&t!=='stop')?'':'none';
-  price.required=(t==='limit'); upd(); }
+  price.required=(t==='limit'); updHint(); upd(); }
 document.getElementById('tt-stop').onclick=()=>setType('stop');
+updHint();
 document.getElementById('tb-buy').onclick=()=>setSide('buy');
 document.getElementById('tb-sell').onclick=()=>setSide('sell');
 document.getElementById('tt-limit').onclick=()=>setType('limit');

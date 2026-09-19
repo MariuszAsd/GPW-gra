@@ -78,7 +78,7 @@ function render_running(array $active, int $uid, int $session): void {
       <?= split_label(count($board)) ?> ·
       wynik = kapitał portfela wyzwania (gotówka + akcje po bieżącym kursie).</p>
     <div style="overflow-x:auto"><table>
-      <thead><tr><th>#</th><th>Gracz</th><th class="num">Kapitał wyzwania</th><th class="num">Wynik</th></tr></thead>
+      <thead><tr><th>#</th><th>Gracz</th><th class="num">Kapitał wyzwania<?= term('kapital_wyzwania') ?></th><th class="num">Wynik</th></tr></thead>
       <tbody>
       <?php foreach ($board as $i => $b): $ret = (float) $b['buyin'] > 0 ? ((float) $b['equity'] / (float) $b['buyin'] - 1) * 100 : 0; ?>
         <tr <?= (int) $b['user_id'] === $uid ? 'style="background:var(--info-bg)"' : '' ?>>
@@ -240,9 +240,9 @@ layout_header('Wyzwania', $user, 'challenges');
   <section class="panel" style="margin-bottom:16px">
     <h2><?= h($active['name']) ?> — zapisy trwają</h2>
     <div class="ch-grid">
-      <div class="ch-stat"><small>Buy-in (portfel wyzwania)</small><b><?= money($active['buyin']) ?> PLN</b></div>
-      <div class="ch-stat"><small>Wpisowe (do puli nagród)</small><b><?= money($fee) ?> PLN</b></div>
-      <div class="ch-stat"><small>Pula nagród</small><b class="up"><?= money($active['pot']) ?> PLN</b></div>
+      <div class="ch-stat"><small>Buy-in (portfel wyzwania)<?= term('buyin') ?></small><b><?= money($active['buyin']) ?> PLN</b></div>
+      <div class="ch-stat"><small>Wpisowe (do puli nagród)<?= term('wpisowe') ?></small><b><?= money($fee) ?> PLN</b></div>
+      <div class="ch-stat"><small>Pula nagród<?= term('pula') ?></small><b class="up"><?= money($active['pot']) ?> PLN</b></div>
       <div class="ch-stat"><small>Start / koniec</small><b>sesja #<?= (int) $active['start_session'] ?> → #<?= (int) $active['end_session'] ?></b></div>
       <div class="ch-stat"><small>Zapisani (min <?= (int) $active['min_players'] ?>)</small><b><?= count($entrants) ?></b></div>
     </div>
@@ -284,7 +284,7 @@ layout_header('Wyzwania', $user, 'challenges');
     <div class="ch-step"><i>4</i><b>🏆 Rozliczenie</b><span>buy-in wraca każdemu; top ~20% graczy dzieli dodatkowo pulę wpisowych</span></div>
   </div>
   <p class="muted" style="margin:10px 0 0;font-size:12.5px;padding:8px 10px;background:var(--info-bg);border-radius:8px">
-    ℹ️ To <b>osobny konkurs</b>, niezależny od Ligi/Rankingu. Handlujesz tylko kwotą buy-inu (np. 20&nbsp;000 PLN) na oddzielnym portfelu — Twój główny kapitał i licznik „do celu: N&nbsp;sesji" w Rankingu się <b>nie zmieniają</b>. „Sesje" w wyzwaniu to po prostu czas jego trwania, a nie limit na milion.
+    ℹ️ To <b>osobny konkurs</b>, niezależny od Ligi/Rankingu. Handlujesz tylko kwotą buy-inu (np. 20&nbsp;000 PLN) na oddzielnym portfelu — Twój główny kapitał, ranking i ligi się <b>nie zmieniają</b>. „Sesje" w wyzwaniu to po prostu czas jego trwania (dni giełdowe).
   </p>
   <p class="muted" style="margin:8px 0 0;font-size:12.5px">
     <b class="up">Wygrywasz</b> → nagroda z puli + Tokeny inwestora + punkty sezonu i odznaka.

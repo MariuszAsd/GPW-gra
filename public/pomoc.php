@@ -26,7 +26,8 @@ layout_header('Pomoc', $user, 'help');
   <a href="#widelki">Widełki</a>
   <a href="#ipo">IPO</a>
   <a href="#prowizja">Prowizja</a>
-  <a href="#cel">Cel gry</a>
+  <a href="#cel">O co gramy</a>
+  <a href="#slowniczek">Słowniczek</a>
 </div>
 
 <div class="panel help-sec" id="arkusz">
@@ -261,7 +262,7 @@ layout_header('Pomoc', $user, 'help');
   <h3>🏦 Lokaty</h3>
   <p>Wolną gotówkę możesz zamrozić na kilka sesji za <b>stały procent</b> (Portfel → Lokaty). Wypłata jest
      automatyczna po terminie. Kapitał lokaty przez cały czas <b>liczy się do Twojego kapitału</b> w rankingu
-     i celu gry — nie „znika". Zerwanie przed terminem: kapitał wraca od ręki, odsetki przepadają.</p>
+     i ligach — nie „znika". Zerwanie przed terminem: kapitał wraca od ręki, odsetki przepadają.</p>
   <div class="help-ex">💡 Lokata to pewny mały zysk kosztem szansy na duży — klasyczna decyzja alokacyjna.
      W czasie hossy zwykle przegrywa z akcjami, w bessie bywa najlepszą pozycją w portfelu.</div>
 </div>
@@ -310,4 +311,16 @@ layout_header('Pomoc', $user, 'help');
      pojawiają się komunikaty <b>ESPI</b>, a sektorami rządzą trendy. Czytaj wiadomości i raporty na podstronach
      spółek — tam często widać, czemu kurs się rusza.</p>
 </div>
+<div class="panel help-sec" id="slowniczek">
+  <h3>📖 Słowniczek — te same słowa, co w dymkach „?”</h3>
+  <p class="muted" style="margin:0 0 10px">Każdy znak <span class="tip" tabindex="0">?<span class="tipbox">Tak wyglądają dymki w grze. Na telefonie: tapnij, żeby otworzyć.</span></span> w grze pokazuje jedno z poniższych wyjaśnień. Tu masz wszystkie w jednym miejscu.</p>
+  <dl class="gl">
+  <?php $gl = Glossary::all(); uasort($gl, fn($a, $b) => strcoll(mb_strtolower($a[0]), mb_strtolower($b[0])));
+    foreach ($gl as $k => $t): ?>
+    <dt class="gl-term" id="gl-<?= h($k) ?>"><?= h($t[0]) ?></dt>
+    <dd><?= h($t[1]) ?><?php if ($t[2] !== ''): ?> <a href="#<?= h($t[2]) ?>">Więcej →</a><?php endif; ?></dd>
+  <?php endforeach; ?>
+  </dl>
+</div>
+
 <?php layout_footer();

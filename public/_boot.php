@@ -22,6 +22,7 @@ require_once __DIR__ . '/../src/Reconcile.php';
 require_once __DIR__ . '/../src/Fund.php';
 require_once __DIR__ . '/../src/Weekly.php';
 require_once __DIR__ . '/../src/Push.php';
+require_once __DIR__ . '/../src/Glossary.php';
 
 // Secure gdy połączenie po HTTPS (produkcja) — ciasteczko sesji nie wycieknie przy przypadkowym HTTP.
 // Lokalnie (HTTP) zostaje bez Secure, żeby logowanie działało bez certyfikatu.
@@ -165,6 +166,15 @@ function explainer(string $key, string $title, array $steps): void {
         echo "<span class='expl-step'>$s</span>";
     }
     echo "</span></div>";
+}
+
+/** Dymek ze Słowniczka (src/Glossary.php): to samo wyjaśnienie pojęcia w całej grze + link do Pomocy i Słowniczka. */
+function term(string $key): string {
+    $t = Glossary::get($key);
+    if (!$t) return '';
+    $more = $t[2] !== '' ? " <a href='pomoc.php#" . h($t[2]) . "'>Więcej →</a>" : '';
+    return "<span class='tip' tabindex='0' data-term='" . h($key) . "'>?<span class='tipbox'><b>" . h($t[0]) . "</b><br>" . h($t[1]) . $more
+         . " <a href='pomoc.php#slowniczek' style='font-weight:400'>Słowniczek</a></span></span>";
 }
 
 /** Dymek pomocy: znak zapytania z wyjaśnieniem po najechaniu/tapnięciu + link do Pomocy. */
@@ -389,7 +399,10 @@ function layout_footer(): void {
        . "try{if(!localStorage.getItem(k)&&!sessionStorage.getItem(k))e.hidden=false}catch(_){e.hidden=false}});"
        . "function explAsk(b){b.hidden=true;b.closest('.expl').querySelector('.expl-menu').hidden=false}"
        . "function explOnce(b){var e=b.closest('.expl');try{sessionStorage.setItem('exp_'+e.dataset.exp,'1')}catch(_){}e.remove()}"
-       . "function explForever(b){var e=b.closest('.expl');try{localStorage.setItem('exp_'+e.dataset.exp,'1')}catch(_){}e.remove()}</script>";
+       . "function explForever(b){var e=b.closest('.expl');try{localStorage.setItem('exp_'+e.dataset.exp,'1')}catch(_){}e.remove()}"
+       // dymki „?" na dotyku: tapnięcie otwiera/zamyka (hover nie istnieje na telefonie), tapnięcie obok zamyka wszystkie
+       . "document.addEventListener('click',function(e){var t=e.target.closest('.tip');if(e.target.closest('.tipbox a'))return;"
+       . "document.querySelectorAll('.tip.open').forEach(function(x){if(x!==t)x.classList.remove('open')});if(t){t.classList.toggle('open');e.preventDefault();}});</script>";
     // nakładka "przetwarzam": pokazuje się przy submit formularza i kliku w link/wiersz
     // (celowo NIE beforeunload — Firefox traci wtedy bfcache, iOS Safari go nie emituje).
     // AJAX-owe formularze (preventDefault) jej nie odpalają. 300 ms zwłoki = szybkie

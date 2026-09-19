@@ -102,10 +102,10 @@ layout_header('Profil: ' . $p['username'], $user, 'ranking');
 </div>
 
 <div class="stats">
-  <div class="stat"><div class="k">Kapitał</div><div class="v"><?= money($equity) ?></div></div>
+  <div class="stat"><div class="k">Kapitał<?= term('kapital') ?></div><div class="v"><?= money($equity) ?></div></div>
   <div class="stat"><div class="k">Wynik od startu<?= tip('Kapitał startowy to gotówka + pakiet akcji na start — wynik liczymy od ich łącznej wartości.', '') ?></div><div class="v <?= $ret >= 0 ? 'up' : 'down' ?>"><?= ($ret >= 0 ? '+' : '') . number_format($ret, 1, ',', ' ') ?>%</div></div>
   <div class="stat"><div class="k">Transakcje</div><div class="v"><?= $txCount ?></div></div>
-  <div class="stat"><div class="k">Pozycje</div><div class="v"><?= $posCount ?></div></div>
+  <div class="stat"><div class="k">Pozycje<?= term('pozycja') ?></div><div class="v"><?= $posCount ?></div></div>
 </div>
 
 <div class="panel" style="margin-bottom:16px;padding:14px 16px 10px">

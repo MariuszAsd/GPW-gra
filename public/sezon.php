@@ -40,8 +40,8 @@ layout_header('Sezon', $user, 'season');
     $standings = Seasons::standings((int) $season['id']);
   ?>
   <div class="stats" style="grid-template-columns:repeat(4,1fr)">
-    <div class="stat"><div class="k">Twoje punkty</div><div class="v">🏁 <?= $pts ?></div></div>
-    <div class="stat"><div class="k">Karnet premium</div><div class="v" style="<?= $premium ? 'color:var(--gold)' : '' ?>"><?= $premium ? 'AKTYWNY' : 'brak' ?></div></div>
+    <div class="stat"><div class="k">Twoje punkty<?= term('sezon') ?></div><div class="v">🏁 <?= $pts ?></div></div>
+    <div class="stat"><div class="k">Karnet premium<?= term('karnet') ?></div><div class="v" style="<?= $premium ? 'color:var(--gold)' : '' ?>"><?= $premium ? 'AKTYWNY' : 'brak' ?></div></div>
     <div class="stat"><div class="k">Edycji wydano</div><div class="v"><?= (int) $season['editions'] ?></div></div>
     <div class="stat"><div class="k">Następna edycja</div><div class="v" style="font-size:16px">sesja #<?= (int) $season['next_session'] ?></div></div>
   </div>

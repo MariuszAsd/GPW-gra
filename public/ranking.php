@@ -66,7 +66,7 @@ $medals = ['🥇', '🥈', '🥉'];
 <div class="panel" style="padding:0;overflow:hidden">
   <div class="tbl-scroll">
     <table>
-      <thead><tr><th style="width:52px">#</th><th>Gracz</th><th class="num">Stopa zwrotu</th><th class="num hide-m">vs MAK40</th><th>Drabinka</th><th class="num hide-m">Kapitał</th><th class="num hide-m">Dołączył</th></tr></thead>
+      <thead><tr><th style="width:52px">#</th><th>Gracz</th><th class="num">Stopa zwrotu<?= term('stopa_zwrotu') ?></th><th class="num hide-m">vs MAK40<?= term('vs_mak40') ?></th><th>Drabinka<?= term('drabinka') ?></th><th class="num hide-m">Kapitał<?= term('kapital') ?></th><th class="num hide-m">Dołączył</th></tr></thead>
       <tbody>
       <?php foreach ($players as $i => $p):
           $isMeRow = (int) $p['id'] === (int) $user['id']; ?>

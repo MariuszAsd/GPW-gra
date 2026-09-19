@@ -39,7 +39,7 @@ layout_header('Rekomendacje', $user, 'market');
       <span class="muted">(Ty zobaczysz je jutro)</span></p>
   <?php endif; ?>
   <div class="tbl-scroll"><table>
-    <thead><tr><th>Sesja</th><th>Spółka</th><th>Werdykt</th><th class="num">Cena docelowa</th><th class="num hide-m">Kurs</th><th class="num">Potencjał</th></tr></thead>
+    <thead><tr><th>Sesja</th><th>Spółka</th><th>Werdykt<?= term('werdykt') ?></th><th class="num">Cena docelowa<?= term('cena_docelowa') ?></th><th class="num hide-m">Kurs</th><th class="num">Potencjał</th></tr></thead>
     <tbody>
     <?php foreach ($recoRows as $r): $up = (float) $r['price'] > 0 ? ((float) $r['target_price'] / (float) $r['price'] - 1) * 100 : 0; ?>
       <tr class="rowlink" onclick="location='stock.php?id=<?= (int) $r['stock_id'] ?>'">
@@ -68,7 +68,7 @@ layout_header('Rekomendacje', $user, 'market');
     <p class="muted">Rynek bez wyraźnych sygnałów — żadna spółka nie przekracza progu |0,25|. Zajrzyj po następnej sesji.</p>
   <?php else: ?>
     <div class="tbl-scroll"><table>
-      <thead><tr><th>Spółka</th><th>Sygnał AT</th><th class="num hide-m">Siła</th><th class="num">Kurs</th></tr></thead>
+      <thead><tr><th>Spółka</th><th>Sygnał AT<?= term('at') ?></th><th class="num hide-m">Siła<?= tip('Jak mocny jest zbiorczy sygnał (od 0 do 1). Im bliżej 1, tym więcej wskaźników mówi to samo.', '') ?></th><th class="num">Kurs</th></tr></thead>
       <tbody>
       <?php foreach ($taRows as $t): [$vTxt, $vCls] = Technical::verdict((float) $t['ta_signal']); ?>
         <tr class="rowlink" onclick="location='stock.php?id=<?= (int) $t['id'] ?>&tab=ta'">

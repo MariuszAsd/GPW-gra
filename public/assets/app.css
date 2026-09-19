@@ -311,7 +311,8 @@ input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:var(
   width:240px;padding:11px 13px;background:var(--tip-bg);border:1px solid var(--line);border-radius:11px;
   color:var(--ink);font-size:12.5px;font-weight:400;line-height:1.5;box-shadow:var(--shadow);cursor:auto}
 .tip .tipbox a{color:var(--accent);font-weight:600;white-space:nowrap}
-.tip:hover .tipbox,.tip:focus .tipbox,.tip:focus-within .tipbox{display:block}
+.tip:hover .tipbox,.tip:focus .tipbox,.tip:focus-within .tipbox,.tip.open .tipbox{display:block}
+.tip .tipbox b{display:block;margin-bottom:2px}
 @media(max-width:760px){.tip .tipbox{left:auto;right:-10px;transform:none}}
 
 /* ---------- Pomoc / poradnik ---------- */
@@ -679,3 +680,9 @@ td.nowrap{white-space:nowrap}
 .oedit-form{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-top:8px;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--info-bg);text-align:left}
 .oedit-form label{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--soft);font-weight:600}
 .oedit-form input{width:96px;padding:6px 8px;border:1px solid var(--line2);border-radius:8px;background:var(--bg2);color:var(--ink);font-size:13px}
+
+/* słowniczek w Pomocy */
+.gl{margin:0;display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:6px 14px}
+.gl dt{font-weight:700;padding-top:2px}
+.gl dd{margin:0;color:var(--soft);font-size:13.5px;line-height:1.5;padding-bottom:6px;border-bottom:1px solid var(--line)}
+@media(max-width:600px){.gl{grid-template-columns:1fr}.gl dt{padding-top:8px}}
