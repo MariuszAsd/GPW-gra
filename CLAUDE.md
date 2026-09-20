@@ -209,6 +209,10 @@ Katalog `data/`, `*.md` i `verify.php` nie są wysyłane na serwer (wykluczenia 
 - **Push na produkcji działa technicznie** (health check 20.09.2026: hosting ma `openssl_pkey_derive`, `aes-128-gcm`
   i `curl`; PHP 8.3, MySQL, schemat v43 — migracje 40–43 wykonane). Klucze VAPID generują się same przy pierwszym użyciu;
   stan widać też w sekcji „Powiadomienia push” w panelu GM. Bez tych rozszerzeń powiadomienia w grze działałyby, a push nie.
+- **Zmiana domeny na `makleria.pl` — w toku po stronie właściciela** (instrukcja: `DEPLOY.md` §10). Adres gry przełącza
+  jeden sekret `APP_URL`: deploy wpisuje go do `config.local.php` (linki w e-mailach, link polecający, karta wyniku, PayU),
+  a workflow health/raport/trace czytają go bezpośrednio. Po przełączeniu zaktualizuj adres w tym pliku, domyślny `app_url`
+  w `config.php` i fallbacki w workflow; gracze logują się od nowa, PWA i push włączają ponownie (dane zostają).
 - E-maile (reset hasła, tygodniowy raport, alarm QA) idą przez PHP `mail()` hostingu; przy porażce pełna treść
   trafia do dziennika (`mail.fallback`), więc nic nie ginie po cichu.
 - Retencja: silnik sam sprząta stare zlecenia botów (14 dni) i transakcje bot–bot (30 dni) partiami po 5000 wierszy
