@@ -1,1 +1,1 @@
-2026-09-20 10:01 UTC — health po poprawce workflow (checkout) — status migracji i push na produkcji
+2026-09-20 14:09 UTC — health po zmianie deployu (APP_URL w config.local.php, bez sekretu = bez zmian)
