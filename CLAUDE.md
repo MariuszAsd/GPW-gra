@@ -184,7 +184,9 @@ Wyniki czytasz przez narzędzia GitHub MCP: `actions_list` → znajdź run → `
 Logi bywają duże — parsuj je skryptem, nie wklejaj w całości.
 
 Health check sprawdza: stronę logowania, API rynku (kursy + indeks), pliki PWA (`manifest.json`, `sw.js`, `offline.html`,
-ikona) i nieosiągalność skryptów silnika. Workflow **Raport** i **Trace** logują się jako admin sekretem `ADMIN_PASS` —
+ikona), **status techniczny** z `public/health.php` (wersja schematu na serwerze = `Schema::VERSION` z kodu, tabele i kolumny
+nowych funkcji, czy hosting obsługuje push; JSON, 503 gdy coś się nie zgadza) i nieosiągalność skryptów silnika.
+Krok „Status techniczny” wypisuje jedną linię: „schemat vNN, push: dostepny/NIEDOSTEPNY, PHP x.y, faza”. Workflow **Raport** i **Trace** logują się jako admin sekretem `ADMIN_PASS` —
 dopóki właściciel go nie ustawi (i nie zmieni hasła admina), te dwa workflow padają; health nie zależy od niego.
 Katalog `data/`, `*.md` i `verify.php` nie są wysyłane na serwer (wykluczenia w deploy.yml).
 
@@ -195,7 +197,8 @@ Katalog `data/`, `*.md` i `verify.php` nie są wysyłane na serwer (wykluczenia 
 - Schemat **v43**. QA lokalnie: **157/157** (SQLite i MySQL). Ostatnie wdrożenia (wrzesień 2026, jedna sesja pracy):
   audyt i poprawki krytyczne → nowy model rywalizacji (%) → skarbiec jako pula nagród → paczka poprawek średnich
   (retencja, obrót dzienny, rekoncyliacja, zamknięta ekonomia w QA) → stop-buy → fundusz MAK40 i „vs indeks” →
-  fixing → tygodniowy raport i karta wyniku → PWA i push. Każde poszło na `main` z zielonym health checkiem.
+  fixing → tygodniowy raport i karta wyniku → PWA i push → słowniczek i dymki → test e2e nowych funkcji (SQLite + MySQL, tryb produkcyjny, bez błędów) i `health.php`.
+  Każde poszło na `main` z zielonym health checkiem.
 - **Czeka na właściciela (nie rób sam):**
   - kliknięcie **Rekoncyliacji rezerwacji** w panelu GM („Zdrowie gry”): produkcja ma blizny sprzed lipcowych
     poprawek wyścigów (jeden gracz z ujemnym `cash_reserved`, dwóch z zamrożoną gotówką bez zleceń). Podgląd pokazuje
@@ -203,9 +206,9 @@ Katalog `data/`, `*.md` i `verify.php` nie są wysyłane na serwer (wykluczenia 
   - zmiana hasła admina (przy `admin123` gra wymusza zmianę po zalogowaniu) i sekret GitHuba `ADMIN_PASS`
     (workflow Raport/Trace);
   - e-mail admina w Koncie (albo `gm_email` w `game_state`) — tam idzie alarm po 2 nieudanych QA z rzędu.
-- **Push na produkcji**: klucze VAPID generują się same przy pierwszym użyciu; czy hosting ma `openssl_pkey_derive`,
-  `aes-128-gcm` i `curl`, pokaże sekcja „Powiadomienia push” w panelu GM (nie sprawdzaliśmy tego z sandboxa).
-  Bez nich powiadomienia w grze działają, push nie.
+- **Push na produkcji działa technicznie** (health check 20.09.2026: hosting ma `openssl_pkey_derive`, `aes-128-gcm`
+  i `curl`; PHP 8.3, MySQL, schemat v43 — migracje 40–43 wykonane). Klucze VAPID generują się same przy pierwszym użyciu;
+  stan widać też w sekcji „Powiadomienia push” w panelu GM. Bez tych rozszerzeń powiadomienia w grze działałyby, a push nie.
 - E-maile (reset hasła, tygodniowy raport, alarm QA) idą przez PHP `mail()` hostingu; przy porażce pełna treść
   trafia do dziennika (`mail.fallback`), więc nic nie ginie po cichu.
 - Retencja: silnik sam sprząta stare zlecenia botów (14 dni) i transakcje bot–bot (30 dni) partiami po 5000 wierszy
