@@ -58,6 +58,14 @@ jobs:
           done
           curl -s "$APP_URL/manifest.json" | php -r '$m=json_decode(stream_get_contents(STDIN),true); exit(is_array($m)&&($m["short_name"]??"")==="Makleria"?0:1);' || { echo "::error::manifest.json nie jest poprawnym manifestem"; exit 1; }
 
+      - name: Status techniczny — migracje wykonane, tabele nowych funkcji, push
+        run: |
+          EXP=$(grep -o "VERSION = [0-9]*" src/Schema.php | grep -o "[0-9]*")
+          J=$(curl -s "$APP_URL/health.php"); echo "$J"
+          echo "$J" | php -r '$j=json_decode(stream_get_contents(STDIN),true); $exp=(int)$argv[1];
+            if(!is_array($j)||empty($j["ok"])||(int)($j["schema"]??0)!==$exp){fwrite(STDERR,"::error::schemat/tabele niezgodne (jest ".($j["schema"]??"?").", oczekiwano $exp)\n");exit(1);}
+            echo "schemat v".$j["schema"].", push: ".(!empty($j["push_available"])?"dostepny":"NIEDOSTEPNY na tym serwerze").", PHP ".$j["php"].", faza: ".$j["phase"]."\n";' "$EXP"
+
       - name: Skrypty silnika nieosiągalne z internetu
         run: |
           # cron/tick.php przez przeglądarkę = ktoś obcy kręci zegarem gry (przewija sesje,
