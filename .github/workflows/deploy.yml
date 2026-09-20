@@ -63,8 +63,11 @@ jobs:
           PAYU_CLIENT_SECRET: ${{ secrets.PAYU_CLIENT_SECRET }}
           PAYU_SANDBOX: ${{ secrets.PAYU_SANDBOX }}
           SETUP_TOKEN: ${{ secrets.SETUP_TOKEN }}
+          # Publiczny adres gry (linki w e-mailach, link polecający, karta wyniku, PayU). Jeden sekret
+          # przełącza domenę bez zmiany kodu; pusty = domyślny adres z config.php.
+          APP_URL: ${{ secrets.APP_URL }}
         run: |
-          php -r '$c=["db_driver"=>"mysql","mysql"=>["host"=>getenv("DB_HOST"),"name"=>getenv("DB_NAME"),"user"=>getenv("DB_USER"),"pass"=>getenv("DB_PASS")],"setup_token"=>(string)getenv("SETUP_TOKEN"),"payu"=>["pos_id"=>(string)getenv("PAYU_POS_ID"),"md5"=>(string)getenv("PAYU_MD5"),"client_id"=>(string)getenv("PAYU_CLIENT_ID"),"client_secret"=>(string)getenv("PAYU_CLIENT_SECRET"),"sandbox"=>getenv("PAYU_SANDBOX")==="1"]]; file_put_contents("config.local.php","<?php return ".var_export($c,true).";\n");'
+          php -r '$c=["db_driver"=>"mysql","mysql"=>["host"=>getenv("DB_HOST"),"name"=>getenv("DB_NAME"),"user"=>getenv("DB_USER"),"pass"=>getenv("DB_PASS")],"setup_token"=>(string)getenv("SETUP_TOKEN"),"payu"=>["pos_id"=>(string)getenv("PAYU_POS_ID"),"md5"=>(string)getenv("PAYU_MD5"),"client_id"=>(string)getenv("PAYU_CLIENT_ID"),"client_secret"=>(string)getenv("PAYU_CLIENT_SECRET"),"sandbox"=>getenv("PAYU_SANDBOX")==="1"]]; if(($u=trim((string)getenv("APP_URL")))!==""){$c["app_url"]=rtrim($u,"/");} file_put_contents("config.local.php","<?php return ".var_export($c,true).";\n");'
           echo "config.local.php zbudowany (wartości zamaskowane)."
 
       - name: Deploy przez FTPS
