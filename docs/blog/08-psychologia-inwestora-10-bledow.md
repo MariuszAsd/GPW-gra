@@ -1,6 +1,6 @@
 ---
-tytul_seo: "Psychologia inwestora: 10 błędów początkujących, które lepiej popełnić w grze"
-meta_description: "FOMO, uśrednianie strat, brak stop lossa, nadmierna pewność siebie – poznaj 10 błędów psychologii inwestora, które kosztują najwięcej, i dowiedz się, jak przećwiczyć ich unikanie w symulatorze giełdy."
+tytul_seo: "Psychologia inwestora: 10 błędów początkujących na giełdzie"
+meta_description: "FOMO, uśrednianie strat, brak stop lossa, nadmierna pewność siebie: 10 błędów psychologii inwestora i sposób, by przećwiczyć ich unikanie w symulatorze giełdy."
 slug: psychologia-inwestora-10-bledow-poczatkujacych
 slowa_kluczowe: [psychologia inwestora, błędy początkujących inwestorów, FOMO giełda, awersja do straty, efekt dyspozycji, nadmierna pewność siebie inwestowanie, błędy poznawcze inwestora, jak nie tracić na giełdzie]
 intencja: informacyjna / edukacyjna

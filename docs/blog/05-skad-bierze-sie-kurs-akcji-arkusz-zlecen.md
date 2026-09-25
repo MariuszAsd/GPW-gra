@@ -1,6 +1,6 @@
 ---
-tytul_seo: "Skąd bierze się kurs akcji? Arkusz zleceń, bid, ask, spread i wolumen"
-meta_description: "Kurs akcji nie bierze się znikąd. Wyjaśniamy, jak działa arkusz zleceń, czym są bid, ask i spread, jak kojarzone są zlecenia, co to fixing i dlaczego duże zlecenie rusza ceną."
+tytul_seo: "Skąd bierze się kurs akcji? Arkusz zleceń, bid, ask i spread"
+meta_description: "Jak działa arkusz zleceń, czym są bid, ask i spread, jak kojarzone są zlecenia, co to fixing i dlaczego duże zlecenie rusza kursem. Prosto, z przykładami."
 slug: skad-bierze-sie-kurs-akcji-arkusz-zlecen
 slowa_kluczowe: [skąd bierze się kurs akcji, arkusz zleceń, bid ask spread, jak powstaje cena akcji, wolumen obrotu, fixing giełda, płynność akcji, kojarzenie zleceń]
 intencja: informacyjna / edukacyjna

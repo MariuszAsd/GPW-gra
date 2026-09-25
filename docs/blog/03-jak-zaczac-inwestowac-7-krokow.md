@@ -1,6 +1,6 @@
 ---
-tytul_seo: "Jak zacząć inwestować na giełdzie – 7 kroków, które przećwiczysz w symulatorze"
-meta_description: "Jak zacząć inwestować na giełdzie bez ryzyka? Poznaj 7 kroków od celu i horyzontu po zlecenia obronne i dziennik transakcji. Każdy z nich przećwiczysz w darmowym symulatorze giełdy."
+tytul_seo: "Jak zacząć inwestować na giełdzie – 7 kroków dla początkujących"
+meta_description: "Jak zacząć inwestować na giełdzie bez ryzyka? 7 kroków: od celu i poduszki po zlecenia obronne i dziennik. Każdy przećwiczysz w darmowym symulatorze giełdy."
 slug: jak-zaczac-inwestowac-na-gieldzie-7-krokow
 slowa_kluczowe: [jak zacząć inwestować na giełdzie, inwestowanie dla początkujących, jak inwestować w akcje, pierwsze kroki na giełdzie, nauka inwestowania, dywersyfikacja portfela]
 intencja: poradnikowa

@@ -1,6 +1,6 @@
 ---
-tytul_seo: "Rodzaje zleceń giełdowych: limit, PKC, stop loss, take profit i stop-buy"
-meta_description: "Zlecenie z limitem, PKC, stop loss, take profit, stop loss kroczący i stop-buy – wyjaśniamy na liczbach, jak działają rodzaje zleceń giełdowych, kiedy ich używać i jakie błędy popełniają początkujący."
+tytul_seo: "Rodzaje zleceń giełdowych: limit, PKC, stop loss, take profit"
+meta_description: "Limit, PKC, stop loss, take profit, stop kroczący i stop-buy: jak działają rodzaje zleceń giełdowych, kiedy ich używać i jakie błędy popełniają początkujący."
 slug: rodzaje-zlecen-gieldowych-limit-pkc-stop-loss
 slowa_kluczowe: [rodzaje zleceń giełdowych, zlecenie z limitem ceny, zlecenie PKC, stop loss co to jest, take profit, stop loss kroczący, zlecenie stop buy, jak składać zlecenia na giełdzie]
 intencja: informacyjna / edukacyjna

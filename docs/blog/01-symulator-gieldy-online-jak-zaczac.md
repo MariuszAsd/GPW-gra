@@ -1,6 +1,6 @@
 ---
-tytul_seo: "Symulator giełdy online za darmo – jak zacząć grać na wirtualnej giełdzie"
-meta_description: "Symulator giełdy online pozwala inwestować wirtualne pieniądze bez ryzyka. Zobacz, jak zacząć, jak złożyć pierwsze zlecenie i czego uczy gra giełdowa w przeglądarce."
+tytul_seo: "Symulator giełdy online za darmo – jak zacząć grać"
+meta_description: "Symulator giełdy online pozwala inwestować wirtualne pieniądze bez ryzyka. Zobacz, jak zacząć, złożyć pierwsze zlecenie i czego uczy gra giełdowa."
 slug: symulator-gieldy-online-jak-zaczac
 slowa_kluczowe: [symulator giełdy online, gra giełdowa, wirtualna giełda, symulator giełdy za darmo, jak zacząć grać na giełdzie, inwestowanie dla początkujących]
 intencja: informacyjna / poradnikowa
