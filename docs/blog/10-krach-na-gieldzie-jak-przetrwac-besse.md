@@ -1,6 +1,6 @@
 ---
-tytul_seo: "Krach na giełdzie i bessa – jak przetrwać spadki i wyjść z nich silniejszym"
-meta_description: "Krach na giełdzie i bessa zdarzają się regularnie. Poznaj fazy rynku niedźwiedzia, błędy, które kosztują najwięcej, i plan działania: gotówka, dywersyfikacja, stop loss, dokupowanie. Przećwicz go w symulatorze."
+tytul_seo: "Krach na giełdzie i bessa – jak przetrwać spadki"
+meta_description: "Krach i bessa zdarzają się regularnie. Fazy rynku niedźwiedzia, najdroższe błędy i plan działania: gotówka, dywersyfikacja, stop loss. Przećwicz go w grze."
 slug: krach-na-gieldzie-jak-przetrwac-besse
 slowa_kluczowe: [krach na giełdzie, bessa co to jest, jak przetrwać bessę, rynek niedźwiedzia, korekta giełdowa, co robić gdy giełda spada, zarządzanie ryzykiem giełda, hossa i bessa]
 intencja: informacyjna / poradnikowa
