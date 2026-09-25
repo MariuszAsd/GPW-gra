@@ -1,6 +1,6 @@
 ---
-tytul_seo: "Dywidendy, raporty kwartalne i IPO – jak działa giełda od kuchni"
-meta_description: "Co to jest dywidenda i dzień ustalenia prawa, jak czytać raport kwartalny, jak działa IPO z zapisami i redukcją? Giełda od kuchni wyjaśniona prosto, z przykładami z symulatora giełdy."
+tytul_seo: "Dywidendy, raporty kwartalne i IPO – giełda od kuchni"
+meta_description: "Co to dywidenda i dzień ustalenia prawa, jak czytać raport kwartalny, jak działa IPO z zapisami i redukcją. Giełda od kuchni prosto, z przykładami z symulatora."
 slug: dywidendy-raporty-kwartalne-ipo-gielda-od-kuchni
 slowa_kluczowe: [dywidenda co to jest, dzień ustalenia prawa do dywidendy, raport kwartalny jak czytać, IPO co to jest, zapisy na akcje IPO, redukcja zapisów, odcięcie dywidendy, debiut giełdowy]
 intencja: informacyjna / edukacyjna

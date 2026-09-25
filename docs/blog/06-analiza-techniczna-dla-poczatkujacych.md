@@ -1,6 +1,6 @@
 ---
-tytul_seo: "Analiza techniczna dla początkujących: RSI, MACD, średnie kroczące, Bollinger"
-meta_description: "Analiza techniczna dla początkujących bez matematyki: jak czytać średnie kroczące, RSI, MACD i wstęgi Bollingera, jak łączyć wskaźniki i jakich błędów unikać. Z przykładami z symulatora giełdy."
+tytul_seo: "Analiza techniczna dla początkujących: RSI, MACD, średnie"
+meta_description: "Analiza techniczna bez matematyki: jak czytać średnie kroczące, RSI, MACD i wstęgi Bollingera, jak łączyć wskaźniki i jakich błędów unikać. Z przykładami z gry."
 slug: analiza-techniczna-dla-poczatkujacych-rsi-macd
 slowa_kluczowe: [analiza techniczna dla początkujących, wskaźnik RSI, MACD jak czytać, średnie kroczące, wstęgi Bollingera, wsparcie i opór, analiza techniczna akcji, wskaźniki giełdowe]
 intencja: edukacyjna

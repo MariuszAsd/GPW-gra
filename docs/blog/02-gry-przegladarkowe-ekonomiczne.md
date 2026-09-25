@@ -1,6 +1,6 @@
 ---
-tytul_seo: "Gry przeglądarkowe ekonomiczne – dlaczego wracają i jak wybrać najlepszą"
-meta_description: "Gry przeglądarkowe ekonomiczne przeżywają renesans. Sprawdź, czym różni się symulator giełdy od tycoona, po czym poznać uczciwą grę bez pay-to-win i dlaczego przeglądarka wygrywa z aplikacją."
+tytul_seo: "Gry przeglądarkowe ekonomiczne – dlaczego wracają i jak wybrać"
+meta_description: "Gry przeglądarkowe ekonomiczne wracają. Czym różni się symulator giełdy od tycoona, po czym poznać uczciwą grę bez pay-to-win i czemu wygrywa przeglądarka."
 slug: gry-przegladarkowe-ekonomiczne
 slowa_kluczowe: [gry przeglądarkowe ekonomiczne, gry ekonomiczne online, gra giełdowa przeglądarkowa, gry strategiczne ekonomiczne, gry przeglądarkowe bez instalacji, tycoon online]
 intencja: informacyjna

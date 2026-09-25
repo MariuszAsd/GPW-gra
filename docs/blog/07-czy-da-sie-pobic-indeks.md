@@ -1,6 +1,6 @@
 ---
-tytul_seo: "Czy da się pobić indeks? Inwestowanie aktywne vs pasywne na przykładach"
-meta_description: "Czy da się pobić indeks giełdowy? Wyjaśniamy, czym jest benchmark, dlaczego większość aktywnych inwestorów przegrywa z indeksem, jak działa fundusz indeksowy i jak sprawdzić własny wynik „vs indeks” w symulatorze."
+tytul_seo: "Czy da się pobić indeks? Inwestowanie aktywne vs pasywne"
+meta_description: "Czy da się pobić indeks? Czym jest benchmark, dlaczego większość aktywnych inwestorów przegrywa z indeksem i jak sprawdzić swój wynik „vs indeks” w symulatorze."
 slug: czy-da-sie-pobic-indeks-aktywne-vs-pasywne
 slowa_kluczowe: [pobić indeks, inwestowanie pasywne, inwestowanie aktywne, fundusz indeksowy, benchmark giełdowy, indeks giełdowy co to, stopa zwrotu portfela, porównanie z indeksem]
 intencja: informacyjna
