@@ -25,7 +25,8 @@ final class Push
      * game_state.push_hosts_extra (po przecinku); odrzucone hosty widać w dzienniku jako push.reject.
      */
     public const PUSH_HOSTS = ['fcm.googleapis.com', 'android.googleapis.com', '.push.services.mozilla.com',
-        'web.push.apple.com', '.push.apple.com', '.notify.windows.com'];
+        'web.push.apple.com', '.push.apple.com', '.notify.windows.com',
+        'push.invalid'];   // martwy endpoint QA-bota (TLD .invalid z RFC 2606 nigdy się nie rozwiązuje — nie da się nim trafić w nic)
 
     /** Czy host endpointu jest znanym serwerem push (albo dopisanym przez GM)? */
     public static function hostAllowed(string $host): bool
