@@ -5,11 +5,16 @@ if (current_user()) redirect('pulpit.php');
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Ochrona przed atakiem słownikowym: limit nieudanych prób z jednego IP w oknie 15 min.
     // Liczymy z dziennika logów (bez nowej tabeli); bcrypt spowalnia pojedynczą próbę, throttle blokuje masę.
+    // Adres IP siedzi w kolumnie context (JSON budowany wyłącznie z REMOTE_ADDR), a NIE w wolnym tekście
+    // komunikatu: dawniej login z POST lądował w message przed markerem „|ip=…|”, więc napastnik mógł wpisać
+    // cudzy marker jako login i doliczyć fałszywe porażki dowolnemu adresowi (blokada biura/NAT na 15 min).
     $ip = substr((string) ($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45);
+    $ipMark = json_encode(['ip' => $ip]);                       // {"ip":"1.2.3.4"} — dokładnie taki fragment pisze Log::write
+    $ipMark = substr($ipMark, 1, -1);                            // bez nawiasów klamrowych: pasuje też, gdy context ma więcej pól
     $since = date('Y-m-d H:i:s', time() - 900);
-    $fails = (int) Engine::one("SELECT COUNT(*) FROM logs WHERE source='auth' AND event='login_fail' AND ts >= ? AND message LIKE ?", [$since, '%|ip=' . $ip . '|%']);
+    $fails = (int) Engine::one("SELECT COUNT(*) FROM logs WHERE source='auth' AND event='login_fail' AND ts >= ? AND context LIKE ?", [$since, '%' . $ipMark . '%']);
     if ($ip !== '' && $fails >= 8) {
-        Log::write('warn', 'auth', 'login_block', 'zablokowano (za dużo prób) |ip=' . $ip . '|');
+        Log::write('warn', 'auth', 'login_block', 'zablokowano (za dużo prób)', ['ip' => $ip]);
         flash('Za dużo nieudanych prób logowania z tego adresu. Odczekaj kilka minut i spróbuj ponownie.', 'err');
         redirect('login.php');
     }
@@ -19,7 +24,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $_SESSION['uid'] = (int) $u['id'];
         redirect('pulpit.php');
     }
-    Log::write('warn', 'auth', 'login_fail', 'nieudane logowanie: ' . mb_substr(trim($_POST['username'] ?? ''), 0, 30) . ' |ip=' . $ip . '|');
+    // do komunikatu trafia tylko login oczyszczony do znaków dozwolonych przy rejestracji — żadnych separatorów ani cudzysłowów
+    $safeLogin = preg_replace('/[^A-Za-z0-9_\-]/', '', mb_substr(trim((string) ($_POST['username'] ?? '')), 0, 30));
+    Log::write('warn', 'auth', 'login_fail', 'nieudane logowanie: ' . $safeLogin, ['ip' => $ip]);
     flash('Błędny login lub hasło.', 'err');
     redirect('login.php');
 }
@@ -39,7 +46,6 @@ layout_header('Logowanie', null);
     </form>
     <p class="muted" style="margin-top:14px;font-size:13px">Nie masz konta? <a href="register.php" style="color:var(--accent)">Załóż konto — start 100 000 PLN</a></p>
     <p class="muted" style="margin-top:6px;font-size:13px"><a href="reset.php" style="color:var(--accent)">Nie pamiętasz hasła?</a></p>
-    <p class="muted" style="margin-top:8px;font-size:12px">Konto demo: <b>gracz / haslo123</b></p>
   </div>
 </div>
 <?php layout_footer();

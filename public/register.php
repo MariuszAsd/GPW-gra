@@ -4,6 +4,7 @@ if (current_user()) redirect('pulpit.php');
 
 $cfg = require __DIR__ . '/../config.php';
 $inviteRequired = (string) (Engine::one("SELECT v FROM game_state WHERE k='invite_code'") ?: '');
+const REGISTER_PER_IP_HOUR = 10;   // maks. nowych kont z jednego IP na godzinę (QA-bot zakłada najwyżej jedno na przebieg)
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = trim($_POST['username'] ?? '');
@@ -12,8 +13,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $pass2 = $_POST['password2'] ?? '';
     $invite = trim($_POST['invite'] ?? '');
 
+    // Limit nowych kont z jednego adresu IP (okno 1 h), liczony z dziennika jak throttle logowania.
+    // Bez tego skrypt zakładał dowolnie wiele kont, które śmiecą na czacie i w rankingu. Próg jest luźny,
+    // bo za jednym NAT-em (szkoła, biuro) rejestruje się czasem kilka osób naraz; kod zaproszenia zostaje
+    // twardą blokadą na czas wzmożonego spamu. Adres siedzi w context (JSON z REMOTE_ADDR), nie w tekście.
+    $ip = substr((string) ($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45);
+    $ipMark = substr(json_encode(['ip' => $ip]), 1, -1);
+    $recent = (int) Engine::one("SELECT COUNT(*) FROM logs WHERE source='auth' AND event='register' AND ts >= ? AND context LIKE ?",
+        [date('Y-m-d H:i:s', time() - 3600), '%' . $ipMark . '%']);
+
     $err = null;
-    if (!preg_match('/^[A-Za-z0-9_-]{3,20}$/', $username)) $err = 'Login: 3–20 znaków (litery, cyfry, _ i -).';
+    if ($ip !== '' && $recent >= REGISTER_PER_IP_HOUR) {
+        Log::write('warn', 'auth', 'register_block', 'zablokowano rejestrację (za dużo kont z jednego adresu)', ['ip' => $ip]);
+        $err = 'Z tego adresu założono już wiele kont w krótkim czasie. Spróbuj ponownie za godzinę.';
+    }
+    elseif (!preg_match('/^[A-Za-z0-9_-]{3,20}$/', $username)) $err = 'Login: 3–20 znaków (litery, cyfry, _ i -).';
     elseif (stripos($username, 'bot_') === 0)               $err = 'Ten login jest zarezerwowany.';
     elseif (strlen($pass1) < 6)                              $err = 'Hasło musi mieć co najmniej 6 znaków.';
     elseif ($pass1 !== $pass2)                               $err = 'Hasła nie są identyczne.';
@@ -43,7 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ->execute([(int) (Engine::one("SELECT v FROM game_state WHERE k='tick'") ?: 0), Engine::indexValue(), (float) $cfg['starting_cash'], $uid]); } catch (Throwable $e) { /* ustawi się leniwie */ }
             // baza ligi tygodnia i miesiąca od momentu dołączenia — nowy gracz liczy się w procentach od dziś
             try { Engine::snapshotUser($uid, (float) $cfg['starting_cash']); } catch (Throwable $e) { /* migawka nie blokuje rejestracji */ }
-            Log::write('info', 'auth', 'register', "nowe konto: $username" . ($refBy ? " (z polecenia #$refBy)" : ''), ['uid' => $uid]);
+            Log::write('info', 'auth', 'register', "nowe konto: $username" . ($refBy ? " (z polecenia #$refBy)" : ''), ['uid' => $uid, 'ip' => $ip]);
             Tokens::grant($uid, 10, 'welcome', 'Tokeny powitalne — zajrzyj do sekcji Tokeny inwestora');
             // bonus z polecenia wypłaca się, gdy nowy gracz realnie zacznie handlować (Tokens::grantReferrals)
             session_regenerate_id(true);
@@ -68,7 +82,7 @@ layout_header('Rejestracja', null);
   <div style="display:flex;justify-content:center;margin-bottom:6px"><?= brand_logo(38, 'index.php') ?></div>
   <h1 style="text-align:center;font-size:20px;margin:2px 0 2px">Załóż darmowe konto</h1>
   <p class="muted" style="text-align:center;margin:0 0 18px">Start: <?= money($cfg['starting_cash']) ?> PLN wirtualnego kapitału + 10 Tokenów</p>
-  <?php if ($refValid): ?><p class="flash ok" style="text-align:center">🤝 Rejestrujesz się z polecenia — na start dostaniesz dodatkowo +<?= Tokens::REF_BONUS ?> Tokenów inwestora!</p><?php endif; ?>
+  <?php if ($refValid): ?><p class="flash ok" style="text-align:center">🤝 Rejestrujesz się z polecenia — dostaniesz dodatkowo +<?= Tokens::REF_BONUS ?> Tokenów inwestora, gdy zrobisz 5 transakcji w 3 różne dni (bonus za realną grę, nie za samo konto).</p><?php endif; ?>
   <div class="panel">
     <form method="post">
       <?php if ($refValid): ?><input type="hidden" name="ref" value="<?= h($refGet) ?>"><?php endif; ?>
