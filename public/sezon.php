@@ -7,7 +7,9 @@ $uid = (int) $user['id'];
 $season = Seasons::active();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['buy_season_pass']) && $season) {
-    [$ok, $msg] = Seasons::buyPass($uid, (int) $season['id']);
+    // zakleszczenie ponawiamy, inny błąd bazy = komunikat zamiast strony błędu (zakup jest claim-first)
+    try { [$ok, $msg] = Engine::retryOnLock(fn() => Seasons::buyPass($uid, (int) $season['id'])); }
+    catch (Throwable $e) { Log::write('error', 'player', 'season.buy', $e->getMessage()); [$ok, $msg] = [false, 'Nie udało się — spróbuj ponownie.']; }
     flash($msg, $ok ? 'ok' : 'err');
     redirect('sezon.php');
 }

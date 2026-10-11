@@ -76,12 +76,19 @@ final class Seasons
             $pdo->prepare("INSERT INTO season_progress (series_id, user_id, points, premium, granted_upto) VALUES (?,?,0,0,0)")
                 ->execute([$seriesId, $uid]);
         } catch (Throwable $e) { /* wiersz już jest */ }
-        $row = self::progress($seriesId, $uid);
-        if ((int) $row['premium'] === 1) return [false, 'Masz już karnet tego sezonu.'];
+        // Claim-first: najpierw atomowo przejmij karnet (premium 0 → 1), dopiero potem pobierz tokeny.
+        // Odczyt + spend + UPDATE osobno pozwalały dwóm sesjom tego samego gracza zapłacić dwa razy
+        // i wypłacić retro-nagrody progów dwa razy (tokeny z powietrza).
+        $st = $pdo->prepare("UPDATE season_progress SET premium=1 WHERE series_id=? AND user_id=? AND premium=0");
+        $st->execute([$seriesId, $uid]);
+        if ($st->rowCount() !== 1) return [false, 'Masz już karnet tego sezonu.'];
         [$ok, $msg] = Tokens::spend($uid, self::PASS_PRICE, 'season', 'Karnet: ' . $s['name']);
-        if (!$ok) return [false, $msg];
-        $pdo->prepare("UPDATE season_progress SET premium=1 WHERE series_id=? AND user_id=?")->execute([$seriesId, $uid]);
-        // retro-wypłata ścieżki premium za progi wypłacone przed zakupem karnetu
+        if (!$ok) {   // za mało tokenów — oddaj przejęty karnet
+            $pdo->prepare("UPDATE season_progress SET premium=0 WHERE series_id=? AND user_id=?")->execute([$seriesId, $uid]);
+            return [false, $msg];
+        }
+        // retro-wypłata ścieżki premium za progi wypłacone przed zakupem karnetu — ze stanu odczytanego PO przejęciu
+        $row = self::progress($seriesId, $uid);
         $granted = (int) $row['granted_upto'];
         for ($i = 0; $i < $granted && $i < count(self::MILESTONES); $i++) {
             [$need, , $prem] = self::MILESTONES[$i];

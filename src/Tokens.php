@@ -27,17 +27,45 @@ final class Tokens
         return (int) (Engine::one("SELECT tokens FROM users WHERE id=?", [$uid]) ?: 0);
     }
 
+    /**
+     * Zapis do księgi: UPDATE salda, odczyt salda PO operacji i wiersz token_ledger w JEDNEJ transakcji
+     * (własnej, gdy wołający żadnej nie trzyma). Bez tego saldo czytane osobnym SELECT-em w autocommicie
+     * mogło już zawierać cudzą operację z tej samej chwili (nagroda z ticka + zakup gracza), a księga —
+     * „pełny audyt do reklamacji” — pokazywała dwa wiersze z tym samym saldem. W transakcji wiersz users
+     * jest zablokowany od UPDATE do COMMIT, więc odczyt widzi dokładnie stan po tej operacji.
+     * Zwraca saldo po operacji albo null, gdy warunek (tokens >= n przy wydatku) nie przeszedł.
+     */
+    private static function book(int $uid, int $delta, string $reason, string $note): ?int
+    {
+        $pdo = Db::pdo();
+        $own = !$pdo->inTransaction();
+        if ($own) $pdo->beginTransaction();
+        try {
+            if ($delta < 0) {
+                $st = $pdo->prepare("UPDATE users SET tokens = tokens - ? WHERE id=? AND tokens >= ?");
+                $st->execute([-$delta, $uid, -$delta]);
+                if ($st->rowCount() === 0) { if ($own) $pdo->rollBack(); return null; }
+            } else {
+                $pdo->prepare("UPDATE users SET tokens = tokens + ? WHERE id=?")->execute([$delta, $uid]);
+            }
+            $bal = self::balance($uid);
+            $pdo->prepare("INSERT INTO token_ledger (user_id, delta, balance, reason, note, created_at) VALUES (?,?,?,?,?,?)")
+                ->execute([$uid, $delta, $bal, mb_substr($reason, 0, 40), $note !== '' ? mb_substr($note, 0, 160) : null, Db::now()]);
+            if ($own) $pdo->commit();
+            return $bal;
+        } catch (\Throwable $e) {
+            if ($own && $pdo->inTransaction()) $pdo->rollBack();
+            throw $e;
+        }
+    }
+
     /** Przyznaj tokeny (nagrody, GM, przyszłe zakupy). */
     public static function grant(int $uid, int $n, string $reason, string $note = '', bool $throwOnError = false): void
     {
         if ($n <= 0) return;
         try {
             $uid = Engine::challengeOwner($uid);
-            $pdo = Db::pdo();
-            $pdo->prepare("UPDATE users SET tokens = tokens + ? WHERE id=?")->execute([$n, $uid]);
-            $bal = self::balance($uid);
-            $pdo->prepare("INSERT INTO token_ledger (user_id, delta, balance, reason, note, created_at) VALUES (?,?,?,?,?,?)")
-                ->execute([$uid, $n, $bal, mb_substr($reason, 0, 40), $note !== '' ? mb_substr($note, 0, 160) : null, Db::now()]);
+            $bal = (int) self::book($uid, $n, $reason, $note);
             Engine::notify($uid, 'token', "🪙 +$n Tokenów inwestora" . ($note !== '' ? " — $note" : '') . " (saldo: $bal).", 'sklep.php');
         } catch (\Throwable $e) {
             Log::write('warn', 'engine', 'tokens.grant', $e->getMessage());
@@ -51,13 +79,8 @@ final class Tokens
     public static function spend(int $uid, int $n, string $reason, string $note = ''): array
     {
         if ($n <= 0) return [false, 'Nieprawidłowa kwota.'];
-        $pdo = Db::pdo();
-        $st = $pdo->prepare("UPDATE users SET tokens = tokens - ? WHERE id=? AND tokens >= ?");
-        $st->execute([$n, $uid, $n]);
-        if ($st->rowCount() === 0) return [false, 'Za mało Tokenów inwestora (potrzeba: ' . $n . ', masz: ' . self::balance($uid) . ').'];
-        $bal = self::balance($uid);
-        $pdo->prepare("INSERT INTO token_ledger (user_id, delta, balance, reason, note, created_at) VALUES (?,?,?,?,?,?)")
-            ->execute([$uid, -$n, $bal, mb_substr($reason, 0, 40), $note !== '' ? mb_substr($note, 0, 160) : null, Db::now()]);
+        $bal = self::book($uid, -$n, $reason, $note);
+        if ($bal === null) return [false, 'Za mało Tokenów inwestora (potrzeba: ' . $n . ', masz: ' . self::balance($uid) . ').'];
         return [true, "Wydano $n tokenów (saldo: $bal)."];
     }
 
@@ -185,20 +208,31 @@ final class Tokens
         if (!isset(self::PASSES[$kind])) return [false, 'Nie ma takiego pakietu.'];
         [$days, $price, $name] = self::PASSES[$kind];
         [$session] = Engine::sessionInfo();
-        [$ok, $msg] = self::spend($uid, $price, 'pass', $name);
-        if (!$ok) return [false, $msg];
         $pdo = Db::pdo();
-        $cur = Engine::one("SELECT until_session FROM premium_passes WHERE user_id=? AND kind=?", [$uid, $kind]);
-        $from = max($session - 1, ($cur !== false && $cur !== null) ? (int) $cur : 0);   // przedłużenie doklejane do końca
-        $until = $from + $days;
-        if ($cur === false || $cur === null) {
-            $pdo->prepare("INSERT INTO premium_passes (user_id, kind, until_session, created_at) VALUES (?,?,?,?)")
-                ->execute([$uid, $kind, $until, Db::now()]);
-        } else {
-            $pdo->prepare("UPDATE premium_passes SET until_session=? WHERE user_id=? AND kind=?")->execute([$until, $uid, $kind]);
+        // Całość w jednej transakcji, a przedłużenie jako JEDEN atomowy upsert (UNIQUE user_id+kind):
+        // dwie sesje tego samego gracza (telefon + laptop) klikające naraz robiły wcześniej odczyt + INSERT/UPDATE
+        // osobno — druga płaciła, a jej INSERT padał na duplikacie (błąd 500, tokeny zniknęły) albo nadpisywała
+        // pierwsze przedłużenie. Teraz każda opłata dokleja swoje dni do końca pakietu, a błąd cofa też opłatę.
+        $own = !$pdo->inTransaction();
+        if ($own) $pdo->beginTransaction();
+        try {
+            [$ok, $msg] = self::spend($uid, $price, 'pass', $name);
+            if (!$ok) { if ($own) $pdo->rollBack(); return [false, $msg]; }
+            $from = $session - 1;   // nowy pakiet liczy się od bieżącej sesji; istniejący — doklejany do jego końca
+            $sql = Db::driver() === 'mysql'
+                ? "INSERT INTO premium_passes (user_id, kind, until_session, created_at) VALUES (?,?,?,?)
+                   ON DUPLICATE KEY UPDATE until_session = GREATEST(until_session, ?) + ?"
+                : "INSERT INTO premium_passes (user_id, kind, until_session, created_at) VALUES (?,?,?,?)
+                   ON CONFLICT(user_id, kind) DO UPDATE SET until_session = MAX(until_session, ?) + ?";
+            $pdo->prepare($sql)->execute([$uid, $kind, $from + $days, Db::now(), $from, $days]);
+            $until = (int) Engine::one("SELECT until_session FROM premium_passes WHERE user_id=? AND kind=?", [$uid, $kind]);
+            Engine::journal($uid, 'token', "🪙 Aktywowano: $name (do sesji #$until).", 'sklep.php');
+            Log::write('info', 'player', 'tokens.pass', "$name dla #$uid do sesji $until");
+            if ($own) $pdo->commit();
+        } catch (\Throwable $e) {
+            if ($own && $pdo->inTransaction()) $pdo->rollBack();
+            throw $e;
         }
-        Engine::journal($uid, 'token', "🪙 Aktywowano: $name (do sesji #$until).", 'sklep.php');
-        Log::write('info', 'player', 'tokens.pass', "$name dla #$uid do sesji $until");
         return [true, "$name aktywny do końca sesji #$until. Miłego skanowania!"];
     }
 }
