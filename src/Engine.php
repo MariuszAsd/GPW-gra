@@ -2578,7 +2578,12 @@ final class Engine
             try { self::checkHalts($t); } catch (\Throwable $e) { if (!Db::pdo()->inTransaction()) throw $e; Log::write('warn', 'engine', 'halt.check', $e->getMessage()); }
             // scal z bieżącą świecą REALNE transakcje jeszcze nieujęte (handel botów tej podrundy + zlecenia graczy między nimi)
             [$trades, $candIds] = self::tradesSinceCandle();
+            // obrót sesji (stocks.day_turnover) dopisujemy tak samo jak recordCandles — podrundy robią na produkcji
+            // ~2/3 wolumenu botów, a bez tego kroku „Obrót (sesja)” na Rynku i karcie spółki pokazywał ułamek słupków
+            $turn = $pdo->prepare("UPDATE stocks SET day_turnover = day_turnover + ? WHERE id=?");
             foreach ($trades as $sid => $tr) {
+                $value = 0.0; foreach ($tr as $x) $value += $x['p'] * $x['q'];
+                $turn->execute([round($value, 2), $sid]);
                 $c = self::row("SELECT h, l FROM candles WHERE stock_id=? AND t=?", [$sid, $t]);
                 if (!$c) continue;
                 $ps = array_column($tr, 'p');
