@@ -15,6 +15,31 @@ final class Push
 {
     public const MAX_FAILS = 3;     // po tylu nieudanych wysyłkach subskrypcja znika (endpoint martwy)
     public const BATCH = 60;        // maks. powiadomień dosyłanych w jednym przebiegu crona
+    public const MAX_SUBS = 5;      // maks. subskrypcji (urządzeń) na konto — nadmiar wypiera najstarsze
+    public const SEND_BUDGET = 10;  // sekundy na wysyłkę do JEDNEGO gracza; reszta jego urządzeń czeka na następny przebieg
+
+    /**
+     * Hosty prawdziwych serwerów push (sufiks z kropką = dowolna poddomena). Bez tej listy serwer wysyłał POST
+     * na dowolny adres https podany przez zalogowanego gracza, także wewnętrzny (SSRF), a sam cron mógł utknąć
+     * na setkach „wiszących” adresów. Dodatkowe hosty (np. nowa przeglądarka) GM dopisuje bez wdrożenia w
+     * game_state.push_hosts_extra (po przecinku); odrzucone hosty widać w dzienniku jako push.reject.
+     */
+    public const PUSH_HOSTS = ['fcm.googleapis.com', 'android.googleapis.com', '.push.services.mozilla.com',
+        'web.push.apple.com', '.push.apple.com', '.notify.windows.com'];
+
+    /** Czy host endpointu jest znanym serwerem push (albo dopisanym przez GM)? */
+    public static function hostAllowed(string $host): bool
+    {
+        $host = strtolower(rtrim($host, '.'));
+        if ($host === '' || filter_var($host, FILTER_VALIDATE_IP) !== false) return false;   // goły adres IP (w tym loopback/prywatny) nigdy
+        $extra = array_filter(array_map('trim', explode(',', strtolower((string) (Engine::one("SELECT v FROM game_state WHERE k='push_hosts_extra'") ?: '')))));
+        foreach (array_merge(self::PUSH_HOSTS, $extra) as $allowed) {
+            if ($allowed === '') continue;
+            if ($allowed[0] === '.') { if (str_ends_with($host, $allowed) || $host === substr($allowed, 1)) return true; }
+            elseif ($host === $allowed) return true;
+        }
+        return false;
+    }
 
     public static function available(): bool
     {
@@ -38,10 +63,27 @@ final class Push
         if (!isset($d['ec']['x'], $d['ec']['y'], $d['ec']['d'])) return null;
         $pubRaw = "\x04" . str_pad($d['ec']['x'], 32, "\0", STR_PAD_LEFT) . str_pad($d['ec']['y'], 32, "\0", STR_PAD_LEFT);
         $prvRaw = str_pad($d['ec']['d'], 32, "\0", STR_PAD_LEFT);
-        Engine::setState('vapid_public', self::b64url($pubRaw));
-        Engine::setState('vapid_private', self::b64url($prvRaw));
+        $pubB = self::b64url($pubRaw); $prvB = self::b64url($prvRaw);
+        // Claim-first zamiast dwóch upsertów: dwa równoległe pierwsze żądania (po reinstalacji) mogły zapisać
+        // klucz publiczny z jednego przebiegu i prywatny z drugiego — każda wysyłka dostawałaby 403, a subskrypcje
+        // znikałyby po 3 porażkach. INSERT klucza prywatnego wygrywa tylko w jednym procesie (klucz główny k),
+        // a para trafia do bazy w jednej transakcji; przegrany czyta parę zwycięzcy.
+        $pdo = Db::pdo();
+        $own = !$pdo->inTransaction();
+        try {
+            if ($own) $pdo->beginTransaction();
+            $pdo->prepare("INSERT INTO game_state (k, v) VALUES ('vapid_private', ?)")->execute([$prvB]);
+            $pdo->prepare("DELETE FROM game_state WHERE k='vapid_public'")->execute();
+            $pdo->prepare("INSERT INTO game_state (k, v) VALUES ('vapid_public', ?)")->execute([$pubB]);
+            if ($own) $pdo->commit();
+        } catch (\Throwable $e) {
+            if ($own && $pdo->inTransaction()) $pdo->rollBack();
+            $pub = Engine::one("SELECT v FROM game_state WHERE k='vapid_public'");
+            $prv = Engine::one("SELECT v FROM game_state WHERE k='vapid_private'");
+            return ($pub && $prv) ? ['public' => (string) $pub, 'private' => (string) $prv] : null;
+        }
         Log::write('info', 'engine', 'push.keys', 'wygenerowano klucze VAPID');
-        return ['public' => self::b64url($pubRaw), 'private' => self::b64url($prvRaw)];
+        return ['public' => $pubB, 'private' => $prvB];
     }
 
     /** PEM klucza publicznego P-256 z surowego punktu (65 B, 0x04||X||Y). */
@@ -116,7 +158,7 @@ final class Push
     {
         $endpoint = (string) $sub['endpoint'];
         $scheme = (string) parse_url($endpoint, PHP_URL_SCHEME); $host = (string) parse_url($endpoint, PHP_URL_HOST);
-        if ($scheme !== 'https' || $host === '') return [false, 'zły endpoint'];
+        if ($scheme !== 'https' || !self::hostAllowed($host)) return [false, 'zły endpoint'];   // także wpisy spoza listy zapisane przed jej wprowadzeniem
         $jwt = self::vapidJwt("$scheme://$host");
         if ($jwt === null) return [false, 'brak kluczy VAPID'];
         $k = self::keys();
@@ -125,7 +167,7 @@ final class Push
         $ch = curl_init($endpoint);
         curl_setopt_array($ch, [
             CURLOPT_POST => true, CURLOPT_POSTFIELDS => $body, CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 8, CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT => 8, CURLOPT_CONNECTTIMEOUT => 3,   // krótkie nawiązanie: martwy serwer push nie może trzymać crona
             CURLOPT_HTTPHEADER => ['Authorization: vapid t=' . $jwt . ', k=' . $k['public'], 'Content-Type: application/octet-stream',
                 'Content-Encoding: aes128gcm', 'TTL: 86400', 'Urgency: normal', 'Content-Length: ' . strlen($body)],
         ]);
@@ -139,11 +181,20 @@ final class Push
     public static function subscribe(int $uid, string $endpoint, string $p256dh, string $auth): bool
     {
         if (!preg_match('~^https://[^\s]{10,1500}$~', $endpoint) || strlen($p256dh) < 80 || strlen($auth) < 16) return false;
+        $host = (string) parse_url($endpoint, PHP_URL_HOST);
+        if (!self::hostAllowed($host)) {
+            Log::write('warn', 'player', 'push.reject', "odrzucono subskrypcję push gracza #$uid: host spoza listy serwerów push", ['host' => $host]);
+            return false;
+        }
         $pdo = Db::pdo();
         $hash = hash('sha256', $endpoint);
         $pdo->prepare("DELETE FROM push_subscriptions WHERE endpoint_hash=?")->execute([$hash]);   // ta sama przeglądarka po ponownym zapisie
         $pdo->prepare("INSERT INTO push_subscriptions (user_id, endpoint_hash, endpoint, p256dh, auth, created_at) VALUES (?,?,?,?,?,?)")
             ->execute([$uid, $hash, $endpoint, $p256dh, $auth, Db::now()]);
+        // limit urządzeń na konto: zostaje MAX_SUBS najnowszych. Podzapytanie opakowane w (… ) x, bo MySQL
+        // nie pozwala kasować z tabeli, z której w tym samym zapytaniu czyta, bez tabeli pośredniej.
+        $pdo->prepare("DELETE FROM push_subscriptions WHERE user_id=? AND id NOT IN (SELECT id FROM (SELECT id FROM push_subscriptions WHERE user_id=? ORDER BY id DESC LIMIT " . self::MAX_SUBS . ") x)")
+            ->execute([$uid, $uid]);
         return true;
     }
 
@@ -166,7 +217,11 @@ final class Push
     {
         $sent = 0; $fail = 0;
         $pdo = Db::pdo();
-        foreach (Engine::all("SELECT * FROM push_subscriptions WHERE user_id=?", [$uid]) as $sub) {
+        $t0 = microtime(true);
+        foreach (Engine::all("SELECT * FROM push_subscriptions WHERE user_id=? ORDER BY id DESC", [$uid]) as $sub) {
+            // budżet czasu liczony W pętli po urządzeniach, nie dopiero po całym graczu: każde urządzenie to osobne
+            // żądanie HTTP (do 8 s), a cron nie może stać na jednym koncie z wieloma martwymi endpointami
+            if (microtime(true) - $t0 > self::SEND_BUDGET) { $fail++; break; }
             [$ok, $info] = self::sendTo($sub, ['title' => $title, 'body' => $body, 'url' => $url ?: 'powiadomienia.php', 'tag' => $tag]);
             if ($ok) {
                 $sent++;
