@@ -17,7 +17,7 @@ if ($action === 'subscribe') {
     $s = $in['subscription'] ?? [];
     $ok = Push::subscribe($uid, (string) ($s['endpoint'] ?? ''), (string) ($s['keys']['p256dh'] ?? ''), (string) ($s['keys']['auth'] ?? ''));
     if ($ok) Log::write('info', 'player', 'push.subscribe', "push włączony (#$uid)", ['user' => $u['username']]);
-    echo json_encode(['ok' => $ok, 'count' => Push::count($uid), 'err' => $ok ? null : 'Nieprawidłowa subskrypcja.']);
+    echo json_encode(['ok' => $ok, 'count' => Push::count($uid), 'err' => $ok ? null : 'Nieprawidłowa subskrypcja (nieznany serwer push albo niepełne klucze przeglądarki).']);
 } elseif ($action === 'unsubscribe') {
     $n = Push::unsubscribe($uid, isset($in['endpoint']) ? (string) $in['endpoint'] : null);
     Log::write('info', 'player', 'push.unsubscribe', "push wyłączony (#$uid, $n)", ['user' => $u['username']]);

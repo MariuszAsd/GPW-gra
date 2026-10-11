@@ -17,8 +17,12 @@ function rf(float $a, float $b, int $dec = 2): float { return round($a + mt_rand
 $pdo->beginTransaction();
 
 // --- konta ---
+// Konto „gracz” ma losowe hasło jak admin. Publiczne „gracz/haslo123” było kontem, które każdy mógł przejąć
+// (zmiana hasła w Koncie), a grało w ligach o nagrody ze skarbca i liczyło się jako inwestor w rankingu.
+// Rejestracja jest darmowa i trwa minutę, więc konto demo nie jest potrzebne; zostaje jako zwykły gracz.
+$graczPass = bin2hex(random_bytes(6));
 $pdo->prepare("INSERT INTO users (username, password_hash, is_bot, role, cash, start_equity, tokens) VALUES (?,?,0,'player',?,?,10)")
-    ->execute(['gracz', password_hash('haslo123', PASSWORD_DEFAULT), $cfg['starting_cash'], $cfg['starting_cash']]);
+    ->execute(['gracz', password_hash($graczPass, PASSWORD_DEFAULT), $cfg['starting_cash'], $cfg['starting_cash']]);
 // Hasło admina losowane przy każdym zasiewie i wypisywane TYLKO tutaj. Stałe „admin123" w repozytorium
 // oznaczało, że każdy, kto zna adres gry, mógł wejść do panelu GM świeżo postawionej instalacji.
 $adminPass = bin2hex(random_bytes(6));
@@ -43,7 +47,7 @@ Engine::setState('minor_event_cooldown', '20'); // min. odstęp mniejszych wydar
 Engine::setState('market_hours_enabled', '1');  // giełda otwarta jak prawdziwa: sesja = dzień giełdowy
 Engine::setState('market_open_time', '07:50');
 Engine::setState('market_close_time', '22:00');
-$log("✔ konta: gracz/haslo123 · ADMIN: admin/$adminPass  (zapisz teraz — nie da się go odczytać później)");
+$log("✔ konta: gracz/$graczPass · ADMIN: admin/$adminPass  (zapisz teraz — nie da się ich odczytać później)");
 $log("✔ cel gry: 1M PLN w 60 sesji");
 
 // --- SEKTORY (8 branż) ---

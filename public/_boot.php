@@ -242,11 +242,11 @@ function equity_svg(array $series, int $height = 110): string {
 }
 
 /** Kapitał konta = gotówka + zamrożone + akcje po kursie + lokaty i zapisy IPO (to co widzi ranking). */
+/** Kapitał gracza do nagłówka i menu — TA SAMA liczba co w Rankingu (Engine::playerEquity: gotówka + zamrożone
+ *  + akcje + lokaty/IPO/wyzwania + jednostki funduszu MAK40). Własna suma bez funduszu pokazywała po zakupie
+ *  jednostek fałszywy spadek kapitału o wpłaconą kwotę. */
 function user_equity(int $uid): float {
-    $u = Engine::row("SELECT cash, cash_reserved FROM users WHERE id=?", [$uid]);
-    if (!$u) return 0.0;
-    $sv = (float) (Engine::one("SELECT SUM((w.qty + w.qty_reserved) * s.price) FROM wallets w JOIN stocks s ON s.id=w.stock_id WHERE w.user_id=?", [$uid]) ?: 0);
-    return round((float) $u['cash'] + (float) $u['cash_reserved'] + $sv + Engine::lockedFunds($uid), 2);
+    return Engine::playerEquity($uid);
 }
 
 function current_user(): ?array {
@@ -330,14 +330,14 @@ function layout_header(string $title, ?array $user, string $active = ''): void {
             $tk = (int) Engine::one("SELECT tokens FROM users WHERE id=?", [$actg ? $actg['owner_id'] : $user['id']]);
             echo "<a href='sklep.php' class='tokens' title='Tokeny inwestora — premium i doładowania'>🪙 <b>$tk</b></a>";
         }
-        // główna liczba = KAPITAŁ (gotówka + zamrożone + akcje po kursie) — jak w rankingu;
+        // główna liczba = KAPITAŁ (gotówka + zamrożone + akcje po kursie + lokaty i fundusz) — jak w rankingu;
         // sama gotówka („za ile mogę kupić") schodzi do drugiej linijki
         if ($actg) {
             echo "<a class='bal' href='portfolio.php' title='Kliknij — otwórz Portfel'><b>" . money(user_equity((int) $actg['id'])) . " PLN</b><small>portfel wyzwania · gotówka " . money($actg['cash']) . "</small></a>";
             echo "<a class='hide-sm' href='logout.php' style='color:var(--faint)'>" . h($actg['owner_name']) . " ⏻</a>";
         } else {
             $balSub = 'gotówka ' . money($user['cash']) . ((float) $user['cash_reserved'] > 0 ? ' · zamrożone ' . money($user['cash_reserved']) : '');
-            echo "<a class='bal' href='portfolio.php' title='Kapitał: gotówka + zamrożone + akcje po bieżącym kursie. Kliknij — otwórz Portfel'><b>" . money(user_equity((int) $user['id'])) . " PLN</b><small>" . $balSub . "</small></a>";
+            echo "<a class='bal' href='portfolio.php' title='Kapitał: gotówka + zamrożone + akcje po bieżącym kursie + lokaty i fundusz MAK40 (jak w Rankingu). Kliknij — otwórz Portfel'><b>" . money(user_equity((int) $user['id'])) . " PLN</b><small>" . $balSub . "</small></a>";
             echo "<a class='hide-sm' href='logout.php' style='color:var(--faint)'>" . h($user['username']) . " ⏻</a>";
         }
     }

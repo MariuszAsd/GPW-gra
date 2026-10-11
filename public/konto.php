@@ -55,9 +55,9 @@ $refAct = (int) Engine::one("SELECT COUNT(*) FROM users WHERE referred_by=? AND 
 ?>
 <section class="panel" style="max-width:520px;margin-bottom:14px">
   <h2>🤝 Poleć grę znajomym</h2>
-  <p class="muted" style="margin:6px 0 10px">Znajomy rejestruje się z Twojego linku i dostaje na start
-    +<?= Tokens::REF_BONUS ?> Tokenów. Gdy zacznie realnie handlować (min. 5 transakcji),
-    Ty dostajesz <b>+<?= Tokens::REF_REWARD ?> Tokenów inwestora</b> — za każdego poleconego.</p>
+  <p class="muted" style="margin:6px 0 10px">Znajomy rejestruje się z Twojego linku. Gdy zacznie realnie handlować
+    (min. 5 transakcji w 3 różne dni), on dostaje +<?= Tokens::REF_BONUS ?> Tokenów,
+    a Ty <b>+<?= Tokens::REF_REWARD ?> Tokenów inwestora</b> — za każdego poleconego.</p>
   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
     <input id="reflink" readonly value="<?= h($refLink) ?>" style="flex:1;min-width:220px;font-size:12.5px" onclick="this.select()">
     <button class="btn sm ghost" type="button" onclick="navigator.clipboard&&navigator.clipboard.writeText(document.getElementById('reflink').value).then(()=>{this.textContent='✓ Skopiowano'})">Kopiuj link</button>

@@ -7,6 +7,12 @@
  *   3. domyślne wartości (SQLite lokalnie) — do pracy bez konfiguracji.
  * Sekretów NIGDY nie commitujemy do repozytorium.
  */
+// Jedna strefa czasu dla WWW i crona. Znaczniki czasu (Db::now(), dziennik, zawieszenia notowań, pierwszeństwo
+// czasu zleceń w arkuszu) powstają z date() w PHP, a na współdzielonym hostingu php-cli i php-fpm miewają
+// różne php.ini (UTC vs Europe/Warsaw) — wtedy zlecenia graczy i botów z tej samej minuty miałyby godziny
+// przesunięte o 2 h. config.php czyta każdy punkt wejścia (Db::pdo(), _boot, cron), więc to wspólne miejsce.
+date_default_timezone_set('Europe/Warsaw');
+
 $config = [
     // 'sqlite' (lokalnie) albo 'mysql' (na hostingu)
     'db_driver' => getenv('DB_DRIVER') ?: 'sqlite',
