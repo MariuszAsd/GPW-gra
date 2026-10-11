@@ -11,11 +11,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $a = $_POST['action'] ?? '';
     $pdo = Db::pdo();
 
+    // GODZINY HANDLU: ręczny tick albo wydarzenie poza sesją ruszałyby kursy (boty, SL/TP graczy, świece z nocy),
+    // gdy gracze mają zablokowane zlecenia — gra obiecuje, że po zamknięciu świat stoi. Cron tę bramkę ma,
+    // panel jej nie miał. Do testów zostaje jawny wyłącznik „mimo zamkniętej giełdy” przy przycisku ticka.
+    if (in_array($a, ['event', 'tick', 'world_event', 'sector_event', 'company_event'], true)
+        && !Engine::marketIsOpen() && ($_POST['force_closed'] ?? '') !== '1') {
+        flash('Giełda zamknięta — ticki i wydarzenia tylko w godzinach handlu (do testów: zaznacz „mimo zamkniętej giełdy” przy ticku).', 'err');
+        redirect('gm.php');
+    }
     // Akcje uruchamiające silnik muszą przejść przez TĘ SAMĄ blokadę co cron. Wcześniej panel
     // odpalał runTick() prosto z żądania HTTP, więc kliknięcie w trakcie pracy crona dawało dwie
     // pętle świata naraz — a to rozjeżdżało rezerwacje botów (ujemne stany w portfelach).
     // Blokada zwalnia się sama wraz z końcem żądania (zamknięcie połączenia / procesu).
-    if (in_array($a, ['event', 'report', 'tick', 'world_event', 'sector_event', 'company_event', 'reconcile'], true)
+    // „Odwołaj wyzwanie” (likwidacja subkont: zlecenia, portfele) i „Debiut teraz” (korekta dzielnika indeksu
+    // odczyt-potem-zapis, pakiety dla botów) też ruszają świat, więc nie mogą biec równolegle z tickiem.
+    if (in_array($a, ['event', 'report', 'tick', 'world_event', 'sector_event', 'company_event', 'reconcile', 'challenge_cancel', 'ipo_now'], true)
         && !Engine::worldLock(5)) {
         flash('Silnik właśnie pracuje (cron) — odczekaj kilka sekund i spróbuj ponownie.', 'err');
         redirect('gm.php');
@@ -560,8 +570,11 @@ $modTop = Engine::all("SELECT m.user_id, u.username, COUNT(*) n, MAX(m.created_a
     <h2>Silnik</h2>
     <p class="muted">Ręczne wykonanie cykli rynku (gdy nie chcesz czekać na cron).</p>
     <div class="row">
-      <form method="post" class="inline"><input type="hidden" name="action" value="tick"><input type="hidden" name="n" value="1"><button class="btn sm">+1 tick</button></form>
-      <form method="post" class="inline"><input type="hidden" name="action" value="tick"><input type="hidden" name="n" value="10"><button class="btn sm">+10 ticków</button></form>
+      <form method="post" class="inline"><input type="hidden" name="action" value="tick">
+        <button class="btn sm" name="n" value="1">+1 tick</button>
+        <button class="btn sm" name="n" value="10">+10 ticków</button>
+        <label class="muted" style="margin-left:6px"><input type="checkbox" name="force_closed" value="1"> mimo zamkniętej giełdy (testy — kursy ruszą, gdy gracze nie mogą handlować)</label>
+      </form>
       <form method="post" class="inline" onsubmit="return confirm('Zresetować bias/vol/nastawienie?')"><input type="hidden" name="action" value="reset"><button class="btn sm ghost">Reset sterowania</button></form>
     </div>
     <h2 style="margin-top:18px">⏱️ Tempo handlu</h2>

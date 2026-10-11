@@ -1172,12 +1172,15 @@ final class Engine
         }
     }
 
-    /** Anuluj WSZYSTKIE zlecenia konta (też obronne SL/TP) i zwolnij rezerwacje — likwidacja subkonta wyzwania. */
-    public static function releaseAllOrders(int $uid): void
+    /** Anuluj WSZYSTKIE zlecenia konta (też obronne SL/TP) i zwolnij rezerwacje — likwidacja subkonta wyzwania.
+     *  $lock = true: lista zleceń czytana blokująco (FOR UPDATE na MySQL), czyli ze stanu BIEŻĄCEGO, a nie z migawki
+     *  sprzed początku transakcji ticka — zlecenie złożone przez HTTP w trakcie ticka też zostaje anulowane. */
+    public static function releaseAllOrders(int $uid, bool $lock = false): void
     {
         $pdo = Db::pdo();
         $claim = $pdo->prepare("UPDATE orders SET status='cancelled' WHERE id=? AND status IN ('active','pending')");
-        foreach (self::all("SELECT id FROM orders WHERE user_id=? AND status IN ('active','pending')", [$uid]) as $r) {
+        $sfx = ($lock && Db::driver() === 'mysql') ? ' FOR UPDATE' : '';
+        foreach (self::all("SELECT id FROM orders WHERE user_id=? AND status IN ('active','pending')" . $sfx, [$uid]) as $r) {
             $claim->execute([(int) $r['id']]);
             if ($claim->rowCount() !== 1) continue;
             $o = self::row("SELECT * FROM orders WHERE id=?", [(int) $r['id']]);

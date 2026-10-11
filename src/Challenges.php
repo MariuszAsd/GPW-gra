@@ -357,19 +357,24 @@ final class Challenges
         $pdo = Db::pdo();
         $sid = (int) $cp['shadow_user_id'];
         $uid = (int) $cp['user_id'];
-        Engine::releaseAllOrders($sid);   // anuluje zlecenia (też obronne SL/TP) i zwalnia rezerwacje
-        // Odczyt salda subkonta musi widzieć stan BIEŻĄCY, nie zrzut sprzed rozpoczęcia transakcji ticka:
-        // gracz może handlować subkontem przez HTTP dokładnie w tej samej chwili, a poniżej zerujemy jego
-        // saldo. Bez blokującego odczytu ostatnia sprzedaż na subkoncie po prostu przepadała.
         $lock = Db::driver() === 'mysql' ? ' FOR UPDATE' : '';
+        // NAJPIERW blokujemy wiersz subkonta, DOPIERO POTEM czytamy jego zlecenia i portfel. Każda operacja
+        // gracza, która rusza pieniądz subkonta przez HTTP (złożenie kupna = escrow, PKC, realizacja w matchBook),
+        // musi zapisać ten sam wiersz users — więc od tej chwili czeka na nasz commit, a to, co zdążyło się
+        // zacommitować wcześniej, zobaczymy w blokujących odczytach poniżej. Bez tego lista zleceń i portfel
+        // pochodziły z migawki REPEATABLE READ sprzed początku transakcji ticka: akcje kupione na subkoncie
+        // w tym oknie nie były przenoszone, a DELETE FROM wallets kasował je bez śladu (gracz zapłacił,
+        // akcje znikały z obiegu). Suma cash + cash_reserved nie zmienia się przez anulowanie zleceń
+        // (release przesuwa tylko między tymi dwiema kolumnami), dlatego można ją odczytać przed nimi.
         $cashRow = Engine::row("SELECT cash + cash_reserved AS total FROM users WHERE id=?" . $lock, [$sid]);
         $cash = (float) ($cashRow['total'] ?? 0);
+        Engine::releaseAllOrders($sid, true);   // anuluje zlecenia (też obronne SL/TP) i zwalnia rezerwacje — lista czytana blokująco
         $stockVal = 0.0;
-        foreach (Engine::all("SELECT w.stock_id, w.qty, w.qty_reserved, w.avg_price, s.price
-                              FROM wallets w JOIN stocks s ON s.id=w.stock_id
-                              WHERE w.user_id=? AND (w.qty > 0 OR w.qty_reserved > 0)", [$sid]) as $w) {
+        // Portfel też blokująco (bieżące wiersze, nie migawka); kurs bierzemy osobno, żeby nie blokować wierszy stocks.
+        foreach (Engine::all("SELECT stock_id, qty, qty_reserved, avg_price FROM wallets
+                              WHERE user_id=? AND (qty > 0 OR qty_reserved > 0)" . $lock, [$sid]) as $w) {
             $q = (int) $w['qty'] + (int) $w['qty_reserved'];
-            $stockVal += $q * (float) $w['price'];
+            $stockVal += $q * (float) Engine::one("SELECT price FROM stocks WHERE id=?", [(int) $w['stock_id']]);
             Engine::ensureWallet($uid, (int) $w['stock_id']);
             // Zapis PRZYROSTOWY po stronie SQL — dokładnie ten wzorzec, co w matchBook. Wcześniej był tu
             // odczyt-a-potem-zapis wartością absolutną: jeśli gracz dokupił akcje na koncie GŁÓWNYM w tej
