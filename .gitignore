@@ -12,3 +12,6 @@ data/migrate.lock
 
 # katalog roboczy narzedzi Claude (worktree agentow, ustawienia lokalne) — nie jest czescia gry
 .claude/
+data/*.sqlite-journal
+data/*.sqlite-wal
+data/*.sqlite-shm
