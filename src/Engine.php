@@ -1976,13 +1976,18 @@ final class Engine
     /** Zapis kapitału (equity) każdego CZŁOWIEKA-gracza po ticku — wykres portfela. */
     private static function recordEquity(int $t): void
     {
+        // Jednostki funduszu MAK40 liczą się do kapitału tak samo jak w playerEquity (ranking, ligi): bez nich wykres
+        // pokazywał „krach” o kwotę wpłaty, a rollSession z tych punktów przyznawał fałszywe odznaki rajd_10 / lekcja_pokory.
+        if (!class_exists('Fund')) require_once __DIR__ . '/Fund.php';
+        $nav = Fund::nav();
         Db::pdo()->prepare(
             "INSERT INTO equity_history (user_id, t, equity)
              SELECT u.id, ?, ROUND(u.cash + u.cash_reserved + COALESCE(sv.v, 0) + COALESCE(dep.v, 0) + COALESCE(ipo.v, 0)
-                                   + COALESCE(chs.v, 0) + COALESCE(chr.v, 0), 2)
+                                   + COALESCE(chs.v, 0) + COALESCE(chr.v, 0) + COALESCE(fp.v, 0), 2)
              FROM users u
              LEFT JOIN (SELECT w.user_id AS uid, SUM((w.qty + w.qty_reserved) * s.price) AS v
                         FROM wallets w JOIN stocks s ON s.id = w.stock_id GROUP BY w.user_id) sv ON sv.uid = u.id
+             LEFT JOIN (SELECT user_id AS uid, units * ? AS v FROM fund_positions WHERE units > 0) fp ON fp.uid = u.id
              LEFT JOIN (SELECT user_id AS uid, SUM(amount) AS v FROM deposits WHERE status='active' GROUP BY user_id) dep ON dep.uid = u.id
              LEFT JOIN (SELECT s2.user_id AS uid, SUM(s2.paid) AS v FROM ipo_subs s2
                         JOIN ipo_offers o2 ON o2.id = s2.offer_id AND o2.status='open' GROUP BY s2.user_id) ipo ON ipo.uid = u.id
@@ -2004,7 +2009,7 @@ final class Engine
                 OR (u.role = 'challenger' AND EXISTS (
                      SELECT 1 FROM challenge_players cp JOIN challenges c ON c.id = cp.challenge_id
                      WHERE cp.shadow_user_id = u.id AND c.status = 'running'))"
-        )->execute([$t]);
+        )->execute([$t, $nav]);
         if ($t % 500 === 0) Db::pdo()->prepare("DELETE FROM equity_history WHERE t < ?")->execute([$t - 10000]);
     }
 
