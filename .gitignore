@@ -9,3 +9,6 @@ cron/*.lock
 # system
 .DS_Store
 data/migrate.lock
+
+# katalog roboczy narzedzi Claude (worktree agentow, ustawienia lokalne) — nie jest czescia gry
+.claude/
