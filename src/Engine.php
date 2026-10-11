@@ -549,7 +549,7 @@ final class Engine
      * dane pozostawały spójne. Baza w takiej sytuacji wycofuje transakcję, więc ponowienie jest bezpieczne.
      * Wołać TYLKO z góry (ze strony), nigdy ze środka cudzej transakcji.
      */
-    public static function retryOnLock(callable $fn, int $tries = 3)
+    public static function retryOnLock(callable $fn, int $tries = 6)
     {
         for ($i = 1; ; $i++) {
             try {
@@ -560,7 +560,10 @@ final class Engine
                 if (!$isLock || $i >= $tries) throw $e;
                 $pdo = Db::pdo();
                 if ($pdo->inTransaction()) { try { $pdo->rollBack(); } catch (\Throwable $x) { /* już wycofana */ } }
-                usleep(60000 * $i);   // krótka przerwa, z każdą próbą dłuższa
+                // Przerwa rosnąca z LOSOWYM rozrzutem: kilku graczy odbitych od tego samego zakleszczenia (tick kojarzy
+                // ich spółkę) ponawiało w tej samej milisekundzie i znów wpadało na siebie — przy 3 próbach co 60/120 ms
+                // ~0,15% akcji pod obciążeniem kończyło się stroną błędu, choć dane były spójne. Maks. ok. 0,5 s na próbę.
+                usleep(mt_rand(60000, min(500000, 60000 * $i + 100000 * ($i - 1))));
             }
         }
     }
