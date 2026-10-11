@@ -7,7 +7,7 @@ $uidReal = (int) ($user['owner_id'] ?? $user['id']);
 // lokaty: założenie / zerwanie (zawsze z KONTA GŁÓWNEGO — portfel wyzwania gra tylko akcjami)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bank_open'])) {
     $amount = (float) str_replace([' ', ','], ['', '.'], (string) ($_POST['bank_amount'] ?? '0'));
-    [$ok, $msg] = Bank::open($uidReal, $amount, (int) ($_POST['bank_term'] ?? 0));
+    [$ok, $msg] = Engine::retryOnLock(fn() => Bank::open($uidReal, $amount, (int) ($_POST['bank_term'] ?? 0)));
     flash($msg, $ok ? 'ok' : 'err');
     redirect('portfolio.php?tab=lok');
 }
@@ -42,8 +42,9 @@ $history = Engine::all("SELECT t.*, s.ticker FROM transactions t JOIN stocks s O
                         UNION
                         SELECT t.*, s.ticker FROM transactions t JOIN stocks s ON s.id=t.stock_id WHERE t.seller_id=?
                         ORDER BY id DESC LIMIT 30", [$user['id'], $user['id']]);
+// archiwum = zlecenia ZAKOŃCZONE; 'pending' to czekające SL/TP i stop-buy — są wyżej w aktywnych, nie w archiwum
 $archive = Engine::all("SELECT o.*, s.ticker FROM orders o JOIN stocks s ON s.id=o.stock_id
-                        WHERE o.user_id=? AND o.status<>'active' ORDER BY o.id DESC LIMIT 30", [$user['id']]);
+                        WHERE o.user_id=? AND o.status NOT IN ('active','pending') ORDER BY o.id DESC LIMIT 30", [$user['id']]);
 
 // --- zamknięte pozycje: zrealizowany wynik metodą średniego kosztu (odtworzenie z transakcji) ---
 // jak wyżej: OR -> UNION (seek po indeksach zamiast pełnego skanu transakcji na MySQL).
@@ -92,10 +93,12 @@ $pl = $value - $cost;
 $locked = Engine::lockedFunds((int) $user['id']);          // lokaty + IPO + zablokowane w wyzwaniu
 $chLocked = Engine::challengeLocked((int) $user['id']);    // sam buy-in/portfel wyzwania (do osobnej karty)
 $depIpo = round($locked - $chLocked, 2);                   // lokaty + zapisy IPO (bez wyzwania)
-$equity = $user['cash'] + $user['cash_reserved'] + $value + $locked;
-$plPct = $cost > 0 ? $pl / $cost * 100 : 0;
 $deposits = ($user['ctx'] ?? '') !== 'challenge' ? Bank::activeFor($uidReal) : [];
 $fundPos = ($user['ctx'] ?? '') !== 'challenge' ? Fund::position($uidReal) : ['units' => 0.0, 'cost' => 0.0, 'value' => 0.0, 'pl' => 0.0];
+// kapitał jak w Rankingu (Engine::playerEquity): jednostki funduszu MAK40 liczą się jak akcje — bez nich zakup
+// jednostek wyglądał tu jak strata o wpłaconą kwotę. W portfelu wyzwania funduszu nie ma (wartość 0).
+$equity = $user['cash'] + $user['cash_reserved'] + $value + $locked + $fundPos['value'];
+$plPct = $cost > 0 ? $pl / $cost * 100 : 0;
 
 // --- drabinka: stopa zwrotu od kapitału startowego (bez celu i bez limitu czasu) ---
 [$sessionNo] = Engine::sessionInfo();
@@ -240,7 +243,7 @@ layout_header('Portfel', $user, 'portfolio');
       <tbody>
       <?php
       $stLabel = ['filled' => ['zrealizowane', 'up'], 'cancelled' => ['anulowane', 'muted'], 'expired' => ['wygasłe', 'muted'],
-                  'triggered' => ['SL/TP wyzwolone', 'soft']];
+                  'triggered' => ['SL/TP wyzwolone', 'soft'], 'pending' => ['czeka na wyzwolenie', 'soft']];
       // obrót zrealizowany per zlecenie (suma transakcji podpiętych do zlecenia) — szczegóły w osi czasu
       $ids = array_map(fn($o) => (int) $o['id'], $archive);
       $turn = [];

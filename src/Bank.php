@@ -38,18 +38,27 @@ final class Bank
         $rate = $offers[$termSessions];
         [$session] = Engine::sessionInfo();
         $pdo = Db::pdo();
-        // pobranie atomowe — warunek cash >= amount chroni przed podwójnym POST-em
-        $st = $pdo->prepare("UPDATE users SET cash = cash - ? WHERE id = ? AND cash >= ?");
-        $st->execute([$amount, $userId, $amount]);
-        if ($st->rowCount() === 0) return [false, 'Za mało wolnej gotówki.'];
+        // Pobranie gotówki i wpis lokaty w JEDNEJ transakcji (wzór jak Fund::buy): dwa autocommity z kompensacją
+        // w try/catch chroniły przed błędem SQL, ale nie przed ubiciem procesu PHP między zapytaniami
+        // (limit czasu, OOM) — wtedy gotówka znikała bez lokaty i bez śladu. Warunek cash >= amount
+        // nadal chroni przed podwójnym POST-em.
+        $own = !$pdo->inTransaction();
+        if ($own) $pdo->beginTransaction();
         try {
+            $st = $pdo->prepare("UPDATE users SET cash = cash - ? WHERE id = ? AND cash >= ?");
+            $st->execute([$amount, $userId, $amount]);
+            if ($st->rowCount() === 0) { if ($own) $pdo->rollBack(); return [false, 'Za mało wolnej gotówki.']; }
             $pdo->prepare("INSERT INTO deposits (user_id, amount, rate_pct, start_session, end_session, status, created_at)
                            VALUES (?,?,?,?,?, 'active', ?)")
                 ->execute([$userId, $amount, $rate, $session, $session + $termSessions, Db::now()]);
-        } catch (\Throwable $e) {   // INSERT padł (deadlock/limit typów) — gotówka wraca, nic nie ginie
-            $pdo->prepare("UPDATE users SET cash = cash + ? WHERE id = ?")->execute([$amount, $userId]);
+            if ($own) $pdo->commit();
+        } catch (\Throwable $e) {   // cokolwiek padło — transakcja cofa też pobranie gotówki, nic nie ginie
+            if ($own && $pdo->inTransaction()) $pdo->rollBack();
+            // zakleszczenie zostawiamy wołającemu (strona ponawia przez Engine::retryOnLock)
+            $drv = (int) ($e->errorInfo[1] ?? 0);
+            if ($e instanceof \PDOException && ($e->getCode() === '40001' || $drv === 1213 || $drv === 1205)) throw $e;
             Log::write('error', 'engine', 'bank.open', $e->getMessage(), ['user_id' => $userId]);
-            return [false, 'Nie udało się założyć lokaty — środki wróciły na konto. Spróbuj ponownie.'];
+            return [false, 'Nie udało się założyć lokaty — środki zostały na koncie. Spróbuj ponownie.'];
         }
         $payout = round($amount * (1 + $rate / 100), 2);
         $odm = self::sesje($termSessions);

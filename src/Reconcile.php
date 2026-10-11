@@ -15,6 +15,16 @@
  * (dokładnie tak, jak liczy je QA). Pieniądz w świecie się nie zmienia. Jedyny wyjątek: ujemna SUMA akcji
  * (bot sprzedał więcej niż miał) — tam ilość idzie na zero, a dziennik zapisuje, ile akcji „dotworzono".
  * Ujemnej SUMY gotówki nie ruszamy (wymagałoby stworzenia pieniądza) — wiersz zostaje do ręcznej decyzji.
+ *
+ * ZAPIS JEST PRZYROSTOWY, nie bezwzględny. Blokada świata zatrzymuje tick i panel GM, ale NIE żądania HTTP
+ * graczy: Engine::place/marketOrder biegną w swoich krótkich transakcjach równolegle z rekoncyliacją. Gdyby
+ * korekta wpisywała policzone wcześniej liczby, zlecenie złożone w oknie między odczytem planu a zapisem
+ * traciłoby pokrycie (aktywne zlecenie bez rezerwacji = nowa blizna, a przy realizacji akcje bez zapłaty).
+ * Plan daje więc RÓŻNICĘ (Σ zleceń − zamrożone, liczone z jednego zrzutu) i zapis to „cash = cash − d,
+ * cash_reserved = cash_reserved + d”. Różnica komutuje z każdą równoległą operacją, która sama trzyma
+ * niezmiennik (zlecenie, realizacja, lokata, fundusz), więc stan końcowy jest poprawny niezależnie od ruchu.
+ * Z tego samego powodu zlecenia do anulowania wybiera się RAZ, w planie (po id) — zlecenie złożone w oknie
+ * nie jest w zrzucie i rekoncyliacja go nie dotyka.
  */
 final class Reconcile
 {
@@ -43,7 +53,9 @@ final class Reconcile
     }
 
     /**
-     * Plan dla wiersza gotówki: [nowa_gotówka, nowa_rezerwacja, uwaga, do_anulowania_zleceń].
+     * Plan dla wiersza gotówki: [nowa_gotówka, nowa_rezerwacja, uwaga, do_anulowania_zleceń, ids_do_anulowania].
+     * Dwie pierwsze wartości to PODGLĄD dla GM (jak wyglądałoby konto, gdyby nic się nie ruszało);
+     * apply() zapisuje różnicę nowa_rezerwacja − zamrożone, nie te liczby.
      * Gdy zleceń kupna jest na więcej niż gracz ma łącznie, samo przesunięcie dałoby ujemną gotówkę —
      * wtedy anulujemy najnowsze zlecenia kupna, aż reszta mieści się w sumie.
      */
@@ -51,19 +63,19 @@ final class Reconcile
     {
         $total = round((float) $r['cash'] + (float) $r['cash_reserved'], 2);
         $need  = round((float) $r['should_be'], 2);
-        if ($total < -0.005) return [(float) $r['cash'], (float) $r['cash_reserved'], 'ujemna suma — pominięte, wymaga ręcznej decyzji', 0];
+        if ($total < -0.005) return [(float) $r['cash'], (float) $r['cash_reserved'], 'ujemna suma — pominięte, wymaga ręcznej decyzji', 0, []];
         if ($need > $total + 0.005) {
-            $keep = 0.0; $cancel = 0;
+            $keep = 0.0; $ids = [];
             foreach (Engine::all("SELECT id, qty, price FROM orders WHERE user_id=? AND side='buy' AND status IN ('active','pending') ORDER BY id ASC", [(int) $r['id']]) as $o) {
                 $v = round((float) $o['qty'] * (float) $o['price'], 2);
-                if ($keep + $v <= $total + 0.005) $keep = round($keep + $v, 2); else $cancel++;
+                if ($keep + $v <= $total + 0.005) $keep = round($keep + $v, 2); else $ids[] = (int) $o['id'];
             }
-            return [round($total - $keep, 2), $keep, "anuluje $cancel zleceń kupna (brak pokrycia)", $cancel];
+            return [round($total - $keep, 2), $keep, 'anuluje ' . count($ids) . ' zleceń kupna (brak pokrycia)', count($ids), $ids];
         }
-        return [round($total - $need, 2), $need, '', 0];
+        return [round($total - $need, 2), $need, '', 0, []];
     }
 
-    /** Plan dla wiersza akcji: [nowe_qty, nowa_rezerwacja, uwaga, do_anulowania_zleceń, dotworzone_akcje]. */
+    /** Plan dla wiersza akcji: [nowe_qty, nowa_rezerwacja, uwaga, do_anulowania_zleceń, dotworzone_akcje, ids_do_anulowania]. */
     public static function planQty(array $r): array
     {
         $total = (int) $r['qty'] + (int) $r['qty_reserved'];
@@ -73,74 +85,74 @@ final class Reconcile
         if ($need > $total) {
             // zleceń sprzedaży na więcej akcji niż łącznie posiada: zwykłe zlecenia od najnowszych do anulowania,
             // obronne (SL/TP) na końcu — gracz woli stracić świeże zlecenie niż osłonę pozycji
-            $keep = 0; $cancel = 0;
+            $keep = 0; $ids = [];
             foreach (Engine::all("SELECT id, qty FROM orders WHERE user_id=? AND stock_id=? AND side='sell' AND status IN ('active','pending')
                                   ORDER BY CASE WHEN status='pending' THEN 0 ELSE 1 END, id ASC", [(int) $r['user_id'], (int) $r['stock_id']]) as $o) {
-                if ($keep + (int) $o['qty'] <= $total) $keep += (int) $o['qty']; else $cancel++;
+                if ($keep + (int) $o['qty'] <= $total) $keep += (int) $o['qty']; else $ids[] = (int) $o['id'];
             }
-            $note = "anuluje $cancel zleceń sprzedaży (brak pokrycia)" . ($made ? ", dotwarza $made szt." : '');
-            return [$total - $keep, $keep, $note, $cancel, $made];
+            $note = 'anuluje ' . count($ids) . ' zleceń sprzedaży (brak pokrycia)' . ($made ? ", dotwarza $made szt." : '');
+            return [$total - $keep, $keep, $note, count($ids), $made, $ids];
         }
-        return [$total - $need, $need, $made ? "dotwarza $made szt. (ujemna suma)" : '', 0, $made];
+        return [$total - $need, $need, $made ? "dotwarza $made szt. (ujemna suma)" : '', 0, $made, []];
     }
 
     /**
      * Wykonaj korekty. Wołający trzyma blokadę świata (Engine::worldLock), my trzymamy transakcję.
      * Zwraca podsumowanie do komunikatu dla GM. Każdy zmieniony wiersz ma osobny wpis w dzienniku.
+     * Zapis przyrostowy (patrz nagłówek pliku): UPDATE ... = kolumna ± różnica, nigdy = wartość z planu.
      */
     public static function apply(int $adminId): array
     {
         $pdo = Db::pdo();
         $pdo->beginTransaction();
         try {
-            $moneyBefore = (float) Engine::one("SELECT COALESCE(SUM(cash),0)+COALESCE(SUM(cash_reserved),0) FROM users");
-            $updUser   = $pdo->prepare("UPDATE users SET cash=?, cash_reserved=? WHERE id=?");
-            $updWallet = $pdo->prepare("UPDATE wallets SET qty=?, qty_reserved=? WHERE user_id=? AND stock_id=?");
+            // gotówka: wolne − d, zamrożone + d — suma per gracz z definicji bez zmian
+            $updUser   = $pdo->prepare("UPDATE users SET cash = ROUND(cash - ?, 2), cash_reserved = ROUND(cash_reserved + ?, 2) WHERE id=?");
+            $updWallet = $pdo->prepare("UPDATE wallets SET qty = qty + ?, qty_reserved = qty_reserved + ? WHERE user_id=? AND stock_id=?");
             $cancel    = $pdo->prepare("UPDATE orders SET status='cancelled' WHERE id=? AND status IN ('active','pending')");
             $nCash = 0; $nQty = 0; $nCancel = 0; $made = 0; $skipped = 0;
 
             foreach (self::cashIssues() as $r) {
-                [$cash, $res, $note, $toCancel] = $r['plan'];
+                [$cash, $res, $note, $toCancel, $ids] = $r['plan'];
                 if ($toCancel === 0 && $note !== '') { $skipped++; continue; }   // ujemna suma — nie ruszamy
-                if ($toCancel > 0) {
-                    // od najnowszych: tyle, ile nie mieści się w sumie (plan liczył od najstarszych, które zostają)
-                    $keep = 0.0; $total = round((float) $r['cash'] + (float) $r['cash_reserved'], 2);
-                    foreach (Engine::all("SELECT id, qty, price FROM orders WHERE user_id=? AND side='buy' AND status IN ('active','pending') ORDER BY id ASC", [(int) $r['id']]) as $o) {
-                        $v = round((float) $o['qty'] * (float) $o['price'], 2);
-                        if ($keep + $v <= $total + 0.005) { $keep = round($keep + $v, 2); continue; }
-                        $cancel->execute([(int) $o['id']]); $nCancel += $cancel->rowCount();
-                        if ((int) $r['is_bot'] === 0) Engine::notify((int) $r['id'], 'order', "Zlecenie kupna #{$o['id']} anulowane przez administrację (porządkowanie rezerwacji).", 'portfolio.php');
-                    }
+                // strażnik pieniądza: plan musi zachować sumę gracza (wolne + zamrożone). Sumy ze SELECT-ów przed/po
+                // nie nadają się do tego na MySQL — REPEATABLE READ czyta ten sam zrzut i nie widzi gotówki,
+                // która w oknie zmieniła właściciela (realizacja cudzego zlecenia).
+                $drift = round(($cash + $res) - ((float) $r['cash'] + (float) $r['cash_reserved']), 2);
+                if (abs($drift) > 0.005) throw new RuntimeException(sprintf('plan gotówki %s zmieniłby pieniądz w świecie o %.2f PLN — korekta wycofana', $r['username'], $drift));
+                foreach ($ids as $oid) {
+                    // tylko zlecenia ze zrzutu planu; claim-first — zrealizowane/anulowane w międzyczasie pomijamy
+                    $cancel->execute([$oid]);
+                    if ($cancel->rowCount() !== 1) continue;
+                    $nCancel++;
+                    if ((int) $r['is_bot'] === 0) Engine::notify((int) $r['id'], 'order', "Zlecenie kupna #$oid anulowane przez administrację (porządkowanie rezerwacji).", 'portfolio.php');
                 }
-                $updUser->execute([$cash, $res, (int) $r['id']]);
-                Log::write('warn', 'gm', 'reconcile.cash', "korekta gotówki {$r['username']}: wolne {$r['cash']} → $cash, zamrożone {$r['cash_reserved']} → $res" . ($note !== '' ? " ($note)" : ''),
-                    ['user_id' => (int) $r['id'], 'admin' => $adminId, 'should_be' => (float) $r['should_be']]);
+                $d = round($res - (float) $r['cash_reserved'], 2);   // o tyle rośnie rezerwacja (i maleje wolna gotówka)
+                $updUser->execute([$d, $d, (int) $r['id']]);
+                Log::write('warn', 'gm', 'reconcile.cash', "korekta gotówki {$r['username']}: wolne {$r['cash']} → $cash, zamrożone {$r['cash_reserved']} → $res (zapis przyrostowy: Δzamrożone " . ($d >= 0 ? '+' : '') . number_format($d, 2, '.', '') . ')' . ($note !== '' ? " ($note)" : ''),
+                    ['user_id' => (int) $r['id'], 'admin' => $adminId, 'should_be' => (float) $r['should_be'], 'delta' => $d]);
                 $nCash++;
             }
 
             foreach (self::qtyIssues() as $r) {
-                [$qty, $res, $note, $toCancel, $created] = $r['plan'];
-                if ($toCancel > 0) {
-                    $keep = 0; $total = max(0, (int) $r['qty'] + (int) $r['qty_reserved']);
-                    foreach (Engine::all("SELECT id, qty FROM orders WHERE user_id=? AND stock_id=? AND side='sell' AND status IN ('active','pending')
-                                          ORDER BY CASE WHEN status='pending' THEN 0 ELSE 1 END, id ASC", [(int) $r['user_id'], (int) $r['stock_id']]) as $o) {
-                        if ($keep + (int) $o['qty'] <= $total) { $keep += (int) $o['qty']; continue; }
-                        $cancel->execute([(int) $o['id']]); $nCancel += $cancel->rowCount();
-                        if ((int) $r['is_bot'] === 0) Engine::notify((int) $r['user_id'], 'order', "Zlecenie sprzedaży #{$o['id']} ({$r['ticker']}) anulowane przez administrację (porządkowanie rezerwacji).", 'portfolio.php');
-                    }
+                [$qty, $res, $note, $toCancel, $created, $ids] = $r['plan'];
+                foreach ($ids as $oid) {
+                    $cancel->execute([$oid]);
+                    if ($cancel->rowCount() !== 1) continue;
+                    $nCancel++;
+                    if ((int) $r['is_bot'] === 0) Engine::notify((int) $r['user_id'], 'order', "Zlecenie sprzedaży #$oid ({$r['ticker']}) anulowane przez administrację (porządkowanie rezerwacji).", 'portfolio.php');
                 }
-                $updWallet->execute([$qty, $res, (int) $r['user_id'], (int) $r['stock_id']]);
+                // Δwolne + Δzarezerwowane = dotworzone akcje (0 poza przypadkiem ujemnej sumy)
+                $dq = $qty - (int) $r['qty'];
+                $dr = $res - (int) $r['qty_reserved'];
+                if ($dq + $dr !== $created) throw new RuntimeException("plan akcji {$r['username']}/{$r['ticker']} niespójny (Δ=" . ($dq + $dr) . ", dotworzone=$created)");
+                $updWallet->execute([$dq, $dr, (int) $r['user_id'], (int) $r['stock_id']]);
                 $made += $created;
-                Log::write('warn', 'gm', 'reconcile.qty', "korekta akcji {$r['username']} / {$r['ticker']}: wolne {$r['qty']} → $qty, zarezerwowane {$r['qty_reserved']} → $res" . ($note !== '' ? " ($note)" : ''),
+                Log::write('warn', 'gm', 'reconcile.qty', "korekta akcji {$r['username']} / {$r['ticker']}: wolne {$r['qty']} → $qty, zarezerwowane {$r['qty_reserved']} → $res (zapis przyrostowy: Δwolne $dq, Δzarezerwowane $dr)" . ($note !== '' ? " ($note)" : ''),
                     ['user_id' => (int) $r['user_id'], 'stock_id' => (int) $r['stock_id'], 'admin' => $adminId, 'should_be' => (int) $r['should_be']]);
                 $nQty++;
             }
 
-            $moneyAfter = (float) Engine::one("SELECT COALESCE(SUM(cash),0)+COALESCE(SUM(cash_reserved),0) FROM users");
-            if (abs($moneyAfter - $moneyBefore) > 0.05) {
-                // nie ma prawa się zdarzyć (suma per gracz zostaje) — jeśli jednak, cofamy wszystko
-                throw new RuntimeException(sprintf('pieniądz w świecie zmieniłby się o %.2f PLN — korekta wycofana', $moneyAfter - $moneyBefore));
-            }
             $pdo->commit();
         } catch (\Throwable $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();

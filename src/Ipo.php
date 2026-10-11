@@ -163,22 +163,33 @@ final class Ipo
         }
         $cost = round($qty * (float) $o['price'], 2);
         $pdo = Db::pdo();
-        $st = $pdo->prepare("UPDATE users SET cash = cash - ? WHERE id = ? AND cash >= ?");
-        $st->execute([$cost, $userId, $cost]);
-        if ($st->rowCount() === 0) return [false, 'Za mało gotówki: zapis kosztuje ' . number_format($cost, 2, ',', ' ') . ' PLN.'];
+        // Pobranie gotówki i wpis zapisu w JEDNEJ transakcji (wzór jak Fund::buy): kompensacja w try/catch
+        // nie chroniła przed ubiciem procesu PHP między zapytaniami — gotówka znikała bez zapisu i bez śladu.
+        $own = !$pdo->inTransaction();
+        if ($own) $pdo->beginTransaction();
         try {
+            $st = $pdo->prepare("UPDATE users SET cash = cash - ? WHERE id = ? AND cash >= ?");
+            $st->execute([$cost, $userId, $cost]);
+            if ($st->rowCount() === 0) { if ($own) $pdo->rollBack(); return [false, 'Za mało gotówki: zapis kosztuje ' . number_format($cost, 2, ',', ' ') . ' PLN.']; }
             // INSERT warunkowy: oferta musi być NADAL otwarta (wyścig z rozliczeniem na rollu
             // zostawiałby sierocy zapis — gotówka pobrana, nigdy nierozliczona)
             $ins = $pdo->prepare("INSERT INTO ipo_subs (offer_id, user_id, qty, paid, created_at)
                                   SELECT ?,?,?,?,? FROM ipo_offers WHERE id=? AND status='open'");
             $ins->execute([$offerId, $userId, $qty, $cost, Db::now(), $offerId]);
             if ($ins->rowCount() === 0) {
-                $pdo->prepare("UPDATE users SET cash = cash + ? WHERE id = ?")->execute([$cost, $userId]);
+                if ($own) $pdo->rollBack();
                 return [false, 'Oferta właśnie została rozliczona — zapis niemożliwy, środki wróciły.'];
             }
+            if ($own) $pdo->commit();
         } catch (\Throwable $e) {
-            $pdo->prepare("UPDATE users SET cash = cash + ? WHERE id = ?")->execute([$cost, $userId]);
-            return [false, 'Masz już zapis na tę ofertę (zapis jest wiążący do przydziału).'];
+            if ($own && $pdo->inTransaction()) $pdo->rollBack();
+            // duplikat (UNIQUE offer_id+user_id) = drugi zapis tego gracza; zakleszczenie idzie do strony,
+            // która ponawia przez Engine::retryOnLock; reszta to realny błąd, nie „masz już zapis”
+            $drv = (int) ($e->errorInfo[1] ?? 0);
+            if ($e instanceof \PDOException && ($e->getCode() === '40001' || $drv === 1213 || $drv === 1205)) throw $e;
+            if ($e instanceof \PDOException && $e->getCode() === '23000') return [false, 'Masz już zapis na tę ofertę (zapis jest wiążący do przydziału).'];
+            Log::write('error', 'engine', 'ipo.subscribe', $e->getMessage(), ['user_id' => $userId, 'offer' => $offerId]);
+            return [false, 'Nie udało się zapisać — środki zostały na koncie. Spróbuj ponownie.'];
         }
         Engine::journal($userId, 'ipo', "📢 Zapis na IPO {$o['name']}: $qty akcji po " . number_format((float) $o['price'], 2, ',', ' ')
             . ' PLN (' . number_format($cost, 2, ',', ' ') . ' PLN). Przydział w sesji #' . (int) $o['close_session'] . '.', 'ipo.php');

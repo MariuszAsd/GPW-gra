@@ -153,10 +153,26 @@ final class Payments
                 Log::write('error', 'engine', 'pay.complete_fail', $e->getMessage(), ['order' => $oid]);
                 return [500, 'retry'];
             }
-        } elseif ($status === 'CANCELED') {
-            Db::pdo()->prepare("UPDATE payment_orders SET status='cancelled' WHERE id=? AND status IN ('new','pending')")->execute([$oid]);
+        } elseif ($status === 'CANCELED' || $status === 'REJECTED') {
+            // REJECTED (odrzucona karta, niepotwierdzony BLIK po limicie czasu) to też koniec zamówienia —
+            // bez tej gałęzi wisiało jako 'pending', a strona powrotu odświeżała się bez końca
+            Db::pdo()->prepare("UPDATE payment_orders SET status='cancelled' WHERE id=? AND status IN ('new','pending','expired')")->execute([$oid]);
         }
         return [200, '{"status":"OK"}'];   // PENDING/WAITING_FOR_CONFIRMATION: tylko potwierdzamy odbiór
+    }
+
+    /**
+     * Leniwe wygaszanie: zamówienia 'new'/'pending' starsze niż 24 h dostają status 'expired' (gracz nie dokończył
+     * płatności, a operator nie przysłał końcowego statusu). Wołane przy wejściu do sklepu i na stronę płatności
+     * (nie z ticka — silnik nie dotyka płatności). Spóźniona notyfikacja COMPLETED nadal realizuje takie zamówienie
+     * (complete() przyjmuje 'expired'), więc opłacone zamówienie nigdy nie zostaje bez tokenów.
+     */
+    public static function expireStale(int $uid): void
+    {
+        try {
+            Db::pdo()->prepare("UPDATE payment_orders SET status='expired' WHERE user_id=? AND status IN ('new','pending') AND created_at < ?")
+                ->execute([$uid, date('Y-m-d H:i:s', time() - 86400)]);
+        } catch (\Throwable $e) { /* porządki nie mogą wywalić strony */ }
     }
 
     /** Podpis OpenPayu-Signature: signature=<hash(body + drugi klucz)>;algorithm=MD5|SHA-256;... */
@@ -182,7 +198,7 @@ final class Payments
         $own = !$pdo->inTransaction();
         if ($own) $pdo->beginTransaction();
         try {
-            $st = $pdo->prepare("UPDATE payment_orders SET status='completed', paid_at=? WHERE id=? AND status IN ('new','pending')");
+            $st = $pdo->prepare("UPDATE payment_orders SET status='completed', paid_at=? WHERE id=? AND status IN ('new','pending','expired')");
             $st->execute([Db::now(), $orderId]);
             if ($st->rowCount() === 0) { if ($own) $pdo->rollBack(); return false; }   // już zrealizowane albo nieznane
             $o = Engine::row("SELECT * FROM payment_orders WHERE id=?", [$orderId]);

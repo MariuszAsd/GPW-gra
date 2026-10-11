@@ -5,16 +5,21 @@ $user = require_login();
 $uid = (int) $user['id'];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (isset($_POST['buy_pass'])) {
-        [$ok, $msg] = Tokens::buyPass($uid, (string) $_POST['buy_pass']);
+    // zakupy za tokeny: zakleszczenie ponawiamy (retryOnLock), inny błąd bazy = komunikat zamiast strony błędu
+    // (operacje są atomowe/claim-first, więc po błędzie tokeny i przedmiot są w stanie sprzed kliknięcia)
+    $buy = function (callable $fn): void {
+        try { [$ok, $msg] = Engine::retryOnLock($fn); }
+        catch (Throwable $e) { Log::write('error', 'player', 'shop.buy', $e->getMessage()); [$ok, $msg] = [false, 'Nie udało się — spróbuj ponownie.']; }
         flash($msg, $ok ? 'ok' : 'err');
+    };
+    if (isset($_POST['buy_pass'])) {
+        $buy(fn() => Tokens::buyPass($uid, (string) $_POST['buy_pass']));
     } elseif (isset($_POST['buy_tokens'])) {
         [$ok, $res] = Payments::createOrder($uid, (string) $_POST['buy_tokens'], (string) ($_SERVER['REMOTE_ADDR'] ?? ''));
         if ($ok) { header("Location: $res"); exit; }   // przekierowanie do bramki (BLIK/karta u operatora)
         flash($res, 'err');
     } elseif (isset($_POST['buy_item'])) {
-        [$ok, $msg] = Cosmetics::buy($uid, (string) $_POST['buy_item']);
-        flash($msg, $ok ? 'ok' : 'err');
+        $buy(fn() => Cosmetics::buy($uid, (string) $_POST['buy_item']));
     } elseif (isset($_POST['equip_item'])) {
         [$ok, $msg] = Cosmetics::equip($uid, (string) $_POST['equip_item'], (string) ($_POST['clear_type'] ?? ''));
         flash($msg, $ok ? 'ok' : 'err');
@@ -22,6 +27,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     redirect('sklep.php');
 }
 
+Payments::expireStale($uid);   // porządek w zamówieniach bez końcowego statusu od operatora (> 24 h)
 $balance = Tokens::balance($uid);
 $ledger = Engine::all("SELECT * FROM token_ledger WHERE user_id=? ORDER BY id DESC LIMIT 15", [$uid]);
 [$session] = Engine::sessionInfo();
@@ -43,7 +49,7 @@ layout_header('Tokeny inwestora', $user, 'shop');
     <ul class="how-tokens">
       <li>🎁 <b>+10</b> dostajesz na powitanie — masz je od startu</li>
       <li>🏅 <b>+2</b> za każdą zdobytą odznakę (osiągnięcia w grze)</li>
-      <li>🏆 <b>+10</b> za wygranie wyzwania, <b>+5</b> za miejsce na podium</li>
+      <li>🏆 <b>+10</b> za wygranie wyzwania, <b>+5</b> za miejsce na podium — gdy w edycji rywalizowało co najmniej dwóch graczy (fundusze gry się nie liczą)</li>
       <li>🎖️ bonusy za progi punktowe sezonu — zobacz <a href="sezon.php">Sezon</a></li>
       <li>💳 możesz też doładować w zakładce <b>Doładuj tokeny</b> powyżej</li>
     </ul>

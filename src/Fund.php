@@ -95,26 +95,30 @@ final class Fund
     /** Sprzedaż jednostek (null = wszystkie) po bieżącej wycenie, minus prowizja. Zwraca [ok, komunikat]. */
     public static function sell(int $uid, ?float $units): array
     {
-        $pos = Engine::row("SELECT units, cost FROM fund_positions WHERE user_id=?", [$uid]);
-        $held = $pos ? (float) $pos['units'] : 0.0;
-        if ($held <= 0) return [false, 'Nie masz jednostek funduszu.'];
-        $all = $units === null || $units >= $held - 0.00005;
-        $units = $all ? $held : round($units, 4);
-        if ($units <= 0) return [false, 'Podaj liczbę jednostek do sprzedaży.'];
-        $nav = self::nav();
-        $value = round($units * $nav, 2);
-        // koszt oddawany przez pulę proporcjonalnie do sprzedawanej części; reszta (zysk/strata) to skarbiec
-        $costPart = $all ? round((float) $pos['cost'], 2) : round((float) $pos['cost'] * $units / $held, 2);
-        $fee = round($value * Engine::feeRate(), 2);
-        $payout = round($value - $fee, 2);
         $pdo = Db::pdo();
         $own = !$pdo->inTransaction();
         if ($own) $pdo->beginTransaction();
         try {
+            // Pozycję czytamy W transakcji i z blokadą wiersza (MySQL): decyzja „sprzedaj wszystko” musi
+            // opierać się na liczbie jednostek, której równoległe kupno (druga karta tego samego gracza) już
+            // nie zmieni. Odczyt poza transakcją + bezwarunkowe DELETE kasowały jednostki dokupione w oknie.
+            $pos = Engine::row("SELECT units, cost FROM fund_positions WHERE user_id=?" . (Db::driver() === 'mysql' ? ' FOR UPDATE' : ''), [$uid]);
+            $held = $pos ? (float) $pos['units'] : 0.0;
+            if ($held <= 0) { if ($own) $pdo->rollBack(); return [false, 'Nie masz jednostek funduszu.']; }
+            $all = $units === null || $units >= $held - 0.00005;
+            $units = $all ? $held : round($units, 4);
+            if ($units <= 0) { if ($own) $pdo->rollBack(); return [false, 'Podaj liczbę jednostek do sprzedaży.']; }
+            $nav = self::nav();
+            $value = round($units * $nav, 2);
+            // koszt oddawany przez pulę proporcjonalnie do sprzedawanej części; reszta (zysk/strata) to skarbiec
+            $costPart = $all ? round((float) $pos['cost'], 2) : round((float) $pos['cost'] * $units / $held, 2);
+            $fee = round($value * Engine::feeRate(), 2);
+            $payout = round($value - $fee, 2);
             $st = $pdo->prepare("UPDATE fund_positions SET units = units - ?, cost = cost - ?, updated_at = ? WHERE user_id = ? AND units >= ?");
             $st->execute([$units, $costPart, Db::now(), $uid, $units - 0.00005]);
             if ($st->rowCount() === 0) { if ($own) $pdo->rollBack(); return [false, 'Nie masz tylu jednostek (pozycja zmieniła się w międzyczasie).']; }
-            if ($all) $pdo->prepare("DELETE FROM fund_positions WHERE user_id = ?")->execute([$uid]);
+            // wiersz znika tylko, gdy naprawdę jest pusty — nigdy razem z jednostkami, których ten zapis nie odjął
+            if ($all) $pdo->prepare("DELETE FROM fund_positions WHERE user_id = ? AND units <= 0.00005")->execute([$uid]);
             $pdo->prepare("UPDATE users SET cash = cash + ? WHERE id = ?")->execute([$payout, $uid]);
             self::poolAdd(-$costPart);
             // zysk płaci skarbiec, stratę zatrzymuje skarbiec; prowizja jak od akcji — do skarbca

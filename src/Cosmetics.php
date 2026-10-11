@@ -41,10 +41,22 @@ final class Cosmetics
         if (!$it) return [false, 'Nie ma takiego przedmiotu.'];
         [$type, $price, $name] = $it;
         if ($price <= 0) return [false, 'Ten przedmiot to nagroda specjalna — nie da się go kupić.'];
-        if (in_array($key, self::owned($uid), true)) return [false, 'Masz już ten przedmiot — załóż go poniżej.'];
+        // Claim-first: najpierw przejmij przedmiot (INSERT pod UNIQUE user_id+item), dopiero potem pobierz tokeny.
+        // Sprawdzenie owned() → spend → give nie było atomowe: dwie sesje tego samego gracza (telefon + laptop)
+        // klikające naraz płaciły dwa razy za jeden przedmiot. Duplikat = ktoś już przejął, tokeny nietknięte.
+        $pdo = Db::pdo();
+        try {
+            $pdo->prepare("INSERT INTO user_items (user_id, item, created_at) VALUES (?,?,?)")->execute([$uid, $key, Db::now()]);
+        } catch (\PDOException $e) {
+            if ($e->getCode() === '23000') return [false, 'Masz już ten przedmiot — załóż go poniżej.'];
+            throw $e;
+        }
         [$ok, $msg] = Tokens::spend($uid, $price, 'cosmetic', $name);
-        if (!$ok) return [false, $msg];
-        self::give($uid, $key);
+        if (!$ok) {   // za mało tokenów — oddaj przejęty przedmiot
+            $pdo->prepare("DELETE FROM user_items WHERE user_id=? AND item=?")->execute([$uid, $key]);
+            return [false, $msg];
+        }
+        self::equip($uid, $key);
         Engine::journal($uid, 'token', "🎨 Kupiono: $name (🪙 $price).", 'sklep.php');
         return [true, "$name — kupione i założone!"];
     }
