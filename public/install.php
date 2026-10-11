@@ -100,4 +100,4 @@ echo "<ol>";
 echo "<li><b>USUŃ plik <code>public/install.php</code></b> (bezpieczeństwo).</li>";
 echo "<li>Ustaw <b>cron</b> co minutę: <code>php /ścieżka/do/aplikacji/cron/tick.php 1</code> — to animuje rynek.</li>";
 echo "</ol>";
-echo "<p><a href='market.php' style='font-weight:600'>Wejdź do gry →</a> &nbsp; login: <code>gracz</code> / <code>haslo123</code></p>";
+echo "<p><a href='market.php' style='font-weight:600'>Wejdź do gry →</a> &nbsp; hasła kont <code>gracz</code> i <code>admin</code> są wypisane wyżej (losowe, tylko tutaj).</p>";
