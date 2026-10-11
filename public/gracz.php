@@ -24,8 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$isMe && (isset($_POST['follow']) 
     redirect('gracz.php?id=' . $pid);
 }
 
-$stockVal = (float) (Engine::one("SELECT COALESCE(SUM((w.qty + w.qty_reserved) * s.price), 0) FROM wallets w JOIN stocks s ON s.id=w.stock_id WHERE w.user_id=?", [$pid]) ?: 0);
-$equity = (float) $p['cash'] + (float) $p['cash_reserved'] + $stockVal + Engine::lockedFunds($pid);
+$equity = Engine::playerEquity($pid);   // jak w Rankingu: z lokatami i jednostkami funduszu MAK40
 $ret = (float) $p['start_equity'] > 0 ? ($equity / (float) $p['start_equity'] - 1) * 100 : 0;
 $txCount = (int) Engine::one("SELECT (SELECT COUNT(*) FROM transactions WHERE buyer_id=?) + (SELECT COUNT(*) FROM transactions WHERE seller_id=?)", [$pid, $pid]);
 $posCount = (int) Engine::one("SELECT COUNT(*) FROM wallets WHERE user_id=? AND (qty + qty_reserved) > 0", [$pid]);

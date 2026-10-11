@@ -9,8 +9,7 @@ $uid = (int) $user['id'];
 $mhIsOpen = Engine::marketIsOpen();
 
 // kapitał + wykres
-$stockVal = (float) (Engine::one("SELECT COALESCE(SUM((w.qty + w.qty_reserved) * s.price), 0) FROM wallets w JOIN stocks s ON s.id=w.stock_id WHERE w.user_id=?", [$uid]) ?: 0);
-$equity = (float) $user['cash'] + (float) $user['cash_reserved'] + $stockVal + Engine::lockedFunds($uid);
+$equity = Engine::playerEquity($uid);   // ta sama liczba co w Rankingu (z lokatami i jednostkami funduszu MAK40)
 $startEq = (float) (Engine::one("SELECT start_equity FROM users WHERE id=?", [$uid]) ?: 0);
 $ret = $startEq > 0 ? ($equity / $startEq - 1) * 100 : 0;
 $bm = Engine::benchmark($uid);   // czy pobiłeś indeks: Ty vs MAK40 od tej samej chwili
@@ -262,7 +261,9 @@ if ($friends): ?>
 <section class="panel" style="margin-top:16px">
   <h2>Z ostatniej chwili</h2>
   <?php foreach ($news as $nw): ?>
-    <p style="margin:7px 0"><span class="chg <?= $nw['type'] === 'POS' ? 'p' : ($nw['type'] === 'NEG' ? 'n' : '') ?>" style="font-size:10px"><?= h($nw['type']) ?></span>
+    <?php /* POS/NEG/NEU to kody z bazy — gracz widzi polską etykietę nastroju wiadomości */
+          $nwLbl = ['POS' => 'dobra', 'NEG' => 'zła', 'NEU' => 'neutralna'][$nw['type']] ?? h($nw['type']); ?>
+    <p style="margin:7px 0"><span class="chg <?= $nw['type'] === 'POS' ? 'p' : ($nw['type'] === 'NEG' ? 'n' : '') ?>" style="font-size:10px" title="Wydźwięk wiadomości"><?= $nwLbl ?></span>
       <?= h($nw['headline']) ?> <span class="muted mono" style="font-size:11px"><?= h(substr($nw['published_at'], 11, 5)) ?></span></p>
   <?php endforeach; ?>
   <p style="margin:8px 0 0"><a href="wiadomosci.php">Wszystkie newsy →</a></p>
