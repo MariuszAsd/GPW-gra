@@ -220,16 +220,18 @@ layout_header('Pomoc', $user, 'help');
   </svg>
   <p><b>1. Zapisujesz się.</b> Z konta głównego schodzi <b>buy-in</b> (np. 20 000 PLN — to Twój kapitał startowy
      w konkursie) oraz <b>wpisowe</b> (np. 10% buy-inu — zasila pulę nagród). Maksymalny koszt znasz z góry.</p>
-  <p><b>2. Start.</b> Gdy zbierze się minimum graczy, dostajesz powiadomienie 🔔 i osobny portfel wyzwania.
-     Przełączasz się na niego na stronie Wyzwań (baner na górze przypomina, którym kontem grasz).
-     Za mało chętnych = edycja odwołana i <b>pełny zwrot</b> wszystkiego.</p>
+  <p><b>2. Start.</b> Edycja startuje zawsze, gdy zapisze się choć jeden gracz — brakujący skład dopełniają
+     <b>fundusze gry</b> (boty). Dostajesz powiadomienie 🔔 i osobny portfel wyzwania; przełączasz się na niego
+     na stronie Wyzwań (baner na górze przypomina, którym kontem grasz). Odwołanie (z <b>pełnym zwrotem</b>
+     wszystkiego) tylko wtedy, gdy nikt się nie zapisze.</p>
   <p><b>3. Handlujesz.</b> Ten sam rynek, ten sam arkusz zleceń — liczy się kapitał portfela wyzwania
      (gotówka + akcje po bieżącym kursie). Tabela wyników odświeża się na żywo.</p>
   <p><b>4. Finał i rozliczenie.</b> Po ostatniej sesji ranking zamyka się automatycznie:</p>
   <ul style="margin:4px 0 8px 20px;line-height:1.6">
     <li><b>Każdy</b> dostaje z powrotem swój portfel wyzwania — gotówka wraca na konto, akcje przechodzą do portfela głównego.</li>
     <li><b>Top ~20% graczy</b> dzieli pulę wpisowych — im wyższe miejsce, tym większy udział (1. miejsce bierze najwięcej).</li>
-    <li>Zwycięzca i podium dostają <b>Tokeny inwestora</b> i odznakę; edycje ligowe dają też punkty sezonu (karnet → sezon.php).</li>
+    <li>Zwycięzca i podium dostają <b>Tokeny inwestora</b> i odznakę — pod warunkiem, że w edycji rywalizowało
+        co najmniej dwóch graczy (fundusze gry się nie liczą; nagroda z puli należy się zawsze). Edycje ligowe dają też punkty sezonu (karnet → sezon.php).</li>
   </ul>
   <div class="help-ex">💡 Ile mogę stracić? Najwyżej wpisowe + to, co stracisz handlując portfelem wyzwania.
      Ile mogę wygrać? Nagrodę z puli (przy 10 graczach 1. miejsce bierze ok. połowy) + zysk z handlu.
@@ -269,9 +271,10 @@ layout_header('Pomoc', $user, 'help');
 
 <div class="panel help-sec" id="widelki">
   <h3>⏸ Widełki i zawieszenia notowań</h3>
-  <p>Jak na prawdziwej giełdzie: gdy kurs spółki oddali się o <b>±15% od otwarcia sesji</b>, giełda zawiesza
-     notowania na ~10 minut — nikt nie złoży zlecenia, a SL/TP czekają na wznowienie. Po wznowieniu widełki
-     się <b>rozszerzają</b> (±30%), a limit to 2 zawieszenia na sesję. Zawieszenie dostaje komunikat ESPI.</p>
+  <?php /* liczby ze stałych silnika — tekst w Pomocy rozjechał się kiedyś z kodem (15%/10 min vs 20%/5 min) */ ?>
+  <p>Jak na prawdziwej giełdzie: gdy kurs spółki oddali się o <b>±<?= round(Engine::HALT_BAND * 100) ?>% od otwarcia sesji</b>, giełda zawiesza
+     notowania na ~<?= Engine::HALT_MINUTES ?> minut — nikt nie złoży zlecenia, a SL/TP czekają na wznowienie. Po wznowieniu widełki
+     się <b>rozszerzają</b> (±<?= round(Engine::HALT_BAND * 200) ?>%), a limit to <?= Engine::HALT_MAX_SESSION ?> zawieszenia na sesję. Zawieszenie dostaje komunikat ESPI.</p>
   <div class="help-ex">💡 Zawieszenie po spadku to moment na decyzję na chłodno: panika ma przymusową pauzę.
      Przygotuj zlecenie i złóż je tuż po wznowieniu.</div>
 </div>
@@ -315,7 +318,9 @@ layout_header('Pomoc', $user, 'help');
   <h3>📖 Słowniczek — te same słowa, co w dymkach „?”</h3>
   <p class="muted" style="margin:0 0 10px">Każdy znak <span class="tip" tabindex="0">?<span class="tipbox">Tak wyglądają dymki w grze. Na telefonie: tapnij, żeby otworzyć.</span></span> w grze pokazuje jedno z poniższych wyjaśnień. Tu masz wszystkie w jednym miejscu.</p>
   <dl class="gl">
-  <?php $gl = Glossary::all(); uasort($gl, fn($a, $b) => strcoll(mb_strtolower($a[0]), mb_strtolower($b[0])));
+  <?php // sortowanie bez locale: strcoll w locale C hostingu układał „ł” i „Ś” poza alfabetem (Płynność po Pula, Średnia na końcu)
+    $glKey = fn(string $t): string => strtr(mb_strtolower($t), ['ą' => 'a', 'ć' => 'c', 'ę' => 'e', 'ł' => 'l', 'ń' => 'n', 'ó' => 'o', 'ś' => 's', 'ź' => 'z', 'ż' => 'z']);
+    $gl = Glossary::all(); uasort($gl, fn($a, $b) => strcmp($glKey($a[0]), $glKey($b[0])));
     foreach ($gl as $k => $t): ?>
     <dt class="gl-term" id="gl-<?= h($k) ?>"><?= h($t[0]) ?></dt>
     <dd><?= h($t[1]) ?><?php if ($t[2] !== ''): ?> <a href="#<?= h($t[2]) ?>">Więcej →</a><?php endif; ?></dd>

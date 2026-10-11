@@ -55,7 +55,13 @@ $bids = Engine::all("SELECT price, SUM(qty) q FROM orders WHERE stock_id=? AND s
 $asks = Engine::all("SELECT price, SUM(qty) q FROM orders WHERE stock_id=? AND side='sell' AND status='active' GROUP BY price ORDER BY price ASC  LIMIT 8", [$id]);
 $maxDepth = max(1, ...array_map(fn($r) => (int) $r['q'], array_merge($bids, $asks) ?: [['q' => 1]]));
 
-$owned = (int) (Engine::one("SELECT qty FROM wallets WHERE user_id=? AND stock_id=?", [$user['id'], $id]) ?: 0);
+// wolne akcje i te pod zleceniem obronnym (SL/TP) osobno: cały pakiet pod SL to nie „brak akcji”
+$ownedRow = Engine::row("SELECT qty, qty_reserved FROM wallets WHERE user_id=? AND stock_id=?", [$user['id'], $id]) ?: ['qty' => 0, 'qty_reserved' => 0];
+$owned = (int) $ownedRow['qty'];
+$ownedRes = (int) $ownedRow['qty_reserved'];
+$sellBlockTitle = $owned > 0 ? '' : ($ownedRes > 0
+    ? "Wszystkie Twoje akcje ($ownedRes szt.) są pod zleceniem obronnym — anuluj je w panelu zleceń albo w Portfelu, żeby sprzedać ręcznie"
+    : 'Nie masz akcji tej spółki — najpierw kup');
 $holders = Engine::all("SELECT u.id AS uid, u.username, u.is_bot, u.role, (w.qty + w.qty_reserved) AS n
                         FROM wallets w JOIN users u ON u.id = w.user_id
                         WHERE w.stock_id=? AND (w.qty + w.qty_reserved) > 0 AND u.role <> 'qa'
@@ -223,7 +229,9 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
             <span class="tag" style="color:<?= $kc ?>;border-color:<?= $kc ?>;font-size:10px"><?= $kl ?></span>
             <span class="<?= $tc ?>" style="font-weight:600"><?= h($nw['headline']) ?></span>
             <?php if ($nw['body']): ?><div class="soft" style="font-size:12.5px;margin-top:3px"><?= h($nw['body']) ?></div><?php endif; ?>
-            <div class="muted" style="font-size:12px;margin-top:2px"><?= h(substr($nw['published_at'], 0, 16)) ?> · <?= h($nw['scope']) ?></div>
+            <?php /* zasięg po polsku, jak w wiadomosci.php: COMPANY/SECTOR/MARKET to kody z bazy */
+                  $nwScope = $nw['scope'] === 'MARKET' ? 'CAŁY RYNEK' : ($nw['scope'] === 'SECTOR' ? $s['sector'] : $s['ticker']); ?>
+            <div class="muted" style="font-size:12px;margin-top:2px"><?= h(substr($nw['published_at'], 0, 16)) ?> · <?= h($nwScope) ?></div>
           </div>
         <?php endforeach; if (!$news) echo "<div class='muted' style='padding:8px'>brak wiadomości</div>"; ?>
       </div>
@@ -391,17 +399,19 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
       <input type="hidden" name="type" id="type" value="limit">
       <?php $bestBid = $bids[0]['price'] ?? null; $bestAsk = $asks[0]['price'] ?? null; ?>
       <div class="seg">
-        <button type="button" class="sell" id="tb-sell" <?= $owned <= 0 ? 'disabled title="Nie masz akcji tej spółki — najpierw kup"' : '' ?>><span class="lbl">SPRZEDAJ</span><span class="pr"><?= $bestBid !== null ? money($bestBid) : '—' ?></span></button>
+        <button type="button" class="sell" id="tb-sell" <?= $owned <= 0 ? 'disabled title="' . h($sellBlockTitle) . '"' : '' ?>><span class="lbl">SPRZEDAJ</span><span class="pr"><?= $bestBid !== null ? money($bestBid) : '—' ?></span></button>
         <button type="button" class="buy on" id="tb-buy"><span class="lbl">KUP</span><span class="pr"><?= $bestAsk !== null ? money($bestAsk) : '—' ?></span></button>
       </div>
       <div class="seg" style="margin-top:0;align-items:center">
         <button type="button" class="on" id="tt-limit" title="Zlecenie z limitem ceny — czeka w arkuszu">LIMIT</button>
-        <button type="button" id="tt-pkc" title="Po każdej cenie — kupuje/sprzedaje natychmiast z arkusza" <?= Engine::marketPhase() === 'preopen' ? 'disabled title="PKC dostępne po fixingu"' : '' ?>>PKC</button>
+        <?php /* jeden atrybut title — przy dwóch HTML bierze pierwszy i wyszarzony PKC tłumaczył się tekstem o natychmiastowej realizacji */
+              $pkcPre = Engine::marketPhase() === 'preopen'; ?>
+        <button type="button" id="tt-pkc" title="<?= $pkcPre ? 'PKC dostępne po fixingu' : 'Po każdej cenie — kupuje/sprzedaje natychmiast z arkusza' ?>"<?= $pkcPre ? ' disabled' : '' ?>>PKC</button>
         <button type="button" id="tt-stop" title="Kup, gdy kurs przebije próg — zlecenie czeka na wybicie">STOP-BUY</button>
         <?= tip('LIMIT: podajesz swoją cenę i czekasz na realizację. PKC: bierzesz od razu to, co jest w arkuszu. STOP-BUY: kupno aktywuje się dopiero, gdy kurs przebije Twój próg (łapanie wybić).', 'limit') ?>
       </div>
       <p class="muted" id="type-hint" style="font-size:12px;margin:2px 0 8px;line-height:1.4"></p>
-      <label>Ilość <span class="muted">(masz: <?= $owned ?> szt.)</span></label>
+      <label>Ilość <span class="muted">(masz: <?= $owned + $ownedRes ?> szt.<?= $ownedRes > 0 ? " — wolnych: $owned, pod zleceniem obronnym: $ownedRes" : '' ?>)</span><?= $ownedRes > 0 ? term('zamrozone') : '' ?></label>
       <input type="number" name="qty" id="qty" min="1" value="10" required>
       <div id="f-price">
         <label>Cena limit (PLN)</label>
@@ -679,7 +689,7 @@ setInterval(async()=>{
 </script>
 <!-- mobilny pasek handlu (nad dolną nawigacją): ceny na żywo, klik ustawia stronę i zwija do formularza -->
 <div class="tradebar">
-  <button type="button" class="sell" onclick="setSide('sell');openSheet()" <?= $owned <= 0 ? 'disabled' : '' ?>>
+  <button type="button" class="sell" onclick="setSide('sell');openSheet()" <?= $owned <= 0 ? 'disabled title="' . h($sellBlockTitle) . '"' : '' ?>>
     <span class="lbl">SPRZEDAJ</span><span class="pr"><?= $bestBid !== null ? money($bestBid) : '—' ?></span>
   </button>
   <button type="button" class="buy" onclick="setSide('buy');openSheet()">
