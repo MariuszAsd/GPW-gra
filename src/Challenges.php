@@ -92,32 +92,43 @@ final class Challenges
         $total = round($buyin + $fee, 2);
 
         $pdo = Db::pdo();
-        // pobranie środków atomowo — warunek cash >= total w UPDATE chroni przed podwójnym kliknięciem
-        $st = $pdo->prepare("UPDATE users SET cash = cash - ? WHERE id = ? AND cash >= ?");
-        $st->execute([$total, $userId, $total]);
-        if ($st->rowCount() === 0) return [false, 'Za mało gotówki: potrzeba ' . number_format($total, 2, ',', ' ') . ' PLN (buy-in + wpisowe).'];
+        // CAŁY zapis w jednej transakcji (jak Fund::buy): pobranie gotówki i wpis to wcześniej były dwa autocommity
+        // z kompensacją w try/catch — kompensacja łapie błąd SQL, ale nie przerwanie procesu PHP między zapytaniami
+        // (limit czasu, OOM, restart): gotówka znikała z konta bez zapisu i bez śladu. Teraz albo oba kroki, albo żaden.
+        $own = !$pdo->inTransaction();
+        if ($own) $pdo->beginTransaction();
         try {
+            // pobranie środków atomowo — warunek cash >= total w UPDATE chroni przed podwójnym kliknięciem
+            $st = $pdo->prepare("UPDATE users SET cash = cash - ? WHERE id = ? AND cash >= ?");
+            $st->execute([$total, $userId, $total]);
+            if ($st->rowCount() === 0) { if ($own) $pdo->rollBack(); return [false, 'Za mało gotówki: potrzeba ' . number_format($total, 2, ',', ' ') . ' PLN (buy-in + wpisowe).']; }
             // INSERT WARUNKOWY: edycja musi być NADAL w 'signup' (wyścig z rollem sesji — start()/cancel()
             // w transakcji ticka mógł ją właśnie przełączyć). Bez tego powstawał sierocy zapis bez subkonta,
             // z equity 0 = utracony buy-in. Pas i szelki: onRoll zamiata ewentualne sieroty (pełny zwrot).
             $ins = $pdo->prepare("INSERT INTO challenge_players (challenge_id, user_id, buyin, fee, joined_at)
                                   SELECT ?,?,?,?,? FROM challenges WHERE id=? AND status='signup'");
-            $ins->execute([$challengeId, $userId, $buyin, $fee, Db::now(), $challengeId]);
-            if ($ins->rowCount() === 0) {
-                $pdo->prepare("UPDATE users SET cash = cash + ? WHERE id = ?")->execute([$total, $userId]);
-                return [false, 'Zapisy właśnie się zamknęły — środki wróciły na konto.'];
+            try {
+                $ins->execute([$challengeId, $userId, $buyin, $fee, Db::now(), $challengeId]);
+            } catch (PDOException $e) {
+                // tylko DUPLIKAT (SQLSTATE 23000, UNIQUE challenge_id+user_id) to „już zapisany”; zakleszczenie i inne
+                // błędy idą wyżej, żeby retryOnLock ze strony mógł ponowić zamiast kłamać graczowi o duplikacie
+                if ((string) $e->getCode() !== '23000') throw $e;
+                if ($own) $pdo->rollBack();
+                return [false, 'Już jesteś zapisany na to wyzwanie.'];
             }
-        } catch (Throwable $e) {
-            $pdo->prepare("UPDATE users SET cash = cash + ? WHERE id = ?")->execute([$total, $userId]);  // zwrot przy duplikacie
-            return [false, 'Już jesteś zapisany na to wyzwanie.'];
+            if ($ins->rowCount() === 0) { if ($own) $pdo->rollBack(); return [false, 'Zapisy właśnie się zamknęły — środki zostały na koncie.']; }
+            // bez warunku na status: warunkowy INSERT wyżej już dowiódł, że edycja była w 'signup'; na MySQL ten UPDATE
+            // potrafił przegrać wyścig ze start() z ticka i wpisowe znikało z puli, choć zeszło z konta
+            $pdo->prepare("UPDATE challenges SET pot = pot + ? WHERE id = ?")->execute([$fee, $challengeId]);
+            Engine::ledger($userId, -$total, 'wyzwanie', 'Wpisowe na wyzwanie „' . $ch['name'] . '” (buy-in ' . number_format($buyin, 0, ',', ' ') . ' + wpisowe ' . number_format($fee, 0, ',', ' ') . ')', 'wyzwania.php');
+            Log::write('info', 'player', 'challenge.join', "zapis do wyzwania #$challengeId", ['user_id' => $userId, 'buyin' => $buyin, 'fee' => $fee]);
+            Engine::notify($userId, 'challenge', '⚔️ Zapisano do: ' . $ch['name'] . '. Zablokowano ' . number_format($total, 2, ',', ' ')
+                . ' PLN (buy-in ' . number_format($buyin, 0, ',', ' ') . ' + wpisowe ' . number_format($fee, 0, ',', ' ') . ').', 'wyzwania.php');
+            if ($own) $pdo->commit();
+        } catch (\Throwable $e) {
+            if ($own && $pdo->inTransaction()) $pdo->rollBack();
+            throw $e;
         }
-        // bez warunku na status: warunkowy INSERT wyżej już dowiódł, że edycja była w 'signup'; na MySQL ten UPDATE
-        // potrafił przegrać wyścig ze start() z ticka i wpisowe znikało z puli, choć zeszło z konta
-        $pdo->prepare("UPDATE challenges SET pot = pot + ? WHERE id = ?")->execute([$fee, $challengeId]);
-        Engine::ledger($userId, -$total, 'wyzwanie', 'Wpisowe na wyzwanie „' . $ch['name'] . '” (buy-in ' . number_format($buyin, 0, ',', ' ') . ' + wpisowe ' . number_format($fee, 0, ',', ' ') . ')', 'wyzwania.php');
-        Log::write('info', 'player', 'challenge.join', "zapis do wyzwania #$challengeId", ['user_id' => $userId, 'buyin' => $buyin, 'fee' => $fee]);
-        Engine::notify($userId, 'challenge', '⚔️ Zapisano do: ' . $ch['name'] . '. Zablokowano ' . number_format($total, 2, ',', ' ')
-            . ' PLN (buy-in ' . number_format($buyin, 0, ',', ' ') . ' + wpisowe ' . number_format($fee, 0, ',', ' ') . ').', 'wyzwania.php');
         return [true, 'Zapisano! Zablokowano ' . number_format($total, 2, ',', ' ') . ' PLN. Start: sesja #' . (int) $ch['start_session'] . '.'];
     }
 

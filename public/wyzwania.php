@@ -23,7 +23,9 @@ if (isset($_GET['ctx'])) {
 
 // zapis do wyzwania
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['join'])) {
-    [$ok, $msg] = Challenges::join((int) $user['id'], (int) $_POST['join']);
+    // retryOnLock jak przy zleceniach: zapis to transakcja (pobranie środków + wpis), która na MySQL może przegrać
+    // zakleszczenie z rolką sesji ticka — ponowienie jest bezpieczne, bo baza wycofała całą operację
+    [$ok, $msg] = Engine::retryOnLock(fn() => Challenges::join((int) $user['id'], (int) $_POST['join']));
     flash($msg, $ok ? 'ok' : 'err');
     redirect('wyzwania.php');
 }
@@ -112,11 +114,11 @@ layout_header('Wyzwania', $user, 'challenges');
 <?php if ($heroJoin && $isPlayer): $fee = round((float) $heroJoin['buyin'] * (float) $heroJoin['fee_pct'] / 100, 2);
       $cnt = (int) Engine::one("SELECT COUNT(*) FROM challenge_players WHERE challenge_id=?", [$heroJoin['id']]); ?>
   <section class="ch-hero">
-    <span class="ch-hero-k">Zapisy otwarte · start za <?= max(1, (int) $heroJoin['start_session'] - $session) ?> sesj<?= ((int) $heroJoin['start_session'] - $session) === 1 ? 'ę' : 'e' ?></span>
+    <span class="ch-hero-k">Zapisy otwarte · start za <?= max(1, (int) $heroJoin['start_session'] - $session) ?> <?= max(1, (int) $heroJoin['start_session'] - $session) === 1 ? 'sesję' : Bank::sesje(max(1, (int) $heroJoin['start_session'] - $session)) ?></span>
     <h2>⚔️ <?= h($heroJoin['name']) ?></h2>
     <p>Pula nagród: <b><?= money($heroJoin['pot']) ?> PLN</b> — rośnie z każdym zapisem ·
        zapisanych: <b><?= $cnt ?></b> (min <?= (int) $heroJoin['min_players'] ?>) ·
-       handel przez <?= (int) $heroJoin['end_session'] - (int) $heroJoin['start_session'] + 1 ?> sesji</p>
+       handel przez <?= (int) $heroJoin['end_session'] - (int) $heroJoin['start_session'] + 1 ?> <?= ((int) $heroJoin['end_session'] - (int) $heroJoin['start_session'] + 1) === 1 ? 'sesję' : Bank::sesje((int) $heroJoin['end_session'] - (int) $heroJoin['start_session'] + 1) ?></p>
     <form method="post" onsubmit="return confirm('Zapis do wyzwania: z konta zejdzie <?= money((float) $heroJoin['buyin'] + $fee) ?> PLN (buy-in + wpisowe). Buy-in wróci po wyzwaniu. Kontynuować?')">
       <button class="btn" name="join" value="<?= (int) $heroJoin['id'] ?>">Dołączam — <?= money((float) $heroJoin['buyin'] + $fee) ?> PLN</button>
       <small>buy-in <?= money($heroJoin['buyin']) ?> (wraca po wyzwaniu) + wpisowe <?= money($fee) ?> (zasila pulę)</small>
@@ -288,6 +290,7 @@ layout_header('Wyzwania', $user, 'challenges');
   </p>
   <p class="muted" style="margin:8px 0 0;font-size:12.5px">
     <b class="up">Wygrywasz</b> → nagroda z puli + Tokeny inwestora + punkty sezonu i odznaka.
+    Tokeny i odznaka za podium — gdy w edycji rywalizowało <b>co najmniej dwóch graczy</b> (fundusze gry się nie liczą); nagroda z puli należy się zawsze.
     <b class="down">Przegrywasz</b> → tracisz najwyżej wpisowe (i ewentualną stratę z handlu) — buy-in w formie, do jakiej go doprowadziłeś (gotówka + akcje), wraca na konto.
   </p>
 </section>
