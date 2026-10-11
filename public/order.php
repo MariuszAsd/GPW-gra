@@ -48,7 +48,12 @@ foreach ($logs as $lg) {
         $events[] = ['t' => $lg['ts'], 'cls' => 'warn', 'm' => '⚡ Kurs przebił próg — stop-buy aktywowany', 'd' => $lg['message']];
     } elseif (in_array($lg['event'], ['stops.sl', 'stops.tp'], true)) {
         $events[] = ['t' => $lg['ts'], 'cls' => 'warn', 'm' => '⚡ ' . ($lg['event'] === 'stops.sl' ? 'Wyzwolił się Stop-Loss' : 'Wyzwolił się Take-Profit'), 'd' => $lg['message']];
-        if (!empty($ctx['tx_from'])) {
+        if (!empty($ctx['sell_order_ids']) && is_array($ctx['sell_order_ids'])) {
+            // sprzedaże obronne po id zleceń PKC z wyzwolenia (nowsze wpisy): zakres tx_from..tx_to po sprzedającym
+            // pokazywał też transakcje INNYCH zleceń gracza na tej spółce skojarzonych w tym samym przebiegu
+            $ids = array_values(array_filter(array_map('intval', $ctx['sell_order_ids']), fn($i) => $i > 0));
+            $slFills = $ids ? Engine::all("SELECT * FROM transactions WHERE sell_order_id IN (" . implode(',', array_fill(0, count($ids), '?')) . ") ORDER BY id", $ids) : [];
+        } elseif (!empty($ctx['tx_from'])) {
             $slFills = Engine::all("SELECT * FROM transactions WHERE id > ? AND id <= ? AND seller_id = ? AND stock_id = ? ORDER BY id",
                 [(int) $ctx['tx_from'], (int) ($ctx['tx_to'] ?? $ctx['tx_from']), (int) $o['user_id'], (int) $o['stock_id']]);
             foreach ($slFills as $f) {

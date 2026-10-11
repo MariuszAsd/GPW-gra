@@ -49,14 +49,40 @@ for ($i = 0; $i < $count; $i++) {
     if (php_sapi_name() === 'cli') echo "tick #$t ok\n";
 }
 
-// PUSH: dosyłka nowych powiadomień subskrybentom (HTTP do serwerów push — celowo POZA transakcją ticka)
+// WYSYŁKA POZA BLOKADĄ ŚWIATA, nie tylko poza transakcją. Push i e-maile to rozmowy z obcymi serwerami
+// (sekundy, czasem timeouty). Dane ticka są już zacommitowane, więc transakcja ich nie trzyma — ale blokada
+// świata TAK: gdyby wysyłka szła pod nią, kolejny cron i ręczny tick z panelu GM czekałyby na serwer poczty
+// i push, a nie na silnik. Zwalniamy ją więc tutaj, a przed QA i pulsem handlu bierzemy ponownie.
+Engine::worldUnlock();
 if (php_sapi_name() === 'cli' && $t > 0) {
+    // PUSH: dosyłka nowych powiadomień subskrybentom. Lekki, nieblokujący flock na cron/push.lock: bez blokady
+    // świata dwa procesy (przeciągający się cron i następny) mogłyby wysyłać te same wpisy naraz — zajęty plik
+    // oznacza, że ktoś już wysyła, więc pomijamy (następny cron dośle resztę po kursorze push_last_notif_id).
+    $pushLock = @fopen(__DIR__ . '/push.lock', 'c');
+    if ($pushLock && flock($pushLock, LOCK_EX | LOCK_NB)) {
+        try {
+            require_once __DIR__ . '/../src/Push.php';
+            [$ps, $pf] = Push::flush();
+            if ($ps + $pf > 0) echo "push: $ps wysłanych, $pf błędów\n";
+        } catch (Throwable $e) { Log::write('warn', 'engine', 'push.flush', $e->getMessage()); }
+        flock($pushLock, LOCK_UN);
+    } elseif ($pushLock) {
+        echo "push: pomijam — inna wysyłka trwa\n";
+    }
+    if ($pushLock) fclose($pushLock);
+
+    // TYGODNIOWE RAPORTY „Twój tydzień w Maklerii”: tick zapisał tylko znacznik (Engine::settleLeagues),
+    // powiadomienia i e-maile wysyłamy tu — po commicie ticka, bez blokady świata; claim-first w flushPending.
     try {
-        require_once __DIR__ . '/../src/Push.php';
-        [$ps, $pf] = Push::flush();
-        if ($ps + $pf > 0) echo "push: $ps wysłanych, $pf błędów\n";
-    } catch (Throwable $e) { Log::write('warn', 'engine', 'push.flush', $e->getMessage()); }
+        require_once __DIR__ . '/../src/Weekly.php';
+        [$wn, $wm] = Weekly::flushPending();
+        if ($wn + $wm > 0) echo "tydzień: $wn powiadomień, $wm e-maili\n";
+    } catch (Throwable $e) { Log::write('warn', 'engine', 'weekly.flush', $e->getMessage()); }
 }
+
+// QA i puls handlu znów pod blokadą świata (puls to pełna runda silnika). Jeśli w czasie wysyłki
+// wszedł inny cykl (następny cron), ustępujemy — on zrobi swoje.
+if (php_sapi_name() === 'cli' && $t > 0 && !Engine::worldLock(10)) { echo "inny cykl przejął świat — bez QA i pulsu handlu\n"; exit(0); }
 
 // QA-bot co N ticków (tylko z CLI/crona — testuje grę przez HTTP jak prawdziwy gracz)
 $qaRan = false;

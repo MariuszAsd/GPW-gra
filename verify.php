@@ -39,7 +39,17 @@ $negQty  = (int) Engine::one("SELECT COUNT(*) FROM wallets WHERE qty < 0 OR qty_
 
 $prevWorld  = Engine::one("SELECT v FROM game_state WHERE k='verify_world'");
 $prevDiv    = (float) (Engine::one("SELECT v FROM game_state WHERE k='verify_dividends'") ?: 0);
-$prevShares = json_decode((string) (Engine::one("SELECT v FROM game_state WHERE k='verify_shares'") ?: '[]'), true) ?: [];
+// Lista akcji spółek nie mieści się w jednym game_state.v (VARCHAR 255 na MySQL — 76+ spółek to ~1000 znaków JSON,
+// INSERT kończył się błędem 1406 i kontrola „akcje zachowane” była na MySQL martwa), więc JSON leży pociachany
+// na kawałki po 200 znaków pod kluczami verify_shares_0, verify_shares_1, … — nadal w TEJ bazie (a nie w pliku,
+// który mieszałby przebiegi SQLite i MySQL).
+$prevJson = '';
+for ($i = 0; ; $i++) {
+    $chunk = Engine::one("SELECT v FROM game_state WHERE k=?", ["verify_shares_$i"]);
+    if ($chunk === false || $chunk === null || $chunk === '') break;
+    $prevJson .= (string) $chunk;
+}
+$prevShares = json_decode($prevJson ?: '[]', true) ?: [];
 
 echo "\n=== INTEGRALNOŚĆ (względem poprzedniego przebiegu) ===\n";
 if ($prevWorld === false || $prevWorld === null) {
@@ -63,5 +73,7 @@ printf("%-46s %d\n", "Zrealizowanych transakcji:", (int) Engine::one("SELECT COU
 
 Engine::setState('verify_world', (string) round($world, 2));
 Engine::setState('verify_dividends', (string) $div);
-Engine::setState('verify_shares', json_encode($shares));
+// stare kawałki precz (mniej spółek niż poprzednio = krótszy JSON), potem zapis po kawałku
+Db::pdo()->exec("DELETE FROM game_state WHERE k LIKE 'verify_shares%'");
+foreach (str_split(json_encode($shares), 200) as $i => $chunk) Engine::setState("verify_shares_$i", $chunk);
 echo "\n";

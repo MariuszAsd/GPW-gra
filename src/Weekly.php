@@ -122,4 +122,23 @@ final class Weekly
         Log::write('info', 'engine', 'weekly.sent', "tydzień $period: $n powiadomień, $m e-maili");
         return [$n, $m];
     }
+
+    /**
+     * Wysyłka ODŁOŻONA: tick zapisuje tylko znacznik `weekly_pending` = „poprzedni|bieżący” okres (w swojej transakcji),
+     * a wysyłkę robi ten krok — z cron/tick.php i gm.php PO tickach, poza transakcją i poza blokadą świata.
+     * Dlaczego: e-maile idą przez mail() hostingu (sekundy), a wysyłka wewnątrz ticka trzymała przez ten czas blokady
+     * wierszy i — po wycofanym ticku — szła drugi raz z następnego ticka (gracz dostawał dwa identyczne raporty).
+     * Znacznik przejmujemy claim-first (UPDATE ... WHERE v = odczytana wartość, rowCount === 1), więc dwa równoległe
+     * procesy nie wyślą tego samego tygodnia dwa razy. Zwraca [powiadomienia, maile] albo [0, 0], gdy nie było nic do wysłania.
+     */
+    public static function flushPending(): array
+    {
+        $pending = Engine::one("SELECT v FROM game_state WHERE k='weekly_pending'");
+        if ($pending === false || $pending === null || $pending === '' || strpos((string) $pending, '|') === false) return [0, 0];
+        $claim = Db::pdo()->prepare("UPDATE game_state SET v='' WHERE k='weekly_pending' AND v=?");
+        $claim->execute([(string) $pending]);
+        if ($claim->rowCount() !== 1) return [0, 0];   // ktoś inny właśnie przejął ten tydzień
+        [$prev, $cur] = explode('|', (string) $pending, 2);
+        return self::sendAll($prev, $cur);
+    }
 }

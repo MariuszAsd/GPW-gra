@@ -6,7 +6,7 @@
  */
 final class Schema
 {
-    public const VERSION = 43;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
+    public const VERSION = 44;  // podbijaj przy każdej zmianie schematu (+ dopisz migrację w Migrator)
 
     public static function tables(): array
     {

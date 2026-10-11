@@ -97,7 +97,11 @@ final class Engine
         if ($own) $pdo->beginTransaction();
         try {
             [$session] = self::sessionInfo();
-            $txFrom = (int) (self::one("SELECT MAX(id) FROM transactions") ?: 0);
+            // id zleceń PKC złożonych w TYM wywołaniu — podsumowanie liczymy po nich, nie po „transakcje gracza
+            // na tej spółce od txFrom”: matchBook kojarzy cały arkusz, więc w tym samym przebiegu schodziło też
+            // zwykłe zlecenie z limitem tego gracza i wliczało się do wyniku PKC (zawyżony komunikat, a w checkStops
+            // zaniżona reszta pakietu chronionego stopem).
+            $oids = [];
 
             if ($side === 'buy') {
                 $cash = (float) self::one("SELECT cash FROM users WHERE id=?", [$userId]);
@@ -115,6 +119,7 @@ final class Engine
                 if ($take <= 0) { if ($own) $pdo->rollBack(); return [false, 'PKC: brak ofert sprzedaży w arkuszu (albo za mało gotówki na najtańszą).']; }
                 [$ok, $msg, $oid] = self::place($userId, $stockId, 'buy', $take, $worst, $session) + [2 => 0];
                 if (!$ok) { if ($own) $pdo->rollBack(); return [false, $msg]; }
+                $oids[] = (int) $oid;
                 self::matchBook($stockId);
                 self::cancelRemainder((int) $oid, $userId);
             } else {
@@ -128,6 +133,7 @@ final class Engine
                     $t = min($remaining, (int) $best['q']);
                     [$ok, $msg, $oid] = self::place($userId, $stockId, 'sell', $t, (float) $best['price'], $session) + [2 => 0];
                     if (!$ok) break;
+                    $oids[] = (int) $oid;
                     self::matchBook($stockId);
                     $left = self::cancelRemainder((int) $oid, $userId);
                     $remaining -= ($t - $left);
@@ -136,19 +142,30 @@ final class Engine
                 if ($remaining >= min($qty, $have)) { if ($own) $pdo->rollBack(); return [false, 'PKC: brak ofert kupna w arkuszu.']; }
             }
 
-            // podsumowanie z realnych transakcji tego wywołania
-            $who = $side === 'buy' ? 'buyer_id' : 'seller_id';
-            $sum = self::row("SELECT SUM(qty) q, SUM(qty*price) v FROM transactions WHERE $who=? AND stock_id=? AND id>?", [$userId, $stockId, $txFrom]);
+            // podsumowanie z realnych transakcji TYCH zleceń PKC (nie wszystkich transakcji gracza na spółce)
+            $sum = self::marketOrderFills($side, $oids);
             if ($own) $pdo->commit();
             $q = (int) ($sum['q'] ?? 0); $v = (float) ($sum['v'] ?? 0);
-            if ($q <= 0) return [false, 'PKC: nie udało się zrealizować transakcji.'];
+            if ($q <= 0) return [false, 'PKC: nie udało się zrealizować transakcji.', $oids];
             $avg = number_format($v / $q, 2, ',', ' ');
             $note = $q < $qty ? " (reszta z $qty szt. anulowana — arkusz/gotówka nie pozwoliły na więcej)" : '';
-            return [true, ($side === 'buy' ? "PKC: kupiono" : "PKC: sprzedano") . " $q szt. po średniej $avg PLN$note."];
+            // trzeci element: id zleceń PKC tego wywołania (checkStops liczy po nich sprzedane sztuki); strony czytają [ok, msg]
+            return [true, ($side === 'buy' ? "PKC: kupiono" : "PKC: sprzedano") . " $q szt. po średniej $avg PLN$note.", $oids];
         } catch (\Throwable $e) {
             if ($own && $pdo->inTransaction()) $pdo->rollBack();
             throw $e;
         }
+    }
+
+    /** Suma sztuk i wartości transakcji zleceń PKC o podanych id (strona kupna lub sprzedaży): ['q' => szt., 'v' => PLN]. */
+    public static function marketOrderFills(string $side, array $orderIds): array
+    {
+        $ids = array_values(array_filter(array_map('intval', $orderIds), fn($i) => $i > 0));
+        if (!$ids) return ['q' => 0, 'v' => 0.0];
+        $col = $side === 'buy' ? 'buy_order_id' : 'sell_order_id';
+        $ph = implode(',', array_fill(0, count($ids), '?'));
+        $r = self::row("SELECT COALESCE(SUM(qty),0) q, COALESCE(SUM(qty*price),0) v FROM transactions WHERE $col IN ($ph)", $ids);
+        return ['q' => (int) ($r['q'] ?? 0), 'v' => (float) ($r['v'] ?? 0)];
     }
 
     /** Anuluje aktywną resztę zlecenia (zwalnia escrow); zwraca ile sztuk zostało anulowanych. */
@@ -435,9 +452,14 @@ final class Engine
     {
         $delta = round($delta, 2);
         if ($delta == 0.0) return;
-        $cur = self::one("SELECT v FROM game_state WHERE k='world_cash_base'");
-        if ($cur === false || $cur === null || $cur === '') return;   // świat jeszcze niezakotwiczony — zakotwiczy pierwszy przebieg QA
-        self::setState('world_cash_base', (string) round((float) $cur + $delta, 2));
+        // Przesunięcie WZGLĘDNE po stronie SQL (jak w addTreasury), nie odczyt-potem-zapis: kotwicę ruszają
+        // naraz rejestracja z HTTP (autocommit) i rozliczenie IPO wewnątrz transakcji ticka, która na MySQL
+        // czyta migawkę sprzed swojego początku — zapis wartością absolutną gubił kapitał startowy gracza
+        // zarejestrowanego w trakcie ticka i QA `inv.money` alarmowałoby o „kreacji” już na stałe.
+        // Brak wiersza = świat jeszcze niezakotwiczony (zakotwiczy pierwszy przebieg QA) — wtedy nic nie wstawiamy.
+        $st = Db::pdo()->prepare("UPDATE game_state SET v = ROUND(v + ?, 2) WHERE k='world_cash_base' AND v <> ''");
+        $st->execute([$delta]);
+        if ($st->rowCount() !== 1) return;
         Log::write('info', 'engine', 'world.cash', sprintf('%s: kotwica pieniądza %+.2f PLN', $why, $delta));
     }
 
@@ -468,12 +490,17 @@ final class Engine
             if ($prev === false || $prev === null || $prev === '') { self::setState($stateKey, $now[$kind]); continue; }
             if ($prev === $now[$kind]) continue;
             self::setState($stateKey, $now[$kind]);   // najpierw przestaw okres — rozliczenie tylko raz
+            // Bezpiecznik jak w całym runTick: po zakleszczeniu (wypłata nagrody = users + skarbiec kontra matchBook
+            // z HTTP) InnoDB wycofuje CAŁĄ transakcję ticka — wtedy nie wolno „połknąć” błędu i iść dalej w autocommit
+            // (reszta rolki sesji zapisałaby się po kawałku, a następny cron zrobiłby rolkę drugi raz).
             try { self::settleLeague($kind, (string) $prev, $now[$kind], $session); }
-            catch (\Throwable $e) { Log::write('error', 'engine', 'league.fail', "$kind $prev: " . $e->getMessage()); }
+            catch (\Throwable $e) { if (!Db::pdo()->inTransaction()) throw $e; Log::write('error', 'engine', 'league.fail', "$kind $prev: " . $e->getMessage()); }
             if ($kind === 'week') {
-                // „Twój tydzień w Maklerii”: powiadomienie w grze + e-mail (wyniki ligi są już w league_results)
-                if (!class_exists('Weekly')) require_once __DIR__ . '/Weekly.php';
-                try { Weekly::sendAll((string) $prev, $now[$kind]); } catch (\Throwable $e) { Log::write('warn', 'engine', 'weekly.fail', $e->getMessage()); }
+                // „Twój tydzień w Maklerii”: tylko ZNACZNIK w game_state — commituje się razem z tickiem, po rollbacku znika.
+                // Samą wysyłkę (powiadomienia + e-maile przez mail()) robi Weekly::flushPending() POZA transakcją
+                // i poza blokadą świata (cron/tick.php, gm.php): wysyłka wewnątrz ticka dawała duplikaty e-maili
+                // po wycofanym ticku i trzymała blokady wierszy na czas rozmowy z serwerem pocztowym.
+                self::setState('weekly_pending', (string) $prev . '|' . $now[$kind]);
             }
         }
     }
@@ -539,7 +566,7 @@ final class Engine
      * dane pozostawały spójne. Baza w takiej sytuacji wycofuje transakcję, więc ponowienie jest bezpieczne.
      * Wołać TYLKO z góry (ze strony), nigdy ze środka cudzej transakcji.
      */
-    public static function retryOnLock(callable $fn, int $tries = 3)
+    public static function retryOnLock(callable $fn, int $tries = 6)
     {
         for ($i = 1; ; $i++) {
             try {
@@ -550,7 +577,10 @@ final class Engine
                 if (!$isLock || $i >= $tries) throw $e;
                 $pdo = Db::pdo();
                 if ($pdo->inTransaction()) { try { $pdo->rollBack(); } catch (\Throwable $x) { /* już wycofana */ } }
-                usleep(60000 * $i);   // krótka przerwa, z każdą próbą dłuższa
+                // Przerwa rosnąca z LOSOWYM rozrzutem: kilku graczy odbitych od tego samego zakleszczenia (tick kojarzy
+                // ich spółkę) ponawiało w tej samej milisekundzie i znów wpadało na siebie — przy 3 próbach co 60/120 ms
+                // ~0,15% akcji pod obciążeniem kończyło się stroną błędu, choć dane były spójne. Maks. ok. 0,5 s na próbę.
+                usleep(mt_rand(60000, min(500000, 60000 * $i + 100000 * ($i - 1))));
             }
         }
     }
@@ -1172,12 +1202,15 @@ final class Engine
         }
     }
 
-    /** Anuluj WSZYSTKIE zlecenia konta (też obronne SL/TP) i zwolnij rezerwacje — likwidacja subkonta wyzwania. */
-    public static function releaseAllOrders(int $uid): void
+    /** Anuluj WSZYSTKIE zlecenia konta (też obronne SL/TP) i zwolnij rezerwacje — likwidacja subkonta wyzwania.
+     *  $lock = true: lista zleceń czytana blokująco (FOR UPDATE na MySQL), czyli ze stanu BIEŻĄCEGO, a nie z migawki
+     *  sprzed początku transakcji ticka — zlecenie złożone przez HTTP w trakcie ticka też zostaje anulowane. */
+    public static function releaseAllOrders(int $uid, bool $lock = false): void
     {
         $pdo = Db::pdo();
         $claim = $pdo->prepare("UPDATE orders SET status='cancelled' WHERE id=? AND status IN ('active','pending')");
-        foreach (self::all("SELECT id FROM orders WHERE user_id=? AND status IN ('active','pending')", [$uid]) as $r) {
+        $sfx = ($lock && Db::driver() === 'mysql') ? ' FOR UPDATE' : '';
+        foreach (self::all("SELECT id FROM orders WHERE user_id=? AND status IN ('active','pending')" . $sfx, [$uid]) as $r) {
             $claim->execute([(int) $r['id']]);
             if ($claim->rowCount() !== 1) continue;
             $o = self::row("SELECT * FROM orders WHERE id=?", [(int) $r['id']]);
@@ -1270,12 +1303,15 @@ final class Engine
             // nie po sztywnym limicie pod kursem — gracz dostaje to, co stoi w bidach
             self::release($o);
             $txFrom = (int) (self::one("SELECT MAX(id) FROM transactions") ?: 0);
-            [$ok, $msg] = self::marketOrder((int) $o['user_id'], (int) $o['stock_id'], 'sell', (int) $o['qty']);
+            [$ok, $msg, $pkcIds] = self::marketOrder((int) $o['user_id'], (int) $o['stock_id'], 'sell', (int) $o['qty']) + [2 => []];
             // górna granica zakresu transakcji tego wyzwolenia — bez niej karta zlecenia pokazywała
             // „zrealizowano 0 szt." mimo realnej sprzedaży (zmienna nie była nigdzie ustawiana)
             $txTo = (int) (self::one("SELECT MAX(id) FROM transactions") ?: $txFrom);
-            // ile REALNIE zeszło z tego wyzwolenia (płytki arkusz może sprzedać tylko część)
-            $sold = (int) (self::one("SELECT COALESCE(SUM(qty),0) FROM transactions WHERE seller_id=? AND stock_id=? AND id>?", [$o['user_id'], $o['stock_id'], $txFrom]) ?: 0);
+            // ile REALNIE zeszło z TEGO wyzwolenia (płytki arkusz może sprzedać tylko część) — po id zleceń PKC,
+            // nie po „transakcje sprzedającego od txFrom”: matchBook kojarzył w tym samym przebiegu także zwykłe
+            // zlecenie limit gracza na tej spółce, więc $sold wychodziło zawyżone („sprzedano 150 ze 100 szt.”),
+            // a reszta pakietu pod stopem — zaniżona, czyli część akcji wracała bez ochrony.
+            $sold = (int) self::marketOrderFills('sell', (array) $pkcIds)['q'];
             $remaining = (int) $o['qty'] - $sold;
             if ($remaining > 0) {
                 // NIE konsumuj ochrony reszty pakietu: re-rezerwuj niesprzedane akcje i przywróć stopa na
@@ -1296,7 +1332,8 @@ final class Engine
                 sprintf('%s %s: kurs %s przekroczył próg %s — %s', $hitSL ? 'Stop-Loss' : 'Take-Profit', $o['ticker'],
                     number_format((float) $o['cur'], 2, ',', ' '),
                     number_format((float) ($hitSL ? $o['sl_price'] : $o['tp_price']), 2, ',', ' '), $msg),
-                ['user_id' => (int) $o['user_id'], 'order_id' => (int) $o['id'], 'qty' => (int) $o['qty'], 'tx_from' => $txFrom, 'tx_to' => $txTo]);
+                ['user_id' => (int) $o['user_id'], 'order_id' => (int) $o['id'], 'qty' => (int) $o['qty'], 'tx_from' => $txFrom, 'tx_to' => $txTo,
+                 'sell_order_ids' => array_values((array) $pkcIds)]);   // oś czasu w order.php czyta sprzedaże obronne po tych id
             if (self::isHumanOwned((int) $o['user_id'])) {
                 self::notify((int) $o['user_id'], 'stop',
                     ($hitSL ? '🛡️ Stop-Loss ' : '💰 Take-Profit ') . $o['ticker'] . ' wyzwolony przy ' . number_format((float) $o['cur'], 2, ',', ' ') . ' PLN — ' . $msg,
@@ -1939,13 +1976,18 @@ final class Engine
     /** Zapis kapitału (equity) każdego CZŁOWIEKA-gracza po ticku — wykres portfela. */
     private static function recordEquity(int $t): void
     {
+        // Jednostki funduszu MAK40 liczą się do kapitału tak samo jak w playerEquity (ranking, ligi): bez nich wykres
+        // pokazywał „krach” o kwotę wpłaty, a rollSession z tych punktów przyznawał fałszywe odznaki rajd_10 / lekcja_pokory.
+        if (!class_exists('Fund')) require_once __DIR__ . '/Fund.php';
+        $nav = Fund::nav();
         Db::pdo()->prepare(
             "INSERT INTO equity_history (user_id, t, equity)
              SELECT u.id, ?, ROUND(u.cash + u.cash_reserved + COALESCE(sv.v, 0) + COALESCE(dep.v, 0) + COALESCE(ipo.v, 0)
-                                   + COALESCE(chs.v, 0) + COALESCE(chr.v, 0), 2)
+                                   + COALESCE(chs.v, 0) + COALESCE(chr.v, 0) + COALESCE(fp.v, 0), 2)
              FROM users u
              LEFT JOIN (SELECT w.user_id AS uid, SUM((w.qty + w.qty_reserved) * s.price) AS v
                         FROM wallets w JOIN stocks s ON s.id = w.stock_id GROUP BY w.user_id) sv ON sv.uid = u.id
+             LEFT JOIN (SELECT user_id AS uid, units * ? AS v FROM fund_positions WHERE units > 0) fp ON fp.uid = u.id
              LEFT JOIN (SELECT user_id AS uid, SUM(amount) AS v FROM deposits WHERE status='active' GROUP BY user_id) dep ON dep.uid = u.id
              LEFT JOIN (SELECT s2.user_id AS uid, SUM(s2.paid) AS v FROM ipo_subs s2
                         JOIN ipo_offers o2 ON o2.id = s2.offer_id AND o2.status='open' GROUP BY s2.user_id) ipo ON ipo.uid = u.id
@@ -1967,7 +2009,7 @@ final class Engine
                 OR (u.role = 'challenger' AND EXISTS (
                      SELECT 1 FROM challenge_players cp JOIN challenges c ON c.id = cp.challenge_id
                      WHERE cp.shadow_user_id = u.id AND c.status = 'running'))"
-        )->execute([$t]);
+        )->execute([$t, $nav]);
         if ($t % 500 === 0) Db::pdo()->prepare("DELETE FROM equity_history WHERE t < ?")->execute([$t - 10000]);
     }
 
@@ -2183,7 +2225,7 @@ final class Engine
                 self::setState('session_date', $today);
                 self::setState('session_start_tick', (string) $tick);
                 // świeży świat / pierwsze uruchomienie po aktualizacji: baza lig od razu, nie dopiero jutro
-                try { self::takeSnapshots($today); self::settleLeagues($today, $prev); } catch (\Throwable $e) { /* nie blokuje ticka */ }
+                try { self::takeSnapshots($today); self::settleLeagues($today, $prev); } catch (\Throwable $e) { if (!Db::pdo()->inTransaction()) throw $e; /* nie blokuje ticka */ }
                 return;
             }
             $n = $prev + 1;
@@ -2201,9 +2243,11 @@ final class Engine
             Db::pdo()->prepare("INSERT INTO session_dates (session, trade_date) VALUES (?, ?)")->execute([$n, $rollDate]);
         } catch (\Throwable $e) { /* data tej sesji już zapisana — pomiń */ }
         // baza lig tygodnia i miesiąca: migawka kapitału każdego gracza na starcie sesji (raz na okres)
-        try { self::takeSnapshots((string) $rollDate); } catch (\Throwable $e) { Log::write('warn', 'engine', 'snapshot.fail', $e->getMessage()); }
+        // (bezpiecznik `inTransaction` jak niżej: po zakleszczeniu transakcja ticka już nie istnieje i dalsza rolka
+        //  poszłaby w autocommit po kawałku — wtedy błąd musi iść wyżej, cron ponowi cały tick)
+        try { self::takeSnapshots((string) $rollDate); } catch (\Throwable $e) { if (!Db::pdo()->inTransaction()) throw $e; Log::write('warn', 'engine', 'snapshot.fail', $e->getMessage()); }
         // nowy tydzień/miesiąc = rozliczenie poprzedniego okresu ligi (nagrody ze skarbca / tokeny)
-        try { self::settleLeagues((string) $rollDate, $n); } catch (\Throwable $e) { Log::write('error', 'engine', 'league.fail', $e->getMessage()); }
+        try { self::settleLeagues((string) $rollDate, $n); } catch (\Throwable $e) { if (!Db::pdo()->inTransaction()) throw $e; Log::write('error', 'engine', 'league.fail', $e->getMessage()); }
         // świece dzienne D1 (wykresy tydzień/miesiąc/rok): zrzut ZAMYKANEJ sesji,
         // koniecznie PRZED nadpisaniem day_open_price nowym kursem otwarcia
         try {
@@ -2346,7 +2390,7 @@ final class Engine
     private static function takeSnapshots(string $date): void
     {
         foreach (self::col("SELECT id FROM users WHERE is_bot=0 AND role='player'") as $uid) {
-            try { self::snapshotUser((int) $uid, null, $date); } catch (\Throwable $e) { /* pojedyncza migawka nie psuje ticka */ }
+            try { self::snapshotUser((int) $uid, null, $date); } catch (\Throwable $e) { if (!Db::pdo()->inTransaction()) throw $e; /* pojedyncza migawka nie psuje ticka */ }
         }
     }
 
@@ -2539,7 +2583,12 @@ final class Engine
             try { self::checkHalts($t); } catch (\Throwable $e) { if (!Db::pdo()->inTransaction()) throw $e; Log::write('warn', 'engine', 'halt.check', $e->getMessage()); }
             // scal z bieżącą świecą REALNE transakcje jeszcze nieujęte (handel botów tej podrundy + zlecenia graczy między nimi)
             [$trades, $candIds] = self::tradesSinceCandle();
+            // obrót sesji (stocks.day_turnover) dopisujemy tak samo jak recordCandles — podrundy robią na produkcji
+            // ~2/3 wolumenu botów, a bez tego kroku „Obrót (sesja)” na Rynku i karcie spółki pokazywał ułamek słupków
+            $turn = $pdo->prepare("UPDATE stocks SET day_turnover = day_turnover + ? WHERE id=?");
             foreach ($trades as $sid => $tr) {
+                $value = 0.0; foreach ($tr as $x) $value += $x['p'] * $x['q'];
+                $turn->execute([round($value, 2), $sid]);
                 $c = self::row("SELECT h, l FROM candles WHERE stock_id=? AND t=?", [$sid, $t]);
                 if (!$c) continue;
                 $ps = array_column($tr, 'p');

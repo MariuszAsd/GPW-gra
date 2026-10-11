@@ -92,32 +92,43 @@ final class Challenges
         $total = round($buyin + $fee, 2);
 
         $pdo = Db::pdo();
-        // pobranie środków atomowo — warunek cash >= total w UPDATE chroni przed podwójnym kliknięciem
-        $st = $pdo->prepare("UPDATE users SET cash = cash - ? WHERE id = ? AND cash >= ?");
-        $st->execute([$total, $userId, $total]);
-        if ($st->rowCount() === 0) return [false, 'Za mało gotówki: potrzeba ' . number_format($total, 2, ',', ' ') . ' PLN (buy-in + wpisowe).'];
+        // CAŁY zapis w jednej transakcji (jak Fund::buy): pobranie gotówki i wpis to wcześniej były dwa autocommity
+        // z kompensacją w try/catch — kompensacja łapie błąd SQL, ale nie przerwanie procesu PHP między zapytaniami
+        // (limit czasu, OOM, restart): gotówka znikała z konta bez zapisu i bez śladu. Teraz albo oba kroki, albo żaden.
+        $own = !$pdo->inTransaction();
+        if ($own) $pdo->beginTransaction();
         try {
+            // pobranie środków atomowo — warunek cash >= total w UPDATE chroni przed podwójnym kliknięciem
+            $st = $pdo->prepare("UPDATE users SET cash = cash - ? WHERE id = ? AND cash >= ?");
+            $st->execute([$total, $userId, $total]);
+            if ($st->rowCount() === 0) { if ($own) $pdo->rollBack(); return [false, 'Za mało gotówki: potrzeba ' . number_format($total, 2, ',', ' ') . ' PLN (buy-in + wpisowe).']; }
             // INSERT WARUNKOWY: edycja musi być NADAL w 'signup' (wyścig z rollem sesji — start()/cancel()
             // w transakcji ticka mógł ją właśnie przełączyć). Bez tego powstawał sierocy zapis bez subkonta,
             // z equity 0 = utracony buy-in. Pas i szelki: onRoll zamiata ewentualne sieroty (pełny zwrot).
             $ins = $pdo->prepare("INSERT INTO challenge_players (challenge_id, user_id, buyin, fee, joined_at)
                                   SELECT ?,?,?,?,? FROM challenges WHERE id=? AND status='signup'");
-            $ins->execute([$challengeId, $userId, $buyin, $fee, Db::now(), $challengeId]);
-            if ($ins->rowCount() === 0) {
-                $pdo->prepare("UPDATE users SET cash = cash + ? WHERE id = ?")->execute([$total, $userId]);
-                return [false, 'Zapisy właśnie się zamknęły — środki wróciły na konto.'];
+            try {
+                $ins->execute([$challengeId, $userId, $buyin, $fee, Db::now(), $challengeId]);
+            } catch (PDOException $e) {
+                // tylko DUPLIKAT (SQLSTATE 23000, UNIQUE challenge_id+user_id) to „już zapisany”; zakleszczenie i inne
+                // błędy idą wyżej, żeby retryOnLock ze strony mógł ponowić zamiast kłamać graczowi o duplikacie
+                if ((string) $e->getCode() !== '23000') throw $e;
+                if ($own) $pdo->rollBack();
+                return [false, 'Już jesteś zapisany na to wyzwanie.'];
             }
-        } catch (Throwable $e) {
-            $pdo->prepare("UPDATE users SET cash = cash + ? WHERE id = ?")->execute([$total, $userId]);  // zwrot przy duplikacie
-            return [false, 'Już jesteś zapisany na to wyzwanie.'];
+            if ($ins->rowCount() === 0) { if ($own) $pdo->rollBack(); return [false, 'Zapisy właśnie się zamknęły — środki zostały na koncie.']; }
+            // bez warunku na status: warunkowy INSERT wyżej już dowiódł, że edycja była w 'signup'; na MySQL ten UPDATE
+            // potrafił przegrać wyścig ze start() z ticka i wpisowe znikało z puli, choć zeszło z konta
+            $pdo->prepare("UPDATE challenges SET pot = pot + ? WHERE id = ?")->execute([$fee, $challengeId]);
+            Engine::ledger($userId, -$total, 'wyzwanie', 'Wpisowe na wyzwanie „' . $ch['name'] . '” (buy-in ' . number_format($buyin, 0, ',', ' ') . ' + wpisowe ' . number_format($fee, 0, ',', ' ') . ')', 'wyzwania.php');
+            Log::write('info', 'player', 'challenge.join', "zapis do wyzwania #$challengeId", ['user_id' => $userId, 'buyin' => $buyin, 'fee' => $fee]);
+            Engine::notify($userId, 'challenge', '⚔️ Zapisano do: ' . $ch['name'] . '. Zablokowano ' . number_format($total, 2, ',', ' ')
+                . ' PLN (buy-in ' . number_format($buyin, 0, ',', ' ') . ' + wpisowe ' . number_format($fee, 0, ',', ' ') . ').', 'wyzwania.php');
+            if ($own) $pdo->commit();
+        } catch (\Throwable $e) {
+            if ($own && $pdo->inTransaction()) $pdo->rollBack();
+            throw $e;
         }
-        // bez warunku na status: warunkowy INSERT wyżej już dowiódł, że edycja była w 'signup'; na MySQL ten UPDATE
-        // potrafił przegrać wyścig ze start() z ticka i wpisowe znikało z puli, choć zeszło z konta
-        $pdo->prepare("UPDATE challenges SET pot = pot + ? WHERE id = ?")->execute([$fee, $challengeId]);
-        Engine::ledger($userId, -$total, 'wyzwanie', 'Wpisowe na wyzwanie „' . $ch['name'] . '” (buy-in ' . number_format($buyin, 0, ',', ' ') . ' + wpisowe ' . number_format($fee, 0, ',', ' ') . ')', 'wyzwania.php');
-        Log::write('info', 'player', 'challenge.join', "zapis do wyzwania #$challengeId", ['user_id' => $userId, 'buyin' => $buyin, 'fee' => $fee]);
-        Engine::notify($userId, 'challenge', '⚔️ Zapisano do: ' . $ch['name'] . '. Zablokowano ' . number_format($total, 2, ',', ' ')
-            . ' PLN (buy-in ' . number_format($buyin, 0, ',', ' ') . ' + wpisowe ' . number_format($fee, 0, ',', ' ') . ').', 'wyzwania.php');
         return [true, 'Zapisano! Zablokowano ' . number_format($total, 2, ',', ' ') . ' PLN. Start: sesja #' . (int) $ch['start_session'] . '.'];
     }
 
@@ -357,19 +368,24 @@ final class Challenges
         $pdo = Db::pdo();
         $sid = (int) $cp['shadow_user_id'];
         $uid = (int) $cp['user_id'];
-        Engine::releaseAllOrders($sid);   // anuluje zlecenia (też obronne SL/TP) i zwalnia rezerwacje
-        // Odczyt salda subkonta musi widzieć stan BIEŻĄCY, nie zrzut sprzed rozpoczęcia transakcji ticka:
-        // gracz może handlować subkontem przez HTTP dokładnie w tej samej chwili, a poniżej zerujemy jego
-        // saldo. Bez blokującego odczytu ostatnia sprzedaż na subkoncie po prostu przepadała.
         $lock = Db::driver() === 'mysql' ? ' FOR UPDATE' : '';
+        // NAJPIERW blokujemy wiersz subkonta, DOPIERO POTEM czytamy jego zlecenia i portfel. Każda operacja
+        // gracza, która rusza pieniądz subkonta przez HTTP (złożenie kupna = escrow, PKC, realizacja w matchBook),
+        // musi zapisać ten sam wiersz users — więc od tej chwili czeka na nasz commit, a to, co zdążyło się
+        // zacommitować wcześniej, zobaczymy w blokujących odczytach poniżej. Bez tego lista zleceń i portfel
+        // pochodziły z migawki REPEATABLE READ sprzed początku transakcji ticka: akcje kupione na subkoncie
+        // w tym oknie nie były przenoszone, a DELETE FROM wallets kasował je bez śladu (gracz zapłacił,
+        // akcje znikały z obiegu). Suma cash + cash_reserved nie zmienia się przez anulowanie zleceń
+        // (release przesuwa tylko między tymi dwiema kolumnami), dlatego można ją odczytać przed nimi.
         $cashRow = Engine::row("SELECT cash + cash_reserved AS total FROM users WHERE id=?" . $lock, [$sid]);
         $cash = (float) ($cashRow['total'] ?? 0);
+        Engine::releaseAllOrders($sid, true);   // anuluje zlecenia (też obronne SL/TP) i zwalnia rezerwacje — lista czytana blokująco
         $stockVal = 0.0;
-        foreach (Engine::all("SELECT w.stock_id, w.qty, w.qty_reserved, w.avg_price, s.price
-                              FROM wallets w JOIN stocks s ON s.id=w.stock_id
-                              WHERE w.user_id=? AND (w.qty > 0 OR w.qty_reserved > 0)", [$sid]) as $w) {
+        // Portfel też blokująco (bieżące wiersze, nie migawka); kurs bierzemy osobno, żeby nie blokować wierszy stocks.
+        foreach (Engine::all("SELECT stock_id, qty, qty_reserved, avg_price FROM wallets
+                              WHERE user_id=? AND (qty > 0 OR qty_reserved > 0)" . $lock, [$sid]) as $w) {
             $q = (int) $w['qty'] + (int) $w['qty_reserved'];
-            $stockVal += $q * (float) $w['price'];
+            $stockVal += $q * (float) Engine::one("SELECT price FROM stocks WHERE id=?", [(int) $w['stock_id']]);
             Engine::ensureWallet($uid, (int) $w['stock_id']);
             // Zapis PRZYROSTOWY po stronie SQL — dokładnie ten wzorzec, co w matchBook. Wcześniej był tu
             // odczyt-a-potem-zapis wartością absolutną: jeśli gracz dokupił akcje na koncie GŁÓWNYM w tej

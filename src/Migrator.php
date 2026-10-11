@@ -619,6 +619,14 @@ final class Migrator
                 )" . (Db::driver() === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''),
                 "CREATE INDEX ix_push_user ON push_subscriptions (user_id)",
             ],
+            44 => [
+                // FUNDUSZ MAK40 W HISTORII KAPITAŁU (bez zmiany tabel): od tej wersji Engine::recordEquity dolicza jednostki
+                // funduszu do equity_history. Punkty BIEŻĄCEJ sesji posiadaczy jednostek powstały jeszcze bez funduszu,
+                // więc na najbliższej rolce sesji e0 (bez funduszu) kontra e1 (z funduszem) dałoby fałszywą odznakę
+                // „Rajd +10%”. Kasujemy te punkty — to dane pochodne (wykres), odtwarzają się co tick. Idempotentne.
+                "DELETE FROM equity_history WHERE user_id IN (SELECT user_id FROM fund_positions WHERE units > 0)
+                    AND t >= (SELECT CAST(g.v AS " . (Db::driver() === 'mysql' ? 'UNSIGNED' : 'INTEGER') . ") FROM game_state g WHERE g.k='session_start_tick')",
+            ],
         ];
     }
 
