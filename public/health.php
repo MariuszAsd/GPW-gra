@@ -26,6 +26,7 @@ try {
     $out['push_available'] = Push::available();
     $out['phase'] = Engine::marketPhase();
     $out['time_pl'] = Engine::nowWarsaw()->format('Y-m-d H:i');
+    $out['tz'] = date_default_timezone_get();   // strefa procesu WWW (config.php ustawia Europe/Warsaw) — do porównania z cronem
     $out['tick'] = (int) (Engine::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
     $out['ok'] = $out['schema'] === Schema::VERSION && !in_array(false, $out['tables'], true);
 } catch (Throwable $e) {
