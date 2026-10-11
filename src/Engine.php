@@ -97,7 +97,11 @@ final class Engine
         if ($own) $pdo->beginTransaction();
         try {
             [$session] = self::sessionInfo();
-            $txFrom = (int) (self::one("SELECT MAX(id) FROM transactions") ?: 0);
+            // id zleceń PKC złożonych w TYM wywołaniu — podsumowanie liczymy po nich, nie po „transakcje gracza
+            // na tej spółce od txFrom”: matchBook kojarzy cały arkusz, więc w tym samym przebiegu schodziło też
+            // zwykłe zlecenie z limitem tego gracza i wliczało się do wyniku PKC (zawyżony komunikat, a w checkStops
+            // zaniżona reszta pakietu chronionego stopem).
+            $oids = [];
 
             if ($side === 'buy') {
                 $cash = (float) self::one("SELECT cash FROM users WHERE id=?", [$userId]);
@@ -115,6 +119,7 @@ final class Engine
                 if ($take <= 0) { if ($own) $pdo->rollBack(); return [false, 'PKC: brak ofert sprzedaży w arkuszu (albo za mało gotówki na najtańszą).']; }
                 [$ok, $msg, $oid] = self::place($userId, $stockId, 'buy', $take, $worst, $session) + [2 => 0];
                 if (!$ok) { if ($own) $pdo->rollBack(); return [false, $msg]; }
+                $oids[] = (int) $oid;
                 self::matchBook($stockId);
                 self::cancelRemainder((int) $oid, $userId);
             } else {
@@ -128,6 +133,7 @@ final class Engine
                     $t = min($remaining, (int) $best['q']);
                     [$ok, $msg, $oid] = self::place($userId, $stockId, 'sell', $t, (float) $best['price'], $session) + [2 => 0];
                     if (!$ok) break;
+                    $oids[] = (int) $oid;
                     self::matchBook($stockId);
                     $left = self::cancelRemainder((int) $oid, $userId);
                     $remaining -= ($t - $left);
@@ -136,19 +142,30 @@ final class Engine
                 if ($remaining >= min($qty, $have)) { if ($own) $pdo->rollBack(); return [false, 'PKC: brak ofert kupna w arkuszu.']; }
             }
 
-            // podsumowanie z realnych transakcji tego wywołania
-            $who = $side === 'buy' ? 'buyer_id' : 'seller_id';
-            $sum = self::row("SELECT SUM(qty) q, SUM(qty*price) v FROM transactions WHERE $who=? AND stock_id=? AND id>?", [$userId, $stockId, $txFrom]);
+            // podsumowanie z realnych transakcji TYCH zleceń PKC (nie wszystkich transakcji gracza na spółce)
+            $sum = self::marketOrderFills($side, $oids);
             if ($own) $pdo->commit();
             $q = (int) ($sum['q'] ?? 0); $v = (float) ($sum['v'] ?? 0);
-            if ($q <= 0) return [false, 'PKC: nie udało się zrealizować transakcji.'];
+            if ($q <= 0) return [false, 'PKC: nie udało się zrealizować transakcji.', $oids];
             $avg = number_format($v / $q, 2, ',', ' ');
             $note = $q < $qty ? " (reszta z $qty szt. anulowana — arkusz/gotówka nie pozwoliły na więcej)" : '';
-            return [true, ($side === 'buy' ? "PKC: kupiono" : "PKC: sprzedano") . " $q szt. po średniej $avg PLN$note."];
+            // trzeci element: id zleceń PKC tego wywołania (checkStops liczy po nich sprzedane sztuki); strony czytają [ok, msg]
+            return [true, ($side === 'buy' ? "PKC: kupiono" : "PKC: sprzedano") . " $q szt. po średniej $avg PLN$note.", $oids];
         } catch (\Throwable $e) {
             if ($own && $pdo->inTransaction()) $pdo->rollBack();
             throw $e;
         }
+    }
+
+    /** Suma sztuk i wartości transakcji zleceń PKC o podanych id (strona kupna lub sprzedaży): ['q' => szt., 'v' => PLN]. */
+    public static function marketOrderFills(string $side, array $orderIds): array
+    {
+        $ids = array_values(array_filter(array_map('intval', $orderIds), fn($i) => $i > 0));
+        if (!$ids) return ['q' => 0, 'v' => 0.0];
+        $col = $side === 'buy' ? 'buy_order_id' : 'sell_order_id';
+        $ph = implode(',', array_fill(0, count($ids), '?'));
+        $r = self::row("SELECT COALESCE(SUM(qty),0) q, COALESCE(SUM(qty*price),0) v FROM transactions WHERE $col IN ($ph)", $ids);
+        return ['q' => (int) ($r['q'] ?? 0), 'v' => (float) ($r['v'] ?? 0)];
     }
 
     /** Anuluje aktywną resztę zlecenia (zwalnia escrow); zwraca ile sztuk zostało anulowanych. */
@@ -1286,12 +1303,15 @@ final class Engine
             // nie po sztywnym limicie pod kursem — gracz dostaje to, co stoi w bidach
             self::release($o);
             $txFrom = (int) (self::one("SELECT MAX(id) FROM transactions") ?: 0);
-            [$ok, $msg] = self::marketOrder((int) $o['user_id'], (int) $o['stock_id'], 'sell', (int) $o['qty']);
+            [$ok, $msg, $pkcIds] = self::marketOrder((int) $o['user_id'], (int) $o['stock_id'], 'sell', (int) $o['qty']) + [2 => []];
             // górna granica zakresu transakcji tego wyzwolenia — bez niej karta zlecenia pokazywała
             // „zrealizowano 0 szt." mimo realnej sprzedaży (zmienna nie była nigdzie ustawiana)
             $txTo = (int) (self::one("SELECT MAX(id) FROM transactions") ?: $txFrom);
-            // ile REALNIE zeszło z tego wyzwolenia (płytki arkusz może sprzedać tylko część)
-            $sold = (int) (self::one("SELECT COALESCE(SUM(qty),0) FROM transactions WHERE seller_id=? AND stock_id=? AND id>?", [$o['user_id'], $o['stock_id'], $txFrom]) ?: 0);
+            // ile REALNIE zeszło z TEGO wyzwolenia (płytki arkusz może sprzedać tylko część) — po id zleceń PKC,
+            // nie po „transakcje sprzedającego od txFrom”: matchBook kojarzył w tym samym przebiegu także zwykłe
+            // zlecenie limit gracza na tej spółce, więc $sold wychodziło zawyżone („sprzedano 150 ze 100 szt.”),
+            // a reszta pakietu pod stopem — zaniżona, czyli część akcji wracała bez ochrony.
+            $sold = (int) self::marketOrderFills('sell', (array) $pkcIds)['q'];
             $remaining = (int) $o['qty'] - $sold;
             if ($remaining > 0) {
                 // NIE konsumuj ochrony reszty pakietu: re-rezerwuj niesprzedane akcje i przywróć stopa na
@@ -1312,7 +1332,8 @@ final class Engine
                 sprintf('%s %s: kurs %s przekroczył próg %s — %s', $hitSL ? 'Stop-Loss' : 'Take-Profit', $o['ticker'],
                     number_format((float) $o['cur'], 2, ',', ' '),
                     number_format((float) ($hitSL ? $o['sl_price'] : $o['tp_price']), 2, ',', ' '), $msg),
-                ['user_id' => (int) $o['user_id'], 'order_id' => (int) $o['id'], 'qty' => (int) $o['qty'], 'tx_from' => $txFrom, 'tx_to' => $txTo]);
+                ['user_id' => (int) $o['user_id'], 'order_id' => (int) $o['id'], 'qty' => (int) $o['qty'], 'tx_from' => $txFrom, 'tx_to' => $txTo,
+                 'sell_order_ids' => array_values((array) $pkcIds)]);   // oś czasu w order.php czyta sprzedaże obronne po tych id
             if (self::isHumanOwned((int) $o['user_id'])) {
                 self::notify((int) $o['user_id'], 'stop',
                     ($hitSL ? '🛡️ Stop-Loss ' : '💰 Take-Profit ') . $o['ticker'] . ' wyzwolony przy ' . number_format((float) $o['cur'], 2, ',', ' ') . ' PLN — ' . $msg,
