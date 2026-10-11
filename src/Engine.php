@@ -435,9 +435,14 @@ final class Engine
     {
         $delta = round($delta, 2);
         if ($delta == 0.0) return;
-        $cur = self::one("SELECT v FROM game_state WHERE k='world_cash_base'");
-        if ($cur === false || $cur === null || $cur === '') return;   // świat jeszcze niezakotwiczony — zakotwiczy pierwszy przebieg QA
-        self::setState('world_cash_base', (string) round((float) $cur + $delta, 2));
+        // Przesunięcie WZGLĘDNE po stronie SQL (jak w addTreasury), nie odczyt-potem-zapis: kotwicę ruszają
+        // naraz rejestracja z HTTP (autocommit) i rozliczenie IPO wewnątrz transakcji ticka, która na MySQL
+        // czyta migawkę sprzed swojego początku — zapis wartością absolutną gubił kapitał startowy gracza
+        // zarejestrowanego w trakcie ticka i QA `inv.money` alarmowałoby o „kreacji” już na stałe.
+        // Brak wiersza = świat jeszcze niezakotwiczony (zakotwiczy pierwszy przebieg QA) — wtedy nic nie wstawiamy.
+        $st = Db::pdo()->prepare("UPDATE game_state SET v = ROUND(v + ?, 2) WHERE k='world_cash_base' AND v <> ''");
+        $st->execute([$delta]);
+        if ($st->rowCount() !== 1) return;
         Log::write('info', 'engine', 'world.cash', sprintf('%s: kotwica pieniądza %+.2f PLN', $why, $delta));
     }
 
