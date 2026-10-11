@@ -246,6 +246,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         Engine::setState('sentiment', '0');
         flash('Zresetowano sterowanie.');
     }
+    // Po ręcznych tickach: odłożona wysyłka tygodniowych raportów idzie POZA blokadą świata i poza transakcją
+    // (ten sam krok, co w cron/tick.php po pętli ticków) — e-maile nie mogą trzymać silnika.
+    if (in_array($a, ['event', 'tick', 'world_event', 'sector_event', 'company_event'], true)) {
+        Engine::worldUnlock();
+        try { Weekly::flushPending(); } catch (Throwable $e) { Log::write('warn', 'engine', 'weekly.flush', $e->getMessage()); }
+    }
     redirect('gm.php');
 }
 

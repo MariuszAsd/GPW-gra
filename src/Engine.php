@@ -473,12 +473,17 @@ final class Engine
             if ($prev === false || $prev === null || $prev === '') { self::setState($stateKey, $now[$kind]); continue; }
             if ($prev === $now[$kind]) continue;
             self::setState($stateKey, $now[$kind]);   // najpierw przestaw okres — rozliczenie tylko raz
+            // Bezpiecznik jak w całym runTick: po zakleszczeniu (wypłata nagrody = users + skarbiec kontra matchBook
+            // z HTTP) InnoDB wycofuje CAŁĄ transakcję ticka — wtedy nie wolno „połknąć” błędu i iść dalej w autocommit
+            // (reszta rolki sesji zapisałaby się po kawałku, a następny cron zrobiłby rolkę drugi raz).
             try { self::settleLeague($kind, (string) $prev, $now[$kind], $session); }
-            catch (\Throwable $e) { Log::write('error', 'engine', 'league.fail', "$kind $prev: " . $e->getMessage()); }
+            catch (\Throwable $e) { if (!Db::pdo()->inTransaction()) throw $e; Log::write('error', 'engine', 'league.fail', "$kind $prev: " . $e->getMessage()); }
             if ($kind === 'week') {
-                // „Twój tydzień w Maklerii”: powiadomienie w grze + e-mail (wyniki ligi są już w league_results)
-                if (!class_exists('Weekly')) require_once __DIR__ . '/Weekly.php';
-                try { Weekly::sendAll((string) $prev, $now[$kind]); } catch (\Throwable $e) { Log::write('warn', 'engine', 'weekly.fail', $e->getMessage()); }
+                // „Twój tydzień w Maklerii”: tylko ZNACZNIK w game_state — commituje się razem z tickiem, po rollbacku znika.
+                // Samą wysyłkę (powiadomienia + e-maile przez mail()) robi Weekly::flushPending() POZA transakcją
+                // i poza blokadą świata (cron/tick.php, gm.php): wysyłka wewnątrz ticka dawała duplikaty e-maili
+                // po wycofanym ticku i trzymała blokady wierszy na czas rozmowy z serwerem pocztowym.
+                self::setState('weekly_pending', (string) $prev . '|' . $now[$kind]);
             }
         }
     }
@@ -2191,7 +2196,7 @@ final class Engine
                 self::setState('session_date', $today);
                 self::setState('session_start_tick', (string) $tick);
                 // świeży świat / pierwsze uruchomienie po aktualizacji: baza lig od razu, nie dopiero jutro
-                try { self::takeSnapshots($today); self::settleLeagues($today, $prev); } catch (\Throwable $e) { /* nie blokuje ticka */ }
+                try { self::takeSnapshots($today); self::settleLeagues($today, $prev); } catch (\Throwable $e) { if (!Db::pdo()->inTransaction()) throw $e; /* nie blokuje ticka */ }
                 return;
             }
             $n = $prev + 1;
@@ -2209,9 +2214,11 @@ final class Engine
             Db::pdo()->prepare("INSERT INTO session_dates (session, trade_date) VALUES (?, ?)")->execute([$n, $rollDate]);
         } catch (\Throwable $e) { /* data tej sesji już zapisana — pomiń */ }
         // baza lig tygodnia i miesiąca: migawka kapitału każdego gracza na starcie sesji (raz na okres)
-        try { self::takeSnapshots((string) $rollDate); } catch (\Throwable $e) { Log::write('warn', 'engine', 'snapshot.fail', $e->getMessage()); }
+        // (bezpiecznik `inTransaction` jak niżej: po zakleszczeniu transakcja ticka już nie istnieje i dalsza rolka
+        //  poszłaby w autocommit po kawałku — wtedy błąd musi iść wyżej, cron ponowi cały tick)
+        try { self::takeSnapshots((string) $rollDate); } catch (\Throwable $e) { if (!Db::pdo()->inTransaction()) throw $e; Log::write('warn', 'engine', 'snapshot.fail', $e->getMessage()); }
         // nowy tydzień/miesiąc = rozliczenie poprzedniego okresu ligi (nagrody ze skarbca / tokeny)
-        try { self::settleLeagues((string) $rollDate, $n); } catch (\Throwable $e) { Log::write('error', 'engine', 'league.fail', $e->getMessage()); }
+        try { self::settleLeagues((string) $rollDate, $n); } catch (\Throwable $e) { if (!Db::pdo()->inTransaction()) throw $e; Log::write('error', 'engine', 'league.fail', $e->getMessage()); }
         // świece dzienne D1 (wykresy tydzień/miesiąc/rok): zrzut ZAMYKANEJ sesji,
         // koniecznie PRZED nadpisaniem day_open_price nowym kursem otwarcia
         try {
@@ -2354,7 +2361,7 @@ final class Engine
     private static function takeSnapshots(string $date): void
     {
         foreach (self::col("SELECT id FROM users WHERE is_bot=0 AND role='player'") as $uid) {
-            try { self::snapshotUser((int) $uid, null, $date); } catch (\Throwable $e) { /* pojedyncza migawka nie psuje ticka */ }
+            try { self::snapshotUser((int) $uid, null, $date); } catch (\Throwable $e) { if (!Db::pdo()->inTransaction()) throw $e; /* pojedyncza migawka nie psuje ticka */ }
         }
     }
 
