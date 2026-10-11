@@ -17,7 +17,7 @@
 final class Qa
 {
     /** Pełny przebieg = tyle asercji. Gdy dodajesz asercję, podnieś tę liczbę (i w CLAUDE.md). */
-    public const EXPECTED_CHECKS = 157;
+    public const EXPECTED_CHECKS = 169;
     /** Po tylu nieudanych przebiegach z rzędu GM dostaje e-mail (raz na serię). */
     public const ALERT_AFTER = 2;
 
@@ -92,6 +92,7 @@ final class Qa
         // 1) logowanie: złe hasło NIE wpuszcza; dobre wpuszcza
         [$code, $body] = $this->http('GET', '/login.php');
         $this->check($code === 200 && str_contains($body, 'Zaloguj'), 'page.login', "login.php code=$code");
+        $this->check(!str_contains($body, 'haslo123'), 'page.no_demo', 'strona logowania zdradza hasło konta demo');
         // strona główna (landing makleria.pl) — dla gościa renderuje rejestrację, marka „Makleria", zero „GPW"
         [$code, $body] = $this->http('GET', '/index.php');
         $this->check($code === 200 && str_contains($body, 'Makleria') && str_contains($body, 'Załóż darmowe konto') && !str_contains($body, 'GPW'),
@@ -101,6 +102,10 @@ final class Qa
         $this->http('POST', '/login.php', ['username' => 'qa_tester', 'password' => 'zle-haslo-123']);
         [, $b2] = $this->http('GET', '/market.php');
         $this->check(str_contains($b2, 'Zaloguj'), 'auth.wrong_pass', 'złe hasło nie może wpuścić do gry');
+        // throttle logowania nie da się zatruć cudzym adresem: IP liczone z kolumny context (JSON z REMOTE_ADDR), nie z tekstu loginu
+        $this->http('POST', '/login.php', ['username' => 'x |ip=9.9.9.9|', 'password' => 'zle-haslo-123']);
+        $poison = (int) Engine::one("SELECT COUNT(*) FROM logs WHERE source='auth' AND event='login_fail' AND (message LIKE '%|ip=9.9.9.9|%' OR context LIKE '%\"ip\":\"9.9.9.9\"%')");
+        $this->check($poison === 0, 'auth.throttle_poison', 'login z markerem |ip=…| dolicza nieudane próby cudzemu adresowi');
         [, $b3] = $this->http('POST', '/login.php', ['username' => 'qa_tester', 'password' => $pass]);
         $this->check(str_contains($b3, 'Rynek'), 'auth.login', 'poprawne logowanie nie działa');
 
@@ -173,6 +178,11 @@ final class Qa
         // push (Web Push bez composera): klucze VAPID, JWT ES256 weryfikowalny kluczem publicznym, szyfrogram aes128gcm
         // odszyfrowywalny po stronie subskrybenta, zapis/usunięcie subskrypcji, wysyłka na martwy endpoint = porażka bez wyjątku
         if (!class_exists('Push')) require_once __DIR__ . '/Push.php';
+        // lista serwerów push i limit urządzeń nie potrzebują openssl: adres spoza listy odrzucony, nadmiar wypiera najstarsze
+        $this->check(Push::subscribe($uid, 'https://127.0.0.1/x/' . bin2hex(random_bytes(6)), str_repeat('A', 87), str_repeat('B', 22)) === false, 'push.ssrf', 'subskrypcja na adres spoza listy serwerów push została przyjęta');
+        for ($i = 0; $i < Push::MAX_SUBS + 2; $i++) Push::subscribe($uid, 'https://fcm.googleapis.com/fcm/send/qa' . bin2hex(random_bytes(8)), str_repeat('A', 87), str_repeat('B', 22));
+        $this->check(Push::count($uid) === Push::MAX_SUBS, 'push.cap', 'limit urządzeń push na konto nie działa (' . Push::count($uid) . ')');
+        Push::unsubscribe($uid);
         if (Push::available()) {
             $pk = Push::keys(true);
             $this->check($pk !== null && strlen(Push::b64urlDecode($pk['public'])) === 65, 'push.keys', 'klucze VAPID nie powstały');
@@ -206,15 +216,50 @@ final class Qa
         [$c, $b] = $this->http('GET', '/market.php');
         [$c2, $b2] = $this->http('GET', '/stock.php?id=' . $sid);
         $this->check($c === 200 && str_contains($b, "data-term='bid'") && $c2 === 200 && str_contains($b2, "data-term='sl'") && str_contains($b2, 'id="type-hint"'), 'help.terms', 'dymki ze słowniczka (Bid, SL) albo podpowiedź typu zlecenia nie renderują się');
-        // tygodniowy raport i karta wyniku: stały token, publiczna karta bez logowania, wypisanie z e-maili tokenem, nieznany token = 404
+        // health.php zgłasza strefę czasu procesu WWW — config.php ustawia Europe/Warsaw wspólnie dla WWW i crona
+        [$c, $b] = $this->http('GET', '/health.php');
+        $hj = json_decode($b, true);
+        $this->check($c === 200 && is_array($hj) && ($hj['tz'] ?? '') === 'Europe/Warsaw', 'health.tz', 'health.php nie zgłasza strefy Europe/Warsaw');
+        // liczby o widełkach w Pomocy pochodzą ze stałych silnika (tekst mówił ±15%, a silnik zawieszał przy ±20%)
+        [$c, $b] = $this->http('GET', '/pomoc.php');
+        $band = '±' . round(Engine::HALT_BAND * 100) . '%';
+        $this->check($c === 200 && str_contains($b, $band) && !str_contains($b, '±15%'), 'help.halt_numbers', "Pomoc nie podaje widełek $band ze stałych silnika");
+        // słowniczek ułożony po polsku (ł, ś na swoim miejscu), nie bajtowo
+        preg_match_all('/class="gl-term"[^>]*>([^<]+)</u', $b, $mm);
+        $names = array_map('html_entity_decode', $mm[1] ?? []);
+        $iP = array_search('Płynność', $names, true); $iZ = array_search('Pozycja', $names, true);
+        $iS = array_search('Średnia cena zakupu', $names, true); $iW = array_search('Zrealizowany wynik', $names, true);
+        $this->check($iP !== false && $iZ !== false && $iS !== false && $iW !== false && $iP < $iZ && $iS < $iW, 'help.glossary_order', 'słowniczek nie jest posortowany alfabetycznie po polsku');
+        // sklep: zakup kosmetyki jest atomowy (drugie kliknięcie = odmowa bez obciążenia), a księga tokenów spójna
+        if (!class_exists('Tokens')) require_once __DIR__ . '/Tokens.php';
+        if (!class_exists('Cosmetics')) require_once __DIR__ . '/Cosmetics.php';
+        Tokens::grant($uid, 20, 'qa', 'tokeny testowe QA-bota');
+        $this->http('POST', '/sklep.php', ['buy_item' => 'color_blekit']);
+        [, $bS] = $this->http('POST', '/sklep.php', ['buy_item' => 'color_blekit']);
+        $paidKeys = array_keys(array_filter(Cosmetics::ITEMS, fn($it) => $it[1] > 0));
+        $phK = implode(',', array_fill(0, count($paidKeys), '?'));
+        $owned = (int) Engine::one("SELECT COUNT(*) FROM user_items WHERE user_id=? AND item IN ($phK)", array_merge([$uid], $paidKeys));
+        $charged = (int) Engine::one("SELECT COUNT(*) FROM token_ledger WHERE user_id=? AND reason='cosmetic'", [$uid]);
+        $this->check($owned >= 1 && $charged === $owned && str_contains($bS, 'Masz już'), 'shop.cosmetic_once', "kosmetyka: posiadane $owned, obciążeń $charged (drugi zakup ma odmówić bez pobrania tokenów)");
+        $prevBal = null; $chain = true;
+        foreach (Engine::all("SELECT delta, balance FROM token_ledger WHERE user_id=? ORDER BY id", [$uid]) as $le) {
+            if ($prevBal !== null && (int) $le['balance'] !== $prevBal + (int) $le['delta']) { $chain = false; break; }
+            $prevBal = (int) $le['balance'];
+        }
+        $this->check($chain && $prevBal === (int) Engine::one("SELECT tokens FROM users WHERE id=?", [$uid]), 'tokens.ledger_chain', 'księga tokenów niespójna (saldo po operacji ≠ poprzednie + delta albo ≠ users.tokens)');
+        // tygodniowy raport i karta wyniku: stały token, publiczna karta bez logowania, wypis z e-maili tylko POST-em z osobnym tokenem, nieznany token = 404
         if (!class_exists('Weekly')) require_once __DIR__ . '/Weekly.php';
         $tokW = Weekly::shareToken($uid);
         $this->check(strlen($tokW) === 32 && Weekly::shareToken($uid) === $tokW, 'weekly.token', 'token karty wyniku nie jest stały 32-znakowy');
         [$c, $b] = $this->http('GET', '/karta.php?u=' . $tokW);
         $this->check($c === 200 && str_contains($b, 'karta wyniku') && str_contains($b, 'qa_tester'), 'weekly.card', "karta wyniku: code=$c");
         $pdo->prepare("UPDATE users SET weekly_mail=1 WHERE id=?")->execute([$uid]);
+        // GET z publicznym tokenem karty (nawet z &off=1) NICZEGO nie zmienia — pokazuje tylko potwierdzenie
         [$c] = $this->http('GET', '/karta.php?u=' . $tokW . '&off=1');
-        $this->check($c === 200 && (int) Engine::one("SELECT weekly_mail FROM users WHERE id=?", [$uid]) === 0, 'weekly.off', 'link wypisania z e-maili nie zadziałał');
+        $this->check($c === 200 && (int) Engine::one("SELECT weekly_mail FROM users WHERE id=?", [$uid]) === 1, 'weekly.off_get_noop', 'sam GET z publicznym tokenem karty wypisał gracza z e-maili');
+        // wypis = POST z osobnym tokenem HMAC (ten z linku w e-mailu)
+        [$c] = $this->http('POST', '/karta.php?u=' . $tokW, ['off' => '1', 't' => Weekly::offToken($uid)]);
+        $this->check($c === 200 && (int) Engine::one("SELECT weekly_mail FROM users WHERE id=?", [$uid]) === 0, 'weekly.off', 'wypis z e-maili tokenem z linku nie zadziałał');
         [$c] = $this->http('GET', '/karta.php?u=' . str_repeat('0', 32));
         $this->check($c === 404, 'weekly.card404', "nieznany token karty: code=$c (oczekiwano 404)");
         // fundusz MAK40: kupno = gotówka do puli funduszu (w świecie), sprzedaż = wypłata wg wyceny minus prowizja,
@@ -225,6 +270,9 @@ final class Qa
         $fPos = Fund::position($uid);
         $this->check($okF && $fPos['units'] > 0 && abs(($fCash - $this->cash($uid)) - 500.0) < 0.011, 'fund.buy', "kupno jednostek MAK40: $mF");
         $this->moneyEq(Fund::pool() - $fPool, 500.0, 'fund.pool', 'pula funduszu nie wzrosła o kwotę zakupu');
+        // kapitał na Pulpicie liczy jednostki funduszu tak samo jak ranking (Engine::playerEquity)
+        [$c, $bP] = $this->http('GET', '/pulpit.php');
+        $this->check($c === 200 && str_contains($bP, number_format(Engine::playerEquity($uid), 2, ',', ' ')), 'equity.fund_on_pulpit', 'kapitał na Pulpicie nie zgadza się z Engine::playerEquity (fundusz MAK40 pominięty?)');
         if ($okF) {
             $fVal = round($fPos['units'] * Fund::nav(), 2);
             $fExp = round($fVal - round($fVal * Engine::feeRate(), 2), 2);   // ta sama wycena (brak ticka między kupnem a sprzedażą)
@@ -343,6 +391,9 @@ final class Qa
                 $stop = Engine::row("SELECT * FROM orders WHERE user_id=? AND stock_id=? AND status='pending' ORDER BY id DESC LIMIT 1", [$uid, $sid]);
                 $this->check($stop !== null && (float) $stop['sl_price'] === 0.5 && (float) $stop['tp_price'] === 99999.0 && (int) $stop['qty'] === 1,
                     'stop.create', 'zlecenie obronne nie powstało lub ma złe progi');
+                // aktywne zlecenie obronne nie ląduje w „Archiwum zleceń” z surowym statusem pending
+                [$c, $bA] = $this->http('GET', '/portfolio.php?tab=zle');
+                $this->check($c === 200 && !str_contains($bA, '>pending<'), 'portfolio.archive_no_pending', 'archiwum w Portfelu pokazuje aktywne zlecenie obronne jako „pending”');
                 if ($stop) {
                     $freeA = (int) (Engine::one("SELECT qty FROM wallets WHERE user_id=? AND stock_id=?", [$uid, $sid]) ?: 0);
                     $this->check($freeA === $freeB4 - 1, 'stop.reserve', "obronne nie zarezerwowało pakietu (wolne: $freeB4 -> $freeA)");

@@ -70,7 +70,7 @@ cPanel/DirectAdmin → **Cron Jobs** → co minutę:
 To animuje rynek (boty, kojarzenie zleceń, świece). Bez tego kursy stoją.
 
 ## 9. Gotowe
-Wejdź na `https://gpw.twojadomena.pl` — login **gracz / haslo123**.
+Wejdź na `https://gpw.twojadomena.pl` — loginy **gracz** i **admin** z hasłami wypisanymi przez instalator/seed.php (zapisz je).
 Po testach zmień/usuń konto demo i hasła.
 
 ---

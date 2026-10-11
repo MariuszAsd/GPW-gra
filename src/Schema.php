@@ -416,7 +416,7 @@ final class Schema
                 package VARCHAR(20) NOT NULL,          -- start | inwestor | rekin (katalog w src/Payments.php)
                 tokens  INT NOT NULL,                  -- tokeny do przyznania po opłaceniu (z bonusem)
                 amount_grosz INT NOT NULL,             -- kwota w groszach (PLN)
-                status VARCHAR(12) NOT NULL DEFAULT 'new',  -- new | pending | completed | cancelled
+                status VARCHAR(12) NOT NULL DEFAULT 'new',  -- new | pending | completed | cancelled | expired (pending > 24 h, oznaczane leniwie w sklepie)
                 provider VARCHAR(12) NOT NULL DEFAULT 'payu',
                 ext_ref VARCHAR(64) NULL,              -- id zamówienia u operatora płatności
                 created_at VARCHAR(19) NOT NULL,

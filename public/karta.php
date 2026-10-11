@@ -2,7 +2,8 @@
 /**
  * PUBLICZNA karta wyniku gracza (bez logowania): link z tokenu z e-maila / Konta / Pulpitu.
  * Pokazuje tylko dane widoczne w rankingu i zaprasza do gry linkiem polecającym właściciela karty.
- * ?off=1 wypisuje właściciela z tygodniowych e-maili (link z e-maila — bez hasła, token jest losowy).
+ * ?off=1 pokazuje potwierdzenie wypisu z tygodniowych e-maili; sam wypis to POST z osobnym tokenem HMAC
+ * z linku w e-mailu (patrz niżej) — publiczny token karty do tego nie wystarcza.
  */
 require_once __DIR__ . '/../src/Db.php';
 require_once __DIR__ . '/../src/Schema.php';
@@ -20,16 +21,31 @@ $uid = (int) $u['id'];
 $h = fn($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
 $pct = fn(?float $v) => $v === null ? '—' : (($v >= 0 ? '+' : '') . number_format($v, 1, ',', ' ') . '%');
 
-if (isset($_GET['off'])) {
+$page = function (string $title, string $body) {
+    header('Content-Type: text/html; charset=UTF-8');
+    echo "<!doctype html><html lang='pl'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Makleria — $title</title></head>"
+       . "<body style='font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0'>"
+       . "<div style='max-width:460px;padding:28px;background:#1e293b;border-radius:16px'><h1 style='margin:0 0 10px;font-size:20px'>$title</h1>$body</div></body></html>";
+    exit;
+};
+// WYPIS Z E-MAILI: tylko POST z osobnym tokenem (HMAC z sekretu aplikacji — Weekly::offToken), nigdy samym tokenem
+// karty. Token karty jest publiczny z założenia (gracz podsyła go znajomym), więc „&off=1” na nim pozwalał każdemu,
+// kto zna link — także filtrom poczty, które otwierają adresy z e-maili — wyłączyć komuś tygodniowy raport po cichu.
+// GET niczego nie zmienia: pokazuje stronę potwierdzenia, a stary link bez tokenu odsyła do Konta.
+$offTok = preg_replace('/[^a-f0-9]/', '', (string) ($_REQUEST['t'] ?? ''));
+$offValid = $offTok !== '' && hash_equals(Weekly::offToken($uid), $offTok);
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['off'])) {
+    if (!$offValid) { http_response_code(403); $page('Link wypisu jest nieaktualny', "<p style='color:#94a3b8'>Ten link nie pozwala zmienić ustawień. Tygodniowe e-maile wyłączysz w grze: Konto → Ustawienia konta.</p><a href='konto.php' style='color:#38bdf8'>Przejdź do Konta →</a>"); }
     Db::pdo()->prepare("UPDATE users SET weekly_mail=0 WHERE id=?")->execute([$uid]);
     Log::write('info', 'auth', 'weekly.off', "gracz #$uid wypisał się z tygodniowych e-maili");
-    header('Content-Type: text/html; charset=UTF-8');
-    echo "<!doctype html><html lang='pl'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Makleria — raporty wyłączone</title></head>"
-       . "<body style='font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0'>"
-       . "<div style='max-width:460px;padding:28px;background:#1e293b;border-radius:16px'><h1 style='margin:0 0 10px;font-size:20px'>Tygodniowe raporty wyłączone</h1>"
-       . "<p style='color:#94a3b8'>Nie wyślemy już e-maila „Twój tydzień w Maklerii” na Twój adres. Podsumowania dalej zobaczysz w powiadomieniach w grze. Włączysz je ponownie w Koncie.</p>"
-       . "<a href='konto.php' style='color:#38bdf8'>Przejdź do gry →</a></div></body></html>";
-    exit;
+    try { Engine::notify($uid, 'system', '📭 Tygodniowe e-maile „Twój tydzień w Maklerii” wyłączone — włączysz je ponownie w Koncie.', 'konto.php'); } catch (Throwable $e) { /* powiadomienie nie blokuje wypisu */ }
+    $page('Tygodniowe raporty wyłączone', "<p style='color:#94a3b8'>Nie wyślemy już e-maila „Twój tydzień w Maklerii” na Twój adres. Podsumowania dalej zobaczysz w powiadomieniach w grze. Włączysz je ponownie w Koncie.</p><a href='konto.php' style='color:#38bdf8'>Przejdź do gry →</a>");
+}
+if (isset($_GET['off'])) {
+    if (!$offValid) $page('Link wypisu jest nieaktualny', "<p style='color:#94a3b8'>Ten link nie pozwala zmienić ustawień (pochodzi ze starszego e-maila albo z publicznej karty wyniku). Tygodniowe e-maile wyłączysz w grze: Konto → Ustawienia konta.</p><a href='konto.php' style='color:#38bdf8'>Przejdź do Konta →</a>");
+    $page('Wyłączyć tygodniowe e-maile?', "<p style='color:#94a3b8'>Konto <b>" . $h($u['username']) . "</b>: przestaniemy wysyłać e-mail „Twój tydzień w Maklerii”. Podsumowania zostaną w powiadomieniach w grze, a e-maile włączysz ponownie w Koncie.</p>"
+        . "<form method='post' action='karta.php?u=" . $h($tok) . "'><input type='hidden' name='t' value='" . $h($offTok) . "'><button name='off' value='1' style='background:#38bdf8;color:#0b1220;border:0;border-radius:10px;padding:10px 16px;font-weight:700;cursor:pointer'>Tak, wyłącz e-maile</button> "
+        . "<a href='karta.php?u=" . $h($tok) . "' style='color:#94a3b8;margin-left:10px'>Nie, zostaw</a></form>");
 }
 
 $equity = Engine::playerEquity($uid);

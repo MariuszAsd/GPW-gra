@@ -467,7 +467,7 @@ layout_header('Panel GM', $user, 'gm');
           <td><?= h($po['username']) ?></td>
           <td><?= h($po['package']) ?> (🪙 <?= (int) $po['tokens'] ?>)</td>
           <td class="num"><?= money($po['amount_grosz'] / 100) ?> zł</td>
-          <td><span class="chg <?= $po['status'] === 'completed' ? 'p' : ($po['status'] === 'cancelled' ? 'n' : '') ?>"><?= h($po['status']) ?></span></td>
+          <td><span class="chg <?= $po['status'] === 'completed' ? 'p' : (in_array($po['status'], ['cancelled', 'expired'], true) ? 'n' : '') ?>"><?= h(['completed' => 'opłacone', 'cancelled' => 'anulowane', 'expired' => 'wygasłe', 'pending' => 'w toku', 'new' => 'nowe'][$po['status']] ?? $po['status']) ?></span></td>
           <td class="muted mono" style="font-size:11px"><?= h($po['created_at']) ?></td>
           <td class="muted mono" style="font-size:11px"><?= h($po['paid_at'] ?: '—') ?></td>
         </tr>

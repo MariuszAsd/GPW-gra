@@ -463,6 +463,22 @@ final class Engine
         Log::write('info', 'engine', 'world.cash', sprintf('%s: kotwica pieniądza %+.2f PLN', $why, $delta));
     }
 
+    /**
+     * Sekret aplikacji do podpisów HMAC (np. link wypisu z tygodniowych e-maili). Losowany raz i trzymany
+     * w game_state, bo gra nie ma pliku z sekretami poza config.local.php budowanym przez deploy. INSERT zamiast
+     * upsertu: przy dwóch równoległych pierwszych użyciach wygrywa jeden sekret, a drugi proces go odczytuje —
+     * inaczej każdy z nich podpisałby linki innym kluczem i część z nich przestałaby działać.
+     */
+    public static function appSecret(): string
+    {
+        $cur = self::one("SELECT v FROM game_state WHERE k='app_secret'");
+        if ($cur !== false && $cur !== null && strlen((string) $cur) >= 32) return (string) $cur;
+        $new = bin2hex(random_bytes(24));
+        try { Db::pdo()->prepare("INSERT INTO game_state (k, v) VALUES ('app_secret', ?)")->execute([$new]); }
+        catch (\Throwable $e) { /* ktoś już wstawił — bierzemy jego */ }
+        return (string) (self::one("SELECT v FROM game_state WHERE k='app_secret'") ?: $new);
+    }
+
     /** Nagrody lig z ustawień GM (game_state), z domyślnymi wartościami. */
     public static function leaguePrizes(): array
     {

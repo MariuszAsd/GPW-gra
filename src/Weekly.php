@@ -7,7 +7,8 @@
  * tekstowy (Mailer). Karta wyniku (public/karta.php?u=TOKEN) jest publiczna: nie wymaga logowania,
  * pokazuje tylko to, co widać w rankingu (nick, stopy zwrotu, drabinka, odznaki) i kończy się
  * zaproszeniem do gry z linkiem polecającym gracza — to kanał wzrostu, nie tylko chwalenie się.
- * Token karty (users.share_token) jest losowy i służy też do wypisania się z e-maili (bez logowania).
+ * Token karty (users.share_token) jest losowy, ale z założenia PUBLICZNY (gracz podsyła go znajomym), więc NIE
+ * służy do wypisania się z e-maili: link wypisu ma osobny token HMAC (offToken) i wymaga potwierdzenia POST-em.
  */
 final class Weekly
 {
@@ -30,6 +31,12 @@ final class Weekly
     public static function cardUrl(int $uid): string
     {
         return self::appUrl() . '/karta.php?u=' . self::shareToken($uid);
+    }
+
+    /** Token wypisu z e-maili: HMAC z sekretu aplikacji, zależny od gracza i jego tokenu karty — publiczny link karty go nie zdradza. */
+    public static function offToken(int $uid): string
+    {
+        return substr(hash_hmac('sha256', 'weekly-off|' . $uid . '|' . self::shareToken($uid), Engine::appSecret()), 0, 32);
     }
 
     /**
@@ -95,7 +102,7 @@ final class Weekly
         $lines[] = '';
         $lines[] = 'Zagraj dalej: ' . self::appUrl() . '/pulpit.php';
         $lines[] = '';
-        $lines[] = 'Nie chcesz tych raportów? Wyłącz jednym kliknięciem: ' . $card . '&off=1';
+        $lines[] = 'Nie chcesz tych raportów? Wyłącz je tutaj (poprosimy o jedno potwierdzenie): ' . $card . '&off=1&t=' . self::offToken((int) $s['uid']);
         return implode("\n", $lines);
     }
 

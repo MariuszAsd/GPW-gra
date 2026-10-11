@@ -46,7 +46,7 @@ config.php            jedna konfiguracja (env → config.local.php → domyślne
 migrate.php           tworzy/aktualizuje schemat            seed.php  zasiewa świat
 verify.php            testy integralności (gotówka/akcje)
 cron/tick.php         puls rynku (blokada pliku cron/tick.lock)
-cron/qa_probe.php     QA-bot: gra przez HTTP jak gracz, 157 asercji
+cron/qa_probe.php     QA-bot: gra przez HTTP jak gracz, 169 asercji
 src/                  logika (patrz niżej)
 public/               warstwa web — każda strona to jeden plik PHP; manifest.json + sw.js = PWA (karta.php i sw.js są publiczne celowo)
 .github/workflows/    deploy, health, raport, trace, reinstall
@@ -66,7 +66,7 @@ public/               warstwa web — każda strona to jeden plik PHP; manifest.
 | `Bank.php` | lokaty · `Seasons.php` sezon · `Daily.php` misje · `Achievements.php` odznaki |
 | `Tokens.php` | tokeny premium, pakiety, trial, **polecenia** · `Payments.php` PayU |
 | `Recommendations.php` | rekomendacje DM · `Moderation.php` filtr słów · `Mailer.php` (PHP `mail()`, przy porażce treść do dziennika), `PasswordReset.php` |
-| `Qa.php` | definicje 157 asercji QA-bota (w tym `inv.money` — suma pieniądza w świecie) |
+| `Qa.php` | definicje 169 asercji QA-bota (w tym `inv.money` — suma pieniądza w świecie) |
 | `Glossary.php` | słowniczek pojęć (klucz → nazwa, wyjaśnienie, kotwica w Pomocy); dymki `term('klucz')`, sekcja „Słowniczek” w `pomoc.php` renderuje się z niego |
 | `Push.php` | Web Push bez composera: klucze VAPID w `game_state`, JWT ES256, aes128gcm, subskrypcje `push_subscriptions`, `Push::flush()` z crona dosyła wpisy z dzwonka |
 | `Weekly.php` | „Twój tydzień w Maklerii”: podsumowanie po zamknięciu tygodnia (powiadomienie + e-mail) i publiczna karta wyniku `karta.php?u=TOKEN` z linkiem polecającym |
@@ -102,7 +102,7 @@ health check pilnuje, że z internetu odpowiadają 403/404.
    serię realnych błędów (podwójne zwroty escrow, handel na anulowanym zleceniu) — nie cofaj go.
 4. **Zmiana schematu = 3 kroki naraz:** dopisz kolumnę/tabelę w `Schema.php`, podbij `Schema::VERSION`,
    dopisz migrację o tym numerze w `Migrator.php`. Migracje są idempotentne i odpalają się same
-   na produkcji przy pierwszym żądaniu po deployu. Aktualnie **wersja 43**.
+   na produkcji przy pierwszym żądaniu po deployu. Aktualnie **wersja 44**.
 5. **Sekretów nie commituj.** `config.local.php` i `.env` są w `.gitignore`. Dane bazy produkcyjnej
    żyją w sekretach GitHuba i workflow sam buduje z nich `config.local.php` na serwerze.
 6. **Uważaj na polskie znaki w kodzie PHP.** Cudzysłów `"` wewnątrz komentarza SQL w stringu PHP
@@ -116,7 +116,10 @@ health check pilnuje, że z internetu odpowiadają 403/404.
    to błąd. Dymki są tapowalne na telefonie (klasa `.tip.open`).
 9. **Silnik i HTTP nie ścigają się na skróty.** Wszystko, co rusza świat (tick, akcje GM, rekoncyliacja), idzie pod
    `Engine::worldLock()`; strony ponawiają zakleszczenia przez `Engine::retryOnLock()`. Wysyłka push i e-maili
-   zostaje **poza** transakcją ticka (`Push::flush()` w `cron/tick.php` po tickach).
+   zostaje **poza** transakcją ticka I poza blokadą świata: `cron/tick.php` po pętli ticków zwalnia `worldUnlock()`, woła
+   `Push::flush()` (pod lekkim `flock` na `cron/push.lock`) i `Weekly::flushPending()` (tick zapisuje tylko znacznik
+   `weekly_pending`), a przed QA i pulsem handlu bierze blokadę ponownie (`worldLock(10)`, przy porażce kończy bez QA).
+   Wysyłka e-maili wewnątrz transakcji ticka dawała duplikaty po wycofanym ticku.
 10. **Migracje są idempotentne po kodzie błędu** (1050/1060/1061 na MySQL, „already exists”/„duplicate column”
     na SQLite) i biegną pod `GET_LOCK('makleria_migrate')` — pierwsze żądania po deployu wchodzą równolegle.
     Kroki tylko dla jednego silnika zapisuj jako `null` dla drugiego.
@@ -133,7 +136,7 @@ php migrate.php && php seed.php          # świeży świat (nadpisuje data/tycoo
 php cron/tick.php 100                    # 100 ticków; wpisy logów source='qa' to normalny szum
 php -S 127.0.0.1:8123 -t public &        # serwer w tle
 APP_URL=http://127.0.0.1:8123 php cron/qa_probe.php
-# MUSI wypisać: ✅ QA OK — asercji: 157
+# MUSI wypisać: ✅ QA OK — asercji: 169
 ```
 
 **Test na MySQL jest obowiązkowy dla zmian dotykających transakcji/wyścigów** (produkcja to MySQL,
@@ -194,11 +197,32 @@ Katalog `data/`, `*.md` i `verify.php` nie są wysyłane na serwer (wykluczenia 
 
 ## 6. Stan na dziś i znane sprawy
 
-- Schemat **v43**. QA lokalnie: **157/157** (SQLite i MySQL). Ostatnie wdrożenia (wrzesień 2026, jedna sesja pracy):
+- Schemat **v44**. QA lokalnie: **169/169** (SQLite i MySQL). Ostatnie wdrożenia (wrzesień 2026, jedna sesja pracy):
   audyt i poprawki krytyczne → nowy model rywalizacji (%) → skarbiec jako pula nagród → paczka poprawek średnich
   (retencja, obrót dzienny, rekoncyliacja, zamknięta ekonomia w QA) → stop-buy → fundusz MAK40 i „vs indeks” →
-  fixing → tygodniowy raport i karta wyniku → PWA i push → słowniczek i dymki → test e2e nowych funkcji (SQLite + MySQL, tryb produkcyjny, bez błędów) i `health.php`.
+  fixing → tygodniowy raport i karta wyniku → PWA i push → słowniczek i dymki → test e2e nowych funkcji (SQLite + MySQL, tryb produkcyjny, bez błędów) i `health.php`
+  → **audyt październikowy (11.10.2026)**: 8 audytorów + weryfikacja, 18 potwierdzonych problemów i 36 drobiazgów,
+  poprawione w trzech pakietach (silnik / transakcje i sklep / WWW i teksty), migracja 44.
   Każde poszło na `main` z zielonym health checkiem.
+- **Po audycie 11.10.2026 obowiązują:** rozliczenie subkonta wyzwania blokuje wiersz subkonta PRZED odczytem zleceń
+  i portfela (`Challenges::settlePlayer`, `releaseAllOrders($uid, true)`); `worldCashAdjust` przesuwa kotwicę względnie
+  po stronie SQL; zakupy za Tokeny (kosmetyka, pakiet, karnet) i księga tokenów są w jednej transakcji (claim-first:
+  najpierw przedmiot, potem tokeny); `Reconcile::apply` zapisuje RÓŻNICE, nie wartości bezwzględne; `Engine::marketOrder`
+  zwraca trzeci element (id zleceń PKC) i `checkStops` liczy sprzedane sztuki po nich; `retryOnLock` ma 6 prób z losowym
+  rozrzutem; obrót sesji dopisuje też `subRound`; fundusz MAK40 liczy się do `equity_history` i na Pulpicie/profilu;
+  `config.php` ustawia strefę `Europe/Warsaw` (health.php zwraca `tz`); logowanie zlicza porażki po `context` JSON
+  (nie po tekście loginu), rejestracja ma limit 10 kont/IP/h; push ma listę serwerów (`Push::PUSH_HOSTS` +
+  `game_state.push_hosts_extra`), limit 5 urządzeń na konto i budżet 10 s na gracza; panel GM odrzuca ticki poza
+  godzinami handlu (checkbox „mimo zamkniętej giełdy” do testów), a `challenge_cancel` i `ipo_now` idą pod blokadą świata;
+  wypis z tygodniowych e-maili to POST z osobnym tokenem HMAC (`Weekly::offToken`, sekret `Engine::appSecret()`
+  w `game_state.app_secret`); konto `gracz` z seeda ma losowe hasło (brak publicznego demo); zamówienia PayU `REJECTED`
+  → `cancelled`, `pending` > 24 h → `expired` (leniwie w sklepie); `verify.php` działa na MySQL (lista akcji w kawałkach).
+- **Nie zrobione po audycie (decyzje właściciela / osobne zadania):** tokeny CSRF we wszystkich formularzach
+  (dziś chroni `SameSite=Lax`; wylogowanie przez GET) · remis w lidze rozstrzyga niższe id konta (brak ex aequo) ·
+  zysk funduszu MAK40 płacony ze skarbca bez osłony · darmowe newsy z wartością sygnału AT pokrywają się z płatnym
+  alertem · dopiski „+10%/+25% gratis” w sklepie nie zgadzają się z liczbą tokenów (patrz `docs/PREMIUM-OCENA.md`) ·
+  bramka 18+, regulamin i zgody przed włączeniem PayU · hasło konta `gracz` na produkcji (publiczne `haslo123`,
+  gra w ligach o nagrody) — zmienić w GM lub nadać rolę poza rankingiem.
 - **Czeka na właściciela (nie rób sam):**
   - kliknięcie **Rekoncyliacji rezerwacji** w panelu GM („Zdrowie gry”): produkcja ma blizny sprzed lipcowych
     poprawek wyścigów (jeden gracz z ujemnym `cash_reserved`, dwóch z zamrożoną gotówką bez zleceń). Podgląd pokazuje

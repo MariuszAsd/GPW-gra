@@ -16,7 +16,7 @@ php migrate.php          # tworzy schemat
 php seed.php             # gracz demo + 4 spółki + 30 botów
 php cron/tick.php 30     # 30 cykli rynku (kurs zaczyna pływać)
 php -S 127.0.0.1:8123 -t public
-# otwórz http://127.0.0.1:8123  ·  login: gracz / haslo123
+# otwórz http://127.0.0.1:8123  ·  hasła kont gracz i admin wypisuje seed.php (zapisz je — nie da się ich odczytać później)
 php verify.php           # testy integralności (gotówka/akcje) + sparkline kursów
 ```
 
