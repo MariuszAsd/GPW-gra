@@ -10,7 +10,7 @@ $uid = (int) $user['id'];
 [$sessionNo] = Engine::sessionInfo();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['subscribe'])) {
-    [$ok, $msg] = Ipo::subscribe($uid, (int) $_POST['subscribe'], (int) ($_POST['qty'] ?? 0));
+    [$ok, $msg] = Engine::retryOnLock(fn() => Ipo::subscribe($uid, (int) $_POST['subscribe'], (int) ($_POST['qty'] ?? 0)));
     flash($msg, $ok ? 'ok' : 'err');
     redirect('ipo.php');
 }
@@ -47,9 +47,13 @@ layout_header('IPO', $user, 'market');
         Przydział (z ewentualną redukcją) na otwarciu sesji #<?= $closeS ?> — dostaniesz powiadomienie.
         Kwota zapisu liczy się do Twojego kapitału.</p>
     <?php elseif ($canSub): ?>
-      <form method="post" onsubmit="return confirm('Zapis na IPO jest wiążący do przydziału. Kontynuować?')">
+      <?php // domyślnie ok. 10% wolnej gotówki (nie „wszystko, na co Cię stać”): zapis mrozi gotówkę na ~2 sesje,
+            // a jedno kliknięcie bez spojrzenia w pole nie powinno zamrażać całego kapitału. Okno potwierdzenia podaje kwotę.
+            $defQ = max(1, min($maxQ, (int) floor($cash * 0.10 / max(0.01, (float) $offer['price'])))); ?>
+      <form method="post" onsubmit="var q=parseInt(this.qty.value)||0, p=<?= json_encode((float) $offer['price']) ?>;
+            return confirm('Zapis: ' + q + ' akcji × ' + p.toFixed(2).replace('.', ',') + ' PLN = ' + (q*p).toFixed(2).replace('.', ',') + ' PLN zejdzie z konta do przydziału (sesja #<?= $closeS ?>). Zapis jest wiążący. Kontynuować?')">
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <input type="number" name="qty" min="1" max="<?= $maxQ ?>" value="<?= max(1, min($maxQ, (int) floor($cash / max(0.01, (float) $offer['price'])))) ?>"
+          <input type="number" name="qty" min="1" max="<?= $maxQ ?>" value="<?= $defQ ?>"
                  style="width:110px;color:var(--ink)" required>
           <span style="opacity:.9">akcji × <?= money($offer['price']) ?> PLN</span>
           <button class="btn" name="subscribe" value="<?= (int) $offer['id'] ?>">Zapisuję się</button>
