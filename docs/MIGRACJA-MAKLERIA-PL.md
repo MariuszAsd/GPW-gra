@@ -33,7 +33,30 @@ Sekretów nie przenosisz — siedzą w ustawieniach repozytorium i działają ni
 
 ---
 
-## B. Przebieg migracji (Ty klikasz, Claude sprawdza)
+## B0. Wariant zalecany: nowa domena, te same pliki (najprostszy)
+
+Kod gry nie zależy od nazwy domeny. Można więc podpiąć `makleria.pl` pod **ten sam katalog**, w którym gra
+leży dziś. Wtedy nie zmieniasz FTP ani crona — tylko adres. Robi to administrator VPS w DirectAdmin:
+
+| # | Kto | Co |
+|---|---|---|
+| 1 | admin | DNS: rekord `A` dla `makleria.pl` i `www.makleria.pl` → IP VPS-a |
+| 2 | admin | DirectAdmin → Domain Setup → Add New: `makleria.pl` z SSL; potem Let's Encrypt dla `makleria.pl` + `www` i „Force SSL” |
+| 3 | admin | Admin Level → Custom HTTPD Configurations → `makleria.pl` → w górnym polu: `\|?DOCROOT=<pełna ścieżka do katalogu public obecnej gry>\|` (tę samą ścieżkę ma dziś `gra.mppp.com.pl`; widać ją w jego ustawieniach albo w ścieżce crona — to katalog nad `cron/` + `/public`) |
+| 4 | Ty | sekret GitHub `APP_URL` = `https://makleria.pl` (bez `/public`, bo document root wskazuje już na `public`) |
+| 5 | Claude | deploy (zbuduje `config.local.php` z nowym adresem), health check na nowym adresie |
+| 6 | Ty | logujesz się na `https://makleria.pl` — te same konto i portfel |
+| 7 | admin | Site Redirection: `gra.mppp.com.pl` → `https://makleria.pl/` (301); DKIM i SPF dla `makleria.pl` |
+| 8 | Claude | podmienia domyślny adres w `config.php`, w workflow i w dokumentacji |
+
+FTP, cron i baza zostają nietknięte, więc nie ma ryzyka dwóch cronów. Odwrót: usuń sekret `APP_URL`
+i przekierowanie. Wariant z przenosinami plików (niżej) ma sens tylko wtedy, gdy chcesz mieć grę
+w osobnym katalogu domeny `makleria.pl`.
+
+**Nie używaj „Change Domain” w DirectAdmin**, jeśli `gra.mppp.com.pl` jest subdomeną `mppp.com.pl`:
+zmiana nazwy dotyczy całej domeny `mppp.com.pl` i wszystkich stron na niej.
+
+## B. Wariant z przenosinami plików — przebieg migracji (Ty klikasz, Claude sprawdza)
 
 Kolejność ma znaczenie: **stary adres działa do samego końca**, gracze nie widzą przerwy.
 
@@ -75,7 +98,7 @@ instalują ponownie z nowego adresu, powiadomienia push włączają ponownie. Wy
 > i jak wygląda plan migracji — co robię ja, a co Ty. Nic jeszcze nie zmieniaj.
 >
 > Zasady: pisz po polsku i po ludzku, bo nie czytam kodu. Prowadź mnie przez migrację krok po kroku
-> według tabeli z części B i po każdym moim kroku sprawdź, co się da, przez GitHub Actions (nie masz
+> według wariantu B0 (nowa domena, te same pliki), a jeśli się nie da — według części B; po każdym moim kroku sprawdź, co się da, przez GitHub Actions (nie masz
 > dostępu do domeny ani do serwera). Haseł nie podaję na czacie — są w sekretach GitHuba.
 > Pracuj na branchu `claude/<opis>`, po testach scalaj do `main` (to jest deploy). Przed każdą zmianą kodu
 > pełny test: `php cron/qa_probe.php` musi dać 169/169 na SQLite i na MySQL, a po wdrożeniu zielony
@@ -87,7 +110,8 @@ instalują ponownie z nowego adresu, powiadomienia push włączają ponownie. Wy
 
 | Pytanie | Powinien odpowiedzieć |
 |---|---|
-| „Czy przy migracji przenosimy bazę?” | Nie, baza zostaje ta sama; zmieniają się katalog plików, sekret `APP_URL`, `FTP_SERVER_DIR` i ścieżka crona |
+| „Czy przy migracji przenosimy bazę?” | Nie, baza zostaje ta sama; w wariancie zalecanym zmienia się tylko sekret `APP_URL` i ustawienia domeny w DirectAdmin |
+| „Jak uruchomisz grę u siebie do testów?” | Według `CLAUDE.md` §4: `php migrate.php && php seed.php`, ticki, `php -S` i QA-bot 169/169; MySQL na MariaDB w piaskownicy |
 | „Co jeśli zostawię dwa crony?” | Świat pójdzie w podwójnym tempie; ma zostać jeden cron |
 | „Jak sprawdzisz nowy adres?” | Health checkiem przez GitHub Actions (nadpisanie `.healthcheck`), bo sam nie ma dostępu do domeny |
 | „Ile asercji ma QA?” | 169, lokalnie 169/169 na SQLite i MySQL |
