@@ -1,5 +1,7 @@
 # Przeniesienie prac nad grą do nowego Claude (nowe konto, nowy czat)
 
+> **Jeśli nowe konto ma przeprowadzić migrację na makleria.pl — użyj `docs/MIGRACJA-MAKLERIA-PL.md`** (tam jest pierwsza wiadomość pod migrację).
+
 Instrukcja dla właściciela projektu. Robisz to raz, zajmuje ~10 minut.
 Na końcu jest **gotowa pierwsza wiadomość do wklejenia**.
 
@@ -71,7 +73,7 @@ Skopiuj poniższy tekst do pierwszej wiadomości w nowym czacie:
 >
 > Zasady pracy: pisz po polsku i po ludzku (nie czytam kodu). Pracuj na branchu `claude/<opis>`,
 > a po testach scalaj do `main` — to uruchamia automatyczny deploy. Przed każdym commitem odpal
-> pełny test (`php cron/qa_probe.php` musi dać 134/134), a po wdrożeniu health check przez GitHub Actions.
+> pełny test (`php cron/qa_probe.php` musi dać 169/169 na SQLite i MySQL), a po wdrożeniu health check przez GitHub Actions.
 > Niczego destrukcyjnego (reset świata, zmiany sald graczy) nie rób bez mojej wyraźnej zgody.
 
 Nowy Claude ma po tym wiedzieć: że gra żyje na produkcji, jak ją testować, jak wdrażać
@@ -87,7 +89,7 @@ Zadaj trzy pytania kontrolne. Jeśli odpowie zgodnie z kolumną „powinien powi
 |---|---|
 | „Jak sprawdzisz, czy gra na produkcji działa?" | Nie ma dostępu sieciowego do domeny; sprawdza przez GitHub Actions — nadpisuje plik `.healthcheck` albo `.raport` i czyta wynik workflow |
 | „Co się stanie, jak wypchniesz zmianę do `main`?" | Ruszy automatyczny deploy FTP na żywy serwer, a migracje schematu wykonają się same |
-| „Ile asercji ma mieć QA i co jest dziś czerwone?" | 134; lokalnie 134/134, na produkcji 3 czerwone przez stare osierocone rezerwacje |
+| „Ile asercji ma mieć QA?" | 169; lokalnie 169/169 na SQLite i MySQL |
 
 Jeśli któraś odpowiedź jest z sufitu — każ mu przeczytać `CLAUDE.md` jeszcze raz.
 
@@ -105,7 +107,7 @@ i usuń tam stare powiązanie. Zrób to dopiero, gdy nowe konto potwierdzi, że 
 
 Jeśli nie wiesz, od czego zacząć w nowym czacie, są gotowe tematy (opisane w `CLAUDE.md`, sekcja 6):
 
-1. **Rekoncyliacja rezerwacji w panelu GM** — naprawia 3 czerwone asercje QA na produkcji.
-2. **Krótka sprzedaż** — największa luka mechaniki; newsy mówią o graniu na spadki, a gracz może tylko kupować.
-3. **Alarm o awarii** — e-mail do GM, gdy QA dwa razy z rzędu zgłosi błąd.
-4. **Powiadomienia push / PWA** — o realizacji zlecenia, zawieszeniu notowań, przydziale IPO.
+1. **Migracja na makleria.pl** — `docs/MIGRACJA-MAKLERIA-PL.md`.
+2. **Warstwa premium** — rekomendacja w `docs/PREMIUM-OCENA.md` (jedno „Makleria Pro”, bramka 18+, prawnik przed PayU).
+3. **Krótka sprzedaż** — największa luka mechaniki; newsy mówią o graniu na spadki, a gracz może tylko kupować.
+4. **Tokeny CSRF** we wszystkich formularzach i inne sprawy z listy „Nie zrobione po audycie” w `CLAUDE.md`.
