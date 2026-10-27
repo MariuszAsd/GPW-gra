@@ -53,6 +53,11 @@ $sessTurnover = (float) (Engine::one("SELECT day_turnover FROM stocks WHERE id=?
 
 $bids = Engine::all("SELECT price, SUM(qty) q FROM orders WHERE stock_id=? AND side='buy'  AND status='active' GROUP BY price ORDER BY price DESC LIMIT 8", [$id]);
 $asks = Engine::all("SELECT price, SUM(qty) q FROM orders WHERE stock_id=? AND side='sell' AND status='active' GROUP BY price ORDER BY price ASC  LIMIT 8", [$id]);
+// Etykieta płynności z DNA spółki to obietnica „zwykle”; gdy arkusz jest w tej chwili pusty z jednej strony albo spread
+// przekracza 10%, mówimy prawdę o stanie TERAZ — „wysoka płynność” przy braku ofert kupna wprowadzała w błąd.
+if (!$bids || !$asks || (float) $asks[0]['price'] > (float) $bids[0]['price'] * 1.10) {
+    [$liqCls, $liqTxt] = ['lo', !$bids ? 'niska płynność (brak ofert kupna)' : (!$asks ? 'niska płynność (brak ofert sprzedaży)' : 'niska płynność (szeroki spread)')];
+}
 $maxDepth = max(1, ...array_map(fn($r) => (int) $r['q'], array_merge($bids, $asks) ?: [['q' => 1]]));
 
 // wolne akcje i te pod zleceniem obronnym (SL/TP) osobno: cały pakiet pod SL to nie „brak akcji”
