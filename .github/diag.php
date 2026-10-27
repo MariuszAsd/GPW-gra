@@ -30,7 +30,7 @@ foreach (array_keys($m['data']) as $id) {
         $prev = $c;
     }
     // newsy z ostatnich ~7 sesji (tryb tickowy niesie znaczniki)
-    $t = $get("api_chart.php?id=$id&range=t");
+    $t = $get("api_chart.php?id=$id&range=t&iv=60");   // świece godzinowe = tryb tickowy, niesie znaczniki newsów z ~7 sesji
     foreach (($t['news'] ?? []) as $n) if ($n['scope'] !== 'COMPANY' || abs($n['imp']) >= 0.3) $news[$n['scope'] . '|' . $n['head']] = $n;
     usleep(150000);
 }
