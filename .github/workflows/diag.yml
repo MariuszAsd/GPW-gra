@@ -1,0 +1,19 @@
+name: Diagnoza rynku (tylko odczyt)
+
+# Jednorazowa diagnoza ruchów cen z publicznych API (api_market, api_chart) — bez logowania, bez zapisu w grze.
+# Uruchamiana nadpisaniem pliku .diag. Odpowiada na pytanie: krach z silnika zdarzeń czy błąd.
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths: ['.diag']
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    env:
+      APP_URL: ${{ secrets.APP_URL || 'https://gra.mppp.com.pl/public' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Analiza sesji i wydarzeń
+        run: php .github/diag.php
