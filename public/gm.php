@@ -606,6 +606,34 @@ $modTop = Engine::all("SELECT m.user_id, u.username, COUNT(*) n, MAX(m.created_a
       <button class="btn sm">Ustaw</button>
     </form>
 
+    <?php $mon = Monitor::scan();
+      $monLog = Engine::all("SELECT ts, level, event, message FROM logs WHERE source='monitor' ORDER BY id DESC LIMIT 15");
+      $stratPl = ['mm' => 'animatorzy', 'trend' => 'trendowe', 'rsi' => 'RSI', 'fundamental' => 'fundamentalne', 'news' => 'newsowe', 'tech' => 'techniczne (AT)']; ?>
+    <h2 style="margin-top:18px">📡 Monitor rynku
+      <span class="chg <?= $mon['alarms'] ? 'n' : 'p' ?>" style="margin-left:6px"><?= $mon['alarms'] ? 'ALARM' : 'OK' ?></span>
+    </h2>
+    <p class="muted" style="margin:4px 0 8px">Skan wszystkich spółek na żywo (cron robi go co <?= Monitor::EVERY ?> ticków i zapisuje nowe anomalie w dzienniku, źródło „monitor”).
+      Gotówka animatorów: <b class="<?= $mon['mm']['pct'] < 25 ? 'down' : 'up' ?>"><?= number_format($mon['mm']['pct'], 1, ',', ' ') ?>%</b> startowej
+      (pustych: <?= $mon['mm']['low'] ?>/<?= $mon['mm']['n'] ?>) — to oni trzymają oferty po obu stronach arkusza.
+      <?php if ($mon['alarms']): ?><br><b class="down">Alarmy: <?= h(implode(', ', $mon['alarms'])) ?></b><?php endif; ?></p>
+    <table class="gm-table"><thead><tr><th>Anomalia</th><th class="num">Spółek</th></tr></thead><tbody>
+      <?php foreach (Monitor::LABELS as $code => $lbl): ?><tr><td><?= h($lbl) ?></td><td class="num <?= $mon['counts'][$code] > 0 ? 'down' : '' ?>"><?= (int) $mon['counts'][$code] ?> / <?= (int) $mon['stocks'] ?></td></tr><?php endforeach; ?>
+    </tbody></table>
+    <table class="gm-table" style="margin-top:8px"><thead><tr><th>Boty</th><th class="num">Wolna gotówka</th><th class="num">W ofertach kupna</th><th class="num">Bez gotówki</th></tr></thead><tbody>
+      <?php foreach ($mon['strategies'] as $st): ?><tr><td><?= h($stratPl[$st['strategy']] ?? $st['strategy']) ?></td><td class="num"><?= money_short((float) $st['cash']) ?></td><td class="num"><?= money_short((float) $st['res']) ?></td><td class="num <?= (int) $st['low'] > 0 ? 'down' : '' ?>"><?= (int) $st['low'] ?> / <?= (int) $st['n'] ?></td></tr><?php endforeach; ?>
+    </tbody></table>
+    <?php if ($mon['issues']): ?>
+    <details style="margin-top:8px"><summary>Szczegóły anomalii (<?= count($mon['issues']) ?>)</summary>
+      <table class="gm-table"><tbody><?php foreach (array_slice($mon['issues'], 0, 120) as [$code, $sidM, $tkM, $msgM]): ?>
+        <tr><td><a href="stock.php?id=<?= (int) $sidM ?>"><?= h($tkM) ?></a></td><td class="muted"><?= h(Monitor::LABELS[$code] ?? $code) ?></td><td><?= h($msgM) ?></td></tr>
+      <?php endforeach; ?></tbody></table></details>
+    <?php endif; ?>
+    <?php if ($monLog): ?>
+    <details style="margin-top:6px"><summary>Ostatnie wpisy monitora w dzienniku</summary>
+      <table class="gm-table"><tbody><?php foreach ($monLog as $ml): ?><tr><td class="muted mono"><?= h($ml['ts']) ?></td><td><?= h($ml['message']) ?></td></tr><?php endforeach; ?></tbody></table>
+      <a class="btn sm ghost" href="gm_logs.php?source=monitor">Cały dziennik monitora</a></details>
+    <?php endif; ?>
+
     <h2 style="margin-top:18px">🩺 Zdrowie gry
       <?php if ($lastQa): ?>
         <span class="chg <?= $lastQa['level'] === 'info' ? 'p' : 'n' ?>" style="margin-left:6px"><?= $lastQa['level'] === 'info' ? 'OK' : 'BŁĘDY' ?></span>

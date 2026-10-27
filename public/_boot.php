@@ -22,6 +22,7 @@ require_once __DIR__ . '/../src/Reconcile.php';
 require_once __DIR__ . '/../src/Fund.php';
 require_once __DIR__ . '/../src/Weekly.php';
 require_once __DIR__ . '/../src/Push.php';
+require_once __DIR__ . '/../src/Monitor.php';
 require_once __DIR__ . '/../src/Glossary.php';
 
 // Secure gdy połączenie po HTTPS (produkcja) — ciasteczko sesji nie wycieknie przy przypadkowym HTTP.

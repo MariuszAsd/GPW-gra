@@ -10,6 +10,7 @@ require_once __DIR__ . '/../src/Migrator.php';
 require_once __DIR__ . '/../src/Engine.php';
 require_once __DIR__ . '/../src/Log.php';
 require_once __DIR__ . '/../src/Push.php';
+require_once __DIR__ . '/../src/Monitor.php';
 header('Content-Type: application/json');
 header('Cache-Control: no-store, max-age=0');
 $out = ['ok' => false, 'schema' => null, 'expected' => Schema::VERSION, 'tables' => [], 'push_available' => false, 'php' => PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION, 'db' => null, 'phase' => null, 'time_pl' => null];
@@ -28,6 +29,9 @@ try {
     $out['time_pl'] = Engine::nowWarsaw()->format('Y-m-d H:i');
     $out['tz'] = date_default_timezone_get();   // strefa procesu WWW (config.php ustawia Europe/Warsaw) — do porównania z cronem
     $out['tick'] = (int) (Engine::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
+    // stan rynku z monitora (tylko liczniki i tickery spółek — bez danych graczy); wiek = ile ticków temu był skan
+    $out['market'] = Monitor::lastSummary();
+    $out['market_age'] = $out['tick'] - (int) (Engine::one("SELECT v FROM game_state WHERE k='monitor_tick'") ?: 0);
     $out['ok'] = $out['schema'] === Schema::VERSION && !in_array(false, $out['tables'], true);
 } catch (Throwable $e) {
     $out['error'] = 'błąd bazy';

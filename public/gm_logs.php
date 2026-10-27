@@ -4,7 +4,7 @@ $user = require_login();
 if (($user['role'] ?? '') !== 'admin') { http_response_code(403); echo 'Brak dostępu (tylko admin).'; exit; }
 
 $level = in_array($_GET['level'] ?? '', ['info', 'warn', 'error'], true) ? $_GET['level'] : '';
-$source = in_array($_GET['source'] ?? '', ['qa', 'engine', 'player', 'auth', 'gm'], true) ? $_GET['source'] : '';
+$source = in_array($_GET['source'] ?? '', ['qa', 'engine', 'player', 'auth', 'gm', 'monitor'], true) ? $_GET['source'] : '';
 $q = trim((string) ($_GET['q'] ?? ''));
 $h24 = ($_GET['h24'] ?? '') === '1';
 $page = max(0, (int) ($_GET['p'] ?? 0));
@@ -41,7 +41,7 @@ $lvlChip = fn($l) => $l === 'error' ? 'n' : ($l === 'warn' ? '' : 'p');
     <div><label>Źródło</label>
       <select name="source" style="width:130px">
         <option value="">wszystkie</option>
-        <?php foreach (['qa', 'engine', 'player', 'auth', 'gm'] as $s): ?><option value="<?= $s ?>" <?= $source === $s ? 'selected' : '' ?>><?= $s ?></option><?php endforeach; ?>
+        <?php foreach (['qa', 'engine', 'player', 'auth', 'gm', 'monitor'] as $s): ?><option value="<?= $s ?>" <?= $source === $s ? 'selected' : '' ?>><?= $s ?></option><?php endforeach; ?>
       </select></div>
     <div><label>Szukaj (zdarzenie/komunikat)</label><input name="q" value="<?= h($q) ?>" style="width:200px" placeholder="np. ipo.debut, wyzwanie"></div>
     <label style="display:flex;align-items:center;gap:6px;padding-bottom:9px"><input type="checkbox" name="h24" value="1" <?= $h24 ? 'checked' : '' ?>> tylko 24h</label>

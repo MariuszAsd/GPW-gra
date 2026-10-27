@@ -153,9 +153,11 @@ layout_header($s['ticker'] . ' · ' . $s['name'], $user, 'market');
     <div class="panel" style="padding:8px">
       <div class="chartbar">
         <span class="cgl">Świeca</span>
-        <div class="cgrp" id="cg-iv" title="Rozdzielczość świecy: Auto dobiera samo, Szczegół = każdy tick, Dzień = jedna świeca na sesję, Tydzień = jedna na tydzień">
+        <div class="cgrp" id="cg-iv" title="Długość jednej świecy: Auto dobiera sama, 1 min = każda minuta handlu, 15 min, 1 godz., Dzień = jedna świeca na sesję, Tydzień = jedna na tydzień">
           <button data-iv="auto" class="on">Auto</button>
-          <button data-iv="1">Szczegół</button>
+          <button data-iv="1">1 min</button>
+          <button data-iv="15">15 min</button>
+          <button data-iv="60">1 godz.</button>
           <button data-iv="d">Dzień</button>
           <button data-iv="w">Tydzień</button>
         </div>
@@ -523,10 +525,19 @@ let cRange='d', cIv='auto', cType='candles', cAT=false;
 try{ cAT=localStorage.getItem('chart_at')==='1';
   const sr=localStorage.getItem('chart_range'), si=localStorage.getItem('chart_iv');
   if(['d','t','m','r','max'].includes(sr)) cRange=sr;
-  if(['auto','1','d','w'].includes(si)) cIv=si;
+  if(['auto','1','15','60','d','w'].includes(si)) cIv=si;
 }catch(e){}
-// pary bez sensu (świeca Dzień/Tydzień przy zakresie "Sesja", Tydzień przy 1T) — dobierz drugi wymiar
+// pary bez sensu (świeca Dzień/Tydzień przy zakresie "Sesja", Tydzień przy 1T, świece minutowe przy długim zakresie)
+// — dobierz drugi wymiar. Wykres mieści ~110 świec, więc 1 min pokazuje ok. 2 godzin, 15 min ok. dwóch sesji,
+// a 1 godz. ok. tygodnia; dłuższy zakres ze świecą minutową wyglądał jak „cała historia”, a był wycinkiem ostatnich minut.
 function reconcile(changed){
+  const intra=cIv==='1'||cIv==='15'||cIv==='60';
+  if(intra){
+    const okRange=cIv==='1'?['d']:['d','t'];
+    if(!okRange.includes(cRange)){
+      if(changed==='range') cIv=(cRange==='t'?'60':'d'); else cRange=(cIv==='1'?'d':'t');
+    }
+  }
   if((cIv==='d'||cIv==='w')&&cRange==='d'){
     if(changed==='range') cIv='auto'; else cRange=(cIv==='w'?'r':'m');
   }
@@ -543,7 +554,7 @@ function sma(cs,p){ const out=[]; let sum=0;
   for(let i=0;i<cs.length;i++){ sum+=cs[i].c; if(i>=p) sum-=cs[i-p].c; out.push(i>=p-1?sum/p:null); }
   return out; }
 const RANGE_LBL={d:'sesja',t:'tydzień',m:'miesiąc',r:'rok',max:'cała historia'};
-const IV_LBL={auto:'Auto',1:'Szczegół',d:'Dzień',w:'Tydzień'};
+const IV_LBL={auto:'Auto',1:'1 min',15:'15 min',60:'1 godz.',d:'Dzień',w:'Tydzień'};
 async function drawChart(){ try{
   const j=await (await fetch('api_chart.php?id=<?= $id ?>&range='+cRange+'&iv='+cIv)).json();
   if(!j.ok) return;
@@ -580,10 +591,16 @@ async function drawChart(){ try{
     s+='<polygon points="'+pl+','+H+' '+pts+' '+(W-pr)+','+H+'" fill="'+col+'" opacity="0.10"/>';
     s+='<polyline points="'+pts+'" fill="none" stroke="'+col+'" stroke-width="1.6" stroke-linejoin="round"/>';
   } else {
-    for(let i=0;i<n;i++){ const c=cs[i], x=pl+i*slot+slot/2, col=c.c>=c.o?'var(--up)':'var(--down)';
+    let quiet=0;
+    for(let i=0;i<n;i++){ const c=cs[i], x=pl+i*slot+slot/2;
+      // świeca bez żadnej transakcji (wolumen 0) to tylko „kurs stał” — szara kreska zamiast zielono-czerwonych
+      // pasków, które przy rzadkim handlu wyglądały jak przerywane linie i nic nie mówiły
+      if(c.v!==undefined&&!(c.v>0)&&c.h===c.l){ quiet++; s+='<line x1="'+(x-bw/2).toFixed(1)+'" x2="'+(x+bw/2).toFixed(1)+'" y1="'+yv(c.c)+'" y2="'+yv(c.c)+'" stroke="var(--faint)" stroke-width="1" opacity="0.6"/>'; continue; }
+      const col=c.c>=c.o?'var(--up)':'var(--down)';
       const top=+yv(Math.max(c.o,c.c)), bot=+yv(Math.min(c.o,c.c)), bh=Math.max(1,bot-top);
       s+='<line x1="'+x.toFixed(1)+'" x2="'+x.toFixed(1)+'" y1="'+yv(c.h)+'" y2="'+yv(c.l)+'" stroke="'+col+'" stroke-width="1"/>';
       s+='<rect x="'+(x-bw/2).toFixed(1)+'" y="'+top.toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+bh.toFixed(1)+'" fill="'+col+'"/>'; }
+    if(quiet&&chartNote) chartNote.textContent+=' · szare kreski = okresy bez transakcji';
   }
   if(cAT&&n>=8){   // nakładka AT: dwie średnie kroczące — okresy kurczą się przy krótkiej historii
     const p1=Math.min(20,Math.max(3,Math.floor(n/3))), p2=Math.min(50,Math.max(p1+2,Math.floor(2*n/3)));

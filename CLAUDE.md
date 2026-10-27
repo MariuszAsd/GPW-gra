@@ -46,7 +46,7 @@ config.php            jedna konfiguracja (env → config.local.php → domyślne
 migrate.php           tworzy/aktualizuje schemat            seed.php  zasiewa świat
 verify.php            testy integralności (gotówka/akcje)
 cron/tick.php         puls rynku (blokada pliku cron/tick.lock)
-cron/qa_probe.php     QA-bot: gra przez HTTP jak gracz, 169 asercji
+cron/qa_probe.php     QA-bot: gra przez HTTP jak gracz, 171 asercji
 src/                  logika (patrz niżej)
 public/               warstwa web — każda strona to jeden plik PHP; manifest.json + sw.js = PWA (karta.php i sw.js są publiczne celowo)
 .github/workflows/    deploy, health, raport, trace, reinstall
@@ -66,12 +66,13 @@ public/               warstwa web — każda strona to jeden plik PHP; manifest.
 | `Bank.php` | lokaty · `Seasons.php` sezon · `Daily.php` misje · `Achievements.php` odznaki |
 | `Tokens.php` | tokeny premium, pakiety, trial, **polecenia** · `Payments.php` PayU |
 | `Recommendations.php` | rekomendacje DM · `Moderation.php` filtr słów · `Mailer.php` (PHP `mail()`, przy porażce treść do dziennika), `PasswordReset.php` |
-| `Qa.php` | definicje 169 asercji QA-bota (w tym `inv.money` — suma pieniądza w świecie) |
+| `Qa.php` | definicje 171 asercji QA-bota (w tym `inv.money` — suma pieniądza w świecie) |
 | `Glossary.php` | słowniczek pojęć (klucz → nazwa, wyjaśnienie, kotwica w Pomocy); dymki `term('klucz')`, sekcja „Słowniczek” w `pomoc.php` renderuje się z niego |
 | `Push.php` | Web Push bez composera: klucze VAPID w `game_state`, JWT ES256, aes128gcm, subskrypcje `push_subscriptions`, `Push::flush()` z crona dosyła wpisy z dzwonka |
 | `Weekly.php` | „Twój tydzień w Maklerii”: podsumowanie po zamknięciu tygodnia (powiadomienie + e-mail) i publiczna karta wyniku `karta.php?u=TOKEN` z linkiem polecającym |
 | `Fund.php` | fundusz indeksowy MAK40: jednostki = indeks/10, pula `game_state.fund_pool` w świecie, zysk/stratę rozlicza skarbiec |
 | `Reconcile.php` | rekoncyliacja rezerwacji (panel GM): podgląd rozjazdów escrow + korekta na kliknięcie, nigdy sama |
+| `Monitor.php` | **monitor rynku**: co 10 ticków z crona (poza transakcją i blokadą świata) skanuje wszystkie spółki — pusta strona arkusza, oferty >15% od kursu, spread >10%, kurs vs wycena poza ×1,5, kurs na podłodze, brak transakcji 120 ticków, gotówka animatorów; nowe anomalie do dziennika (`source='monitor'`, deduplikacja 240 ticków), podsumowanie w `game_state.monitor_summary` → `health.php` (`market`) i panel GM („📡 Monitor rynku”) |
 
 `public/_boot.php` — wspólny bootstrap każdej strony: sesja, `require_login()`, `require_market_open()`, layout
 (z tagami PWA), helpery (`h()`, `money()`, `flash()`, `redirect()`, `explainer()`, `tip()`), przyjazna strona błędu.
@@ -136,7 +137,7 @@ php migrate.php && php seed.php          # świeży świat (nadpisuje data/tycoo
 php cron/tick.php 100                    # 100 ticków; wpisy logów source='qa' to normalny szum
 php -S 127.0.0.1:8123 -t public &        # serwer w tle
 APP_URL=http://127.0.0.1:8123 php cron/qa_probe.php
-# MUSI wypisać: ✅ QA OK — asercji: 169
+# MUSI wypisać: ✅ QA OK — asercji: 171
 ```
 
 **Test na MySQL jest obowiązkowy dla zmian dotykających transakcji/wyścigów** (produkcja to MySQL,
@@ -190,7 +191,8 @@ Logi bywają duże — parsuj je skryptem, nie wklejaj w całości.
 Health check sprawdza: stronę logowania, API rynku (kursy + indeks), pliki PWA (`manifest.json`, `sw.js`, `offline.html`,
 ikona), **status techniczny** z `public/health.php` (wersja schematu na serwerze = `Schema::VERSION` z kodu, tabele i kolumny
 nowych funkcji, czy hosting obsługuje push; JSON, 503 gdy coś się nie zgadza) i nieosiągalność skryptów silnika.
-Krok „Status techniczny” wypisuje jedną linię: „schemat vNN, push: dostepny/NIEDOSTEPNY, PHP x.y, faza”. Workflow **Raport** i **Trace** logują się jako admin sekretem `ADMIN_PASS` —
+Krok „Status techniczny” wypisuje linię „schemat vNN, push, PHP, strefa, faza” oraz linię **„rynek (monitor …)”** z licznikami anomalii
+i gotówką animatorów (alarm monitora = `::warning::`, nie wywraca health). To jedyny wgląd w stan rynku produkcji bez hasła admina. Workflow **Raport** i **Trace** logują się jako admin sekretem `ADMIN_PASS` —
 dopóki właściciel go nie ustawi (i nie zmieni hasła admina), te dwa workflow padają; health nie zależy od niego.
 Katalog `data/`, `*.md` i `verify.php` nie są wysyłane na serwer (wykluczenia w deploy.yml).
 
@@ -198,7 +200,7 @@ Katalog `data/`, `*.md` i `verify.php` nie są wysyłane na serwer (wykluczenia 
 
 ## 6. Stan na dziś i znane sprawy
 
-- Schemat **v44**. QA lokalnie: **169/169** (SQLite i MySQL). Ostatnie wdrożenia (wrzesień 2026, jedna sesja pracy):
+- Schemat **v44**. QA lokalnie: **171/171** (SQLite i MySQL). Ostatnie wdrożenia (wrzesień 2026, jedna sesja pracy):
   audyt i poprawki krytyczne → nowy model rywalizacji (%) → skarbiec jako pula nagród → paczka poprawek średnich
   (retencja, obrót dzienny, rekoncyliacja, zamknięta ekonomia w QA) → stop-buy → fundusz MAK40 i „vs indeks” →
   fixing → tygodniowy raport i karta wyniku → PWA i push → słowniczek i dymki → test e2e nowych funkcji (SQLite + MySQL, tryb produkcyjny, bez błędów) i `health.php`

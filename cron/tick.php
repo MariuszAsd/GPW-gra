@@ -78,6 +78,17 @@ if (php_sapi_name() === 'cli' && $t > 0) {
         [$wn, $wm] = Weekly::flushPending();
         if ($wn + $wm > 0) echo "tydzień: $wn powiadomień, $wm e-maili\n";
     } catch (Throwable $e) { Log::write('warn', 'engine', 'weekly.flush', $e->getMessage()); }
+
+    // MONITOR RYNKU co Monitor::EVERY ticków: tylko czyta arkusze i portfele botów, więc idzie poza transakcją
+    // ticka i poza blokadą świata; nowe anomalie trafiają do dziennika, podsumowanie do health.php.
+    try {
+        require_once __DIR__ . '/../src/Monitor.php';
+        $lastMon = (int) (Engine::one("SELECT v FROM game_state WHERE k='monitor_tick'") ?: 0);
+        if ($t - $lastMon >= Monitor::EVERY || $lastMon > $t) {
+            $mr = Monitor::run();
+            echo 'monitor: ' . count($mr['issues']) . ' anomalii' . ($mr['alarms'] ? ', ALARM: ' . implode(',', $mr['alarms']) : '') . "\n";
+        }
+    } catch (Throwable $e) { Log::write('warn', 'engine', 'monitor.fail', $e->getMessage()); }
 }
 
 // QA i puls handlu znów pod blokadą świata (puls to pełna runda silnika). Jeśli w czasie wysyłki

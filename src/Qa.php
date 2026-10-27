@@ -17,7 +17,7 @@
 final class Qa
 {
     /** Pełny przebieg = tyle asercji. Gdy dodajesz asercję, podnieś tę liczbę (i w CLAUDE.md). */
-    public const EXPECTED_CHECKS = 169;
+    public const EXPECTED_CHECKS = 171;
     /** Po tylu nieudanych przebiegach z rzędu GM dostaje e-mail (raz na serię). */
     public const ALERT_AFTER = 2;
 
@@ -220,6 +220,14 @@ final class Qa
         [$c, $b] = $this->http('GET', '/health.php');
         $hj = json_decode($b, true);
         $this->check($c === 200 && is_array($hj) && ($hj['tz'] ?? '') === 'Europe/Warsaw', 'health.tz', 'health.php nie zgłasza strefy Europe/Warsaw');
+        // monitor rynku: skan obejmuje wszystkie spółki, zapisuje podsumowanie, a health.php je publikuje (bez danych graczy)
+        if (!class_exists('Monitor')) require_once __DIR__ . '/Monitor.php';
+        $mr = Monitor::run();
+        $this->check($mr['stocks'] === (int) Engine::one("SELECT COUNT(*) FROM stocks") && count($mr['counts']) === count(Monitor::LABELS)
+            && (int) (Monitor::lastSummary()['spolek'] ?? -1) === $mr['stocks'], 'monitor.scan', 'monitor rynku nie objął wszystkich spółek albo nie zapisał podsumowania');
+        [$c, $b] = $this->http('GET', '/health.php');
+        $hj = json_decode($b, true);
+        $this->check(is_array($hj['market'] ?? null) && isset($hj['market']['bez_kupna'], $hj['market']['mm_proc']), 'monitor.health', 'health.php nie publikuje podsumowania monitora rynku');
         // liczby o widełkach w Pomocy pochodzą ze stałych silnika (tekst mówił ±15%, a silnik zawieszał przy ±20%)
         [$c, $b] = $this->http('GET', '/pomoc.php');
         $band = '±' . round(Engine::HALT_BAND * 100) . '%';
