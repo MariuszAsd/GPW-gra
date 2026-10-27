@@ -229,8 +229,11 @@ Katalog `data/`, `*.md` i `verify.php` nie są wysyłane na serwer (wykluczenia 
   bierze tylko oferty spoza animatorów i nie dalej niż `MM_TILT_CAP` (3%) od kursu; kwotowanie = kurs × (1 + przechył ku wycenie
   z sufitem 3%, tylko w ±`MM_SESSION_PULL` 15% od otwarcia sesji) — rozjechany kurs wraca do wyceny po ~kilkanaście % na sesję,
   nie skokiem; presja gotówkowa (cel `MM_CASH_TARGET` 15% majątku w gotówce) obniża kwotowania i powiększa sprzedaż, a budżet
-  gotówki dzielony po równo między spółki daje oferty kupna na każdej spółce. **Otwarta sprawa:** prowizje od handlu botów płyną
-  do skarbca, a skarbiec wypłaca tylko stałe nagrody — długofalowo wysysa gotówkę z botów (linia „pieniadz” w health pokaże skalę).
+  gotówki dzielony po równo między spółki daje oferty kupna na każdej spółce. Po wdrożeniu (health 27.10, 10 min) spółek bez ofert kupna
+  ubyło z 70 do 16/90, ofert oderwanych od kursu z 12 do 0. **Otwarta sprawa (czeka na zgodę właściciela):** prowizje od handlu
+  botów płyną do skarbca, a skarbiec wypłaca tylko stałe nagrody (17,5 tys./tydz.) — health 27.10: skarbiec 146,3 mln, boty
+  fundamentalne 118 mln, wszystkie pozostałe boty ~0 (mm −0,13 mln: blizny rezerwacji), gracze 0,17 mln. Propozycja: automatyczny
+  zwrot nadwyżki skarbca ponad rezerwę (np. 5 mln) do botów z niedoborem gotówki, ~10% nadwyżki na sesję — bez zgody nie ruszać.
 - **Nie zrobione po audycie (decyzje właściciela / osobne zadania):** tokeny CSRF we wszystkich formularzach
   (dziś chroni `SameSite=Lax`; wylogowanie przez GET) · remis w lidze rozstrzyga niższe id konta (brak ex aequo) ·
   zysk funduszu MAK40 płacony ze skarbca bez osłony · darmowe newsy z wartością sygnału AT pokrywają się z płatnym
