@@ -181,6 +181,7 @@ sprawdzasz wyłącznie przez GitHub Actions — masz do tego gotowe workflow uru
 | sprawdzić, czy gra żyje po deployu | nadpisz `.healthcheck` datą i wypchnij | Health check |
 | zobaczyć, co się dzieje w grze (rynek, newsy, wyzwania, ranking, błędy 24 h) | nadpisz `.raport` | Raport stanu gry |
 | prześledzić konkretnego gracza | wpisz jego login do `.trace` | Trace |
+| sprawdzić, czy ruchy kursów to wydarzenia z silnika, czy błąd (bez logowania: zmiany sesji wszystkich spółek, anomalie cen, newsy z ~7 sesji) | nadpisz `.diag` | Diagnoza rynku (`.github/diag.php`) |
 | **zresetować świat od zera** | nadpisz `.reinstall` | Reinstall — **DESTRUKCYJNE, tylko na wyraźne polecenie właściciela** |
 
 Wyniki czytasz przez narzędzia GitHub MCP: `actions_list` → znajdź run → `list_workflow_jobs` → `get_job_logs`.
