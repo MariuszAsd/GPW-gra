@@ -72,7 +72,7 @@ public/               warstwa web — każda strona to jeden plik PHP; manifest.
 | `Weekly.php` | „Twój tydzień w Maklerii”: podsumowanie po zamknięciu tygodnia (powiadomienie + e-mail) i publiczna karta wyniku `karta.php?u=TOKEN` z linkiem polecającym |
 | `Fund.php` | fundusz indeksowy MAK40: jednostki = indeks/10, pula `game_state.fund_pool` w świecie, zysk/stratę rozlicza skarbiec |
 | `Reconcile.php` | rekoncyliacja rezerwacji (panel GM): podgląd rozjazdów escrow + korekta na kliknięcie, nigdy sama |
-| `Monitor.php` | **monitor rynku**: co 10 ticków z crona (poza transakcją i blokadą świata) skanuje wszystkie spółki — pusta strona arkusza, oferty >15% od kursu, spread >10%, kurs vs wycena poza ×1,5, kurs na podłodze, brak transakcji 120 ticków, gotówka animatorów; nowe anomalie do dziennika (`source='monitor'`, deduplikacja 240 ticków), podsumowanie w `game_state.monitor_summary` → `health.php` (`market`) i panel GM („📡 Monitor rynku”) |
+| `Monitor.php` | **monitor rynku**: co 10 ticków z crona (poza transakcją i blokadą świata) skanuje wszystkie spółki — pusta strona arkusza, oferty >15% od kursu, spread >10%, kurs vs wycena poza ×1,5, kurs na podłodze, brak transakcji 120 ticków, gotówka animatorów; nowe anomalie do dziennika (`source='monitor'`, deduplikacja 240 ticków), podsumowanie w `game_state.monitor_summary` → `health.php` (`market`) i panel GM („📡 Monitor rynku”); rozkład pieniądza (mln PLN: skarbiec, gracze, boty wg strategii) w `game_state.monitor_cash` → `health.php` (`money`) |
 
 `public/_boot.php` — wspólny bootstrap każdej strony: sesja, `require_login()`, `require_market_open()`, layout
 (z tagami PWA), helpery (`h()`, `money()`, `flash()`, `redirect()`, `explainer()`, `tip()`), przyjazna strona błędu.
@@ -192,7 +192,7 @@ Health check sprawdza: stronę logowania, API rynku (kursy + indeks), pliki PWA 
 ikona), **status techniczny** z `public/health.php` (wersja schematu na serwerze = `Schema::VERSION` z kodu, tabele i kolumny
 nowych funkcji, czy hosting obsługuje push; JSON, 503 gdy coś się nie zgadza) i nieosiągalność skryptów silnika.
 Krok „Status techniczny” wypisuje linię „schemat vNN, push, PHP, strefa, faza” oraz linię **„rynek (monitor …)”** z licznikami anomalii
-i gotówką animatorów (alarm monitora = `::warning::`, nie wywraca health). To jedyny wgląd w stan rynku produkcji bez hasła admina. Workflow **Raport** i **Trace** logują się jako admin sekretem `ADMIN_PASS` —
+i gotówką animatorów (alarm monitora = `::warning::`, nie wywraca health) oraz linię **„pieniadz (mln PLN)”** — skarbiec, gracze i gotówka botów wg strategii. To jedyny wgląd w stan rynku produkcji bez hasła admina. Workflow **Raport** i **Trace** logują się jako admin sekretem `ADMIN_PASS` —
 dopóki właściciel go nie ustawi (i nie zmieni hasła admina), te dwa workflow padają; health nie zależy od niego.
 Katalog `data/`, `*.md` i `verify.php` nie są wysyłane na serwer (wykluczenia w deploy.yml).
 
@@ -220,6 +220,17 @@ Katalog `data/`, `*.md` i `verify.php` nie są wysyłane na serwer (wykluczenia 
   wypis z tygodniowych e-maili to POST z osobnym tokenem HMAC (`Weekly::offToken`, sekret `Engine::appSecret()`
   w `game_state.app_secret`); konto `gracz` z seeda ma losowe hasło (brak publicznego demo); zamówienia PayU `REJECTED`
   → `cancelled`, `pending` > 24 h → `expired` (leniwie w sklepie); `verify.php` działa na MySQL (lista akcji w kawałkach).
+- **Animatorzy rynku (27.10.2026, po załamaniu płynności na produkcji):** monitor pokazał 70/90 spółek bez ofert kupna i 14/14
+  animatorów bez gotówki (AUR: kurs 26 zł, ich oferty sprzedaży po 428 zł). Przyczyny: ~1/4 obrotu to był handel animator–animator
+  (świeże kwotowanie przecinało stare oferty innych animatorów; każda transakcja = 0,5% prowizji do skarbca), zarządzanie zapasem
+  tylko w sztukach (gotówka zamieniała się w akcje, pakiety z debiutów dokładały akcji bez gotówki) i kwotowanie wokół
+  0,7×wyceny — po utracie kontaktu z kursem oferty sprzedaży były nieosiągalne, więc gotówka nie wracała. Obowiązuje teraz
+  (`Engine::runBots`, `arbitrage`): animator nigdy nie przecina oferty innego animatora (post-only wobec animatorów), arbitraż
+  bierze tylko oferty spoza animatorów i nie dalej niż `MM_TILT_CAP` (3%) od kursu; kwotowanie = kurs × (1 + przechył ku wycenie
+  z sufitem 3%, tylko w ±`MM_SESSION_PULL` 15% od otwarcia sesji) — rozjechany kurs wraca do wyceny po ~kilkanaście % na sesję,
+  nie skokiem; presja gotówkowa (cel `MM_CASH_TARGET` 15% majątku w gotówce) obniża kwotowania i powiększa sprzedaż, a budżet
+  gotówki dzielony po równo między spółki daje oferty kupna na każdej spółce. **Otwarta sprawa:** prowizje od handlu botów płyną
+  do skarbca, a skarbiec wypłaca tylko stałe nagrody — długofalowo wysysa gotówkę z botów (linia „pieniadz” w health pokaże skalę).
 - **Nie zrobione po audycie (decyzje właściciela / osobne zadania):** tokeny CSRF we wszystkich formularzach
   (dziś chroni `SameSite=Lax`; wylogowanie przez GET) · remis w lidze rozstrzyga niższe id konta (brak ex aequo) ·
   zysk funduszu MAK40 płacony ze skarbca bez osłony · darmowe newsy z wartością sygnału AT pokrywają się z płatnym

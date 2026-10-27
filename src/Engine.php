@@ -792,7 +792,7 @@ final class Engine
 
         $bots = self::all("SELECT u.id, b.strategy, b.news_reactivity, b.technical_sensitivity, b.risk_appetite, b.horizon
                            FROM users u JOIN bots b ON b.user_id = u.id WHERE u.is_bot = 1");
-        $stocks = self::all("SELECT id, sector_id, price, fundamental, pe_target, last_eps, liquidity, dividend_payout, tech_affinity, ta_signal, halted_until FROM stocks");
+        $stocks = self::all("SELECT id, sector_id, price, day_open_price, fundamental, pe_target, last_eps, liquidity, dividend_payout, tech_affinity, ta_signal, halted_until FROM stocks");
         $nowTs = Db::now();   // do pomijania spółek z zawieszonymi notowaniami (jak dawne place()->haltMessage())
         $tick = (int) (self::one("SELECT v FROM game_state WHERE k='tick'") ?: 0);
         $mods = self::activeMods($tick);   // boty fundamentalne rozumieja skutki wydarzen
@@ -832,6 +832,23 @@ final class Engine
         }
         $botCash = [];
         foreach (self::all("SELECT id, cash FROM users WHERE is_bot=1") as $u) $botCash[(int) $u['id']] = (float) $u['cash'];
+
+        // ANIMATORZY NIE HANDLUJĄ MIĘDZY SOBĄ. Świeże kwotowanie jednego animatora krzyżowało się z ofertami innych,
+        // które czekały w arkuszu z poprzednich ticków (bramka churnu) — ok. 1/4 obrotu rynku to był handel animator–
+        // animator, który niczego nie wnosił, a każdy taki handel zostawiał 0,5% prowizji w skarbcu. Przez tygodnie
+        // wydrenowało to animatorom gotówkę do zera i ok. 3/4 spółek zostało bez ofert kupna. Dlatego oferta animatora
+        // nigdy nie przecina najlepszej oferty INNEGO animatora (kupno tuż pod jego sprzedażą, sprzedaż tuż nad kupnem).
+        // Mapy żyją przez całą rundę: obejmują też oferty kolejkowane w tej rundzie przez wcześniejszych animatorów.
+        $mmUids = [];
+        foreach ($bots as $b) if ($b['strategy'] === 'mm') $mmUids[] = (int) $b['id'];
+        $mmBid = []; $mmAsk = [];
+        if ($mmUids) {
+            $ph = implode(',', array_fill(0, count($mmUids), '?'));
+            foreach (self::all("SELECT stock_id, side, MAX(price) mx, MIN(price) mn FROM orders WHERE status='active' AND user_id IN ($ph) GROUP BY stock_id, side", $mmUids) as $r) {
+                if ($r['side'] === 'buy') $mmBid[(int) $r['stock_id']] = (float) $r['mx'];
+                else                      $mmAsk[(int) $r['stock_id']] = (float) $r['mn'];
+            }
+        }
 
         // KOLEJKA ZLECEŃ botów: zbierana w PHP (z bieżącym saldem gotówki/akcji, by nie przekroczyć),
         // zapisywana ZBIORCZO po pętli. Zamienia ~2000 zapytań/tick na kilkanaście → tick nie muli
@@ -891,6 +908,28 @@ final class Engine
             $react = max(0.1, (float) $bot['news_reactivity']);
             $hor  = max(6, min(50, (int) $bot['horizon']));
 
+            // ANIMATOR PILNUJE GOTÓWKI, nie tylko liczby akcji. Dawniej zarządzał zapasem wyłącznie w sztukach,
+            // więc gdy reszta rynku sprzedawała (realizacja zysków, stopy, pakiety z debiutów), zamieniał całą
+            // gotówkę na akcje — a bez gotówki znikały jego oferty kupna i kurs spadał w pustkę. Teraz:
+            //   presja > 0 (gotówki mniej niż MM_CASH_TARGET majątku): kwotuje niżej, kupuje mniej, sprzedaje więcej,
+            //   presja < 0 (nadmiar gotówki): odwrotnie, łagodniej.
+            // Budżet na spółkę dzieli gotówkę po równo między obsługiwane spółki — każda dostaje choć skromne
+            // oferty kupna, zamiast kilku pierwszych grubych i reszty pustych.
+            $mmPress = 0.0; $mmBudget = 0.0; $mmSpent = [];
+            if ($strat === 'mm') {
+                $invVal = 0.0; $nCov = 0;
+                foreach ($stocks as $st) {
+                    $invVal += (int) ($wal[$uid][(int) $st['id']]['qty'] ?? 0) * (float) $st['price'];
+                    if ($st['halted_until'] !== null && $st['halted_until'] !== '' && (string) $st['halted_until'] > $nowTs) continue;
+                    $liqC = max(0.3, (float) $st['liquidity']);
+                    if (((int) $st['id'] + $uid) % ($liqC >= 1.2 ? 2 : ($liqC >= 0.95 ? 3 : 5)) === 0) $nCov++;
+                }
+                $cashNow = max(0.0, $botCash[$uid] ?? 0.0);
+                $ratio = $cashNow / max(1.0, $cashNow + $invVal);
+                $mmPress = max(-0.5, min(1.0, (self::MM_CASH_TARGET - $ratio) / self::MM_CASH_TARGET));
+                $mmBudget = $cashNow * 0.9 / max(1, $nCov);
+            }
+
             foreach ($stocks as $st) {
                 $sid = (int) $st['id'];
                 if ($st['halted_until'] !== null && $st['halted_until'] !== '' && (string) $st['halted_until'] > $nowTs) continue;   // widełki: zawieszone notowania = boty nie dokładają zleceń (jak dawne place())
@@ -917,21 +956,40 @@ final class Engine
                 }
 
                 if ($strat === 'mm') {
-                    // animator: kwotuje wokol 0.7*fundament + 0.3*kurs; spread maleje z plynnoscia spolki.
-                    // ZARZADZANIE ZAPASEM: nadmiar akcji -> kwotuje nizej i sprzedaje wiecej (i odwrotnie),
-                    // zamiast biernie puchnac na trendach — mniej strat mm, naturalniejszy rynek
+                    // animator: kwotuje wokół KURSU z przechyłem w stronę wyceny (0,7 × luka, jak dawne 0,7×fundament
+                    // + 0,3×kurs), ale przechył ma sufit MM_TILT_CAP i działa tylko w ±MM_SESSION_PULL od otwarcia sesji.
+                    // Bez sufitu animator, który stracił kontakt z rynkiem (kurs 26 zł, wycena 600 zł), wystawiał
+                    // sprzedaż po 428 zł — nikt jej nie brał, więc nie odzyskiwał gotówki, a kurs po powrocie płynności
+                    // skoczyłby kilkanaście razy w jeden tick. Teraz kurs wraca do wyceny stopniowo, sesja po sesji.
+                    // ZARZĄDZANIE ZAPASEM: nadmiar akcji -> kwotuje niżej i sprzedaje więcej (i odwrotnie),
+                    // a presja gotówkowa ($mmPress) robi to samo, gdy brakuje gotówki na oferty kupna.
                     $inv = max(-1.0, min(1.0, ($have - 3000) / 3000));
-                    $base = (0.7 * $st['fundamental'] + 0.3 * $price) * (1 + mt_rand(-15, 15) / 10000) * (1 - 0.004 * $inv);
+                    $fund = (float) $st['fundamental'];
+                    $open = (float) $st['day_open_price'] > 0 ? (float) $st['day_open_price'] : $price;
+                    $tilt = $price > 0 ? max(-self::MM_TILT_CAP, min(self::MM_TILT_CAP, 0.7 * ($fund / $price - 1))) : 0.0;
+                    if (($tilt > 0 && $price >= $open * (1 + self::MM_SESSION_PULL)) || ($tilt < 0 && $price <= $open * (1 - self::MM_SESSION_PULL))) $tilt = 0.0;
+                    $base = $price * (1 + $tilt) * (1 + mt_rand(-15, 15) / 10000) * (1 - 0.004 * $inv) * (1 - 0.012 * $mmPress);
                     // grube kwotowania (3 poziomy) z LOSOWĄ wielkością i drobnym rozrzutem poziomów —
                     // arkusz jest głęboki (zlecenie 20–100k nie rusza kilku % kursu) ORAZ zróżnicowany
                     // (koniec z rzędem identycznych ilości); persystencja przez bramkę churnu dokłada głębi.
                     foreach ([[0.007, 180], [0.015, 130], [0.027, 90]] as [$sp, $qy]) {
                         $spread = ($sp / max(0.85, $liq)) * (1 + mt_rand(-20, 25) / 100);   // rozrzut poziomów cenowych
                         $jb = 0.55 + mt_rand(0, 95) / 100; $js = 0.55 + mt_rand(0, 95) / 100;   // rozrzut wielkości (0,55–1,5×)
-                        $qb = max(5, (int) round($qy * $act * (1 - 0.4 * $inv) * $jb));
-                        $qs = max(5, (int) round($qy * $act * (1 + 0.4 * $inv) * $js));
-                        $queue($uid, $sid,'buy',  $qb, round($base * (1 - $spread), 2));
-                        $queue($uid, $sid,'sell', $qs, round($base * (1 + $spread), 2));
+                        $qb = max(5, (int) round($qy * $act * (1 - 0.4 * $inv) * (1 - 0.6 * max(0.0, $mmPress)) * $jb));
+                        $qs = max(5, (int) round($qy * $act * (1 + 0.4 * $inv) * (1 + 0.6 * max(0.0, $mmPress)) * $js));
+                        $pb = round($base * (1 - $spread), 2);
+                        $ps = round($base * (1 + $spread), 2);
+                        if (isset($mmAsk[$sid]) && $pb >= $mmAsk[$sid]) $pb = round($mmAsk[$sid] - 0.01, 2);   // nie bierz oferty innego animatora
+                        if (isset($mmBid[$sid]) && $ps <= $mmBid[$sid]) $ps = round($mmBid[$sid] + 0.01, 2);
+                        if ($pb > 0) {
+                            $qb = min($qb, (int) floor(($mmBudget - ($mmSpent[$sid] ?? 0)) / $pb));   // budżet tej spółki
+                            if ($qb >= 1 && $queue($uid, $sid, 'buy', $qb, $pb)) {
+                                $mmSpent[$sid] = ($mmSpent[$sid] ?? 0) + $qb * $pb;
+                                $mmBid[$sid] = max($mmBid[$sid] ?? 0, $pb);
+                            }
+                        }
+                        $qs = min($qs, (int) ($wal[$uid][$sid]['qty'] ?? 0));   // resztka zapasu też idzie na sprzedaż
+                        if ($qs >= 1 && $queue($uid, $sid, 'sell', $qs, $ps)) $mmAsk[$sid] = min($mmAsk[$sid] ?? INF, $ps);
                     }
                 } elseif ($strat === 'trend') {
                     // podaza za trendem: SMA krotka vs dluga + CIECIE STRAT (nie trzyma spadajacych)
@@ -1161,6 +1219,13 @@ final class Engine
         } catch (\Throwable $e) { Log::write('error', 'engine', 'bots.rename', $e->getMessage()); }
     }
 
+    /** Animator: docelowy udział gotówki w majątku (gotówka + akcje po kursie). Poniżej — presja sprzedaży zapasu. */
+    private const MM_CASH_TARGET = 0.15;
+    /** Animator: sufit przechyłu kwotowań w stronę wyceny (ułamek kursu na jedno odświeżenie ofert). */
+    public const MM_TILT_CAP = 0.03;
+    /** Animator ciągnie kurs ku wycenie tylko w tym paśmie od otwarcia sesji — luka większa niż dzienny ruch domyka się przez kilka sesji. */
+    public const MM_SESSION_PULL = 0.15;
+
     /** Docelowa populacja botów per strategia — animatorzy (mm) dają głębię arkusza,
      *  reszta („tania" w zleceniach) buduje różnorodny akcjonariat. */
     private const BOT_TARGET = ['mm' => 14, 'trend' => 18, 'rsi' => 18, 'fundamental' => 18, 'news' => 16, 'tech' => 16];
@@ -1239,23 +1304,39 @@ final class Engine
      * bias/sentiment/eventy w panelu GM), losowy market maker krzyżuje spread w stronę
      * fundamentu. Kurs nadal powstaje z arkusza (transakcja po realnej cenie zlecenia),
      * ale rynek realnie podąża za sterowaniem.
+     * Bierze WYŁĄCZNIE oferty spoza grona animatorów (handel animator–animator tylko drenował im gotówkę
+     * prowizjami) i tylko w granicach sufitu przechyłu od kursu — inaczej kupowałby ofertę gracza wystawioną
+     * daleko nad kursem, byle poniżej wyceny (prezent z gotówki animatorów).
      */
     private static function arbitrage(): void
     {
         if ((float) (self::one("SELECT v FROM game_state WHERE k='bot_activity'") ?? 1) <= 0) return;  // boty zamrożone
         $bots = self::col("SELECT u.id FROM users u JOIN bots b ON b.user_id=u.id WHERE u.is_bot=1 AND b.strategy='mm'");
         if (!$bots) return;
-        foreach (self::all("SELECT id, price, fundamental FROM stocks") as $st) {
+        // najlepsze oferty per spółka osobno dla animatorów i reszty rynku — jedno zapytanie zamiast kilku na spółkę
+        $top = [];
+        foreach (self::all("SELECT o.stock_id, o.side, CASE WHEN b.user_id IS NULL THEN 0 ELSE 1 END AS mm, MIN(o.price) mn, MAX(o.price) mx
+                            FROM orders o LEFT JOIN bots b ON b.user_id = o.user_id AND b.strategy = 'mm'
+                            WHERE o.status = 'active' GROUP BY o.stock_id, o.side, CASE WHEN b.user_id IS NULL THEN 0 ELSE 1 END") as $r) {
+            $top[(int) $r['stock_id']][$r['side'] . (int) $r['mm']] = (float) ($r['side'] === 'buy' ? $r['mx'] : $r['mn']);
+        }
+        foreach (self::all("SELECT id, price, day_open_price, fundamental FROM stocks") as $st) {
             $sid = (int) $st['id']; $price = (float) $st['price']; $fund = (float) $st['fundamental'];
-            if (abs($fund - $price) < $price * 0.001) continue;          // już blisko wartości godziwej
+            if ($price <= 0 || abs($fund - $price) < $price * 0.001) continue;   // już blisko wartości godziwej
+            $open = (float) $st['day_open_price'] > 0 ? (float) $st['day_open_price'] : $price;
             $uid = (int) $bots[array_rand($bots)];
             if ($fund > $price) {                                        // podnieś kurs: kup po najlepszym ask
-                $ask = self::one("SELECT MIN(price) FROM orders WHERE stock_id=? AND side='sell' AND status='active' AND user_id<>?", [$sid, $uid]);
-                if ($ask && $fund >= (float) $ask) self::place($uid, $sid, 'buy', 40, (float) $ask);
+                if ($price >= $open * (1 + self::MM_SESSION_PULL)) continue;   // dzienny limit ciągnięcia ku wycenie
+                $ask = $top[$sid]['sell0'] ?? null; $mmAsk = $top[$sid]['sell1'] ?? null;
+                if ($ask === null || ($mmAsk !== null && $mmAsk <= $ask)) continue;   // tańsza oferta animatora wypełniłaby się pierwsza
+                if ($ask <= min($fund, $price * (1 + self::MM_TILT_CAP))) self::place($uid, $sid, 'buy', 40, $ask);
             } else {                                                     // zbij kurs: sprzedaj po najlepszym bid
-                $bid  = self::one("SELECT MAX(price) FROM orders WHERE stock_id=? AND side='buy' AND status='active' AND user_id<>?", [$sid, $uid]);
+                if ($price <= $open * (1 - self::MM_SESSION_PULL)) continue;
+                $bid = $top[$sid]['buy0'] ?? null; $mmBid = $top[$sid]['buy1'] ?? null;
+                if ($bid === null || ($mmBid !== null && $mmBid >= $bid)) continue;
+                if ($bid < max($fund, $price * (1 - self::MM_TILT_CAP))) continue;
                 $have = (int) self::one("SELECT qty FROM wallets WHERE user_id=? AND stock_id=?", [$uid, $sid]);
-                if ($bid && $have > 0 && $fund <= (float) $bid) self::place($uid, $sid, 'sell', min(40, $have), (float) $bid);
+                if ($have > 0) self::place($uid, $sid, 'sell', min(40, $have), $bid);
             }
         }
     }

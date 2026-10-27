@@ -106,9 +106,15 @@ final class Monitor
         if ($n > 0 && $counts['oferty_daleko'] / $n > 0.2) $alarms[] = 'arkusze_oderwane';
         if ($n > 0 && $counts['wycena_rozjazd'] / $n > 0.2) $alarms[] = 'wyceny_oderwane';
 
+        // gdzie leży pieniądz świata (mln PLN): skarbiec (prowizje), gotówka graczy i botów wg strategii.
+        // Prowizje od handlu botów płyną do skarbca — gdy skarbiec puchnie, a boty pustoszeją, rynek traci kupujących.
+        $cash = ['skarbiec' => round(Engine::treasury() / 1e6, 2),
+                 'gracze' => round((float) Engine::one("SELECT COALESCE(SUM(cash + cash_reserved), 0) FROM users WHERE is_bot = 0 AND role = 'player'") / 1e6, 2)];
+        foreach ($strategies as $st) $cash[$st['strategy']] = round(((float) $st['cash'] + (float) $st['res']) / 1e6, 2);
+
         return ['tick' => $tick, 'stocks' => $n, 'issues' => $issues, 'counts' => $counts,
                 'mm' => ['n' => $mmN, 'pct' => $mmPct, 'low' => (int) ($mm['low'] ?? 0), 'cash' => (float) ($mm['cash'] ?? 0), 'res' => (float) ($mm['res'] ?? 0)],
-                'strategies' => $strategies, 'alarms' => $alarms];
+                'strategies' => $strategies, 'cash' => $cash, 'alarms' => $alarms];
     }
 
     /** Skan + zapis: nowe anomalie do dziennika (z deduplikacją), podsumowanie do game_state. Zwraca wynik scan(). */
@@ -135,6 +141,8 @@ final class Monitor
             Engine::setState('monitor_alarms', $curAlarms);
         }
         Engine::setState('monitor_summary', self::summary($r));
+        $cl = []; foreach ($r['cash'] as $k => $v) $cl[] = $k . '=' . $v;
+        Engine::setState('monitor_cash', implode(';', $cl));
         Engine::setState('monitor_tick', (string) $tick);
         return $r;
     }
@@ -158,10 +166,10 @@ final class Monitor
         return rtrim($s, ',');
     }
 
-    /** Odczyt zapisanego podsumowania jako tablica (dla health.php i panelu GM). */
-    public static function lastSummary(): array
+    /** Odczyt zapisanego podsumowania jako tablica (dla health.php i panelu GM); $key='monitor_cash' — rozkład pieniądza. */
+    public static function lastSummary(string $key = 'monitor_summary'): array
     {
-        $v = (string) (Engine::one("SELECT v FROM game_state WHERE k='monitor_summary'") ?: '');
+        $v = (string) (Engine::one("SELECT v FROM game_state WHERE k=?", [$key]) ?: '');
         $out = [];
         foreach (array_filter(explode(';', $v)) as $kv) {
             [$k, $val] = array_pad(explode('=', $kv, 2), 2, '');

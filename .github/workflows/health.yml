@@ -70,7 +70,8 @@ jobs:
             if(!is_array($j)||empty($j["ok"])||(int)($j["schema"]??0)!==$exp){fwrite(STDERR,"::error::schemat/tabele niezgodne (jest ".($j["schema"]??"?").", oczekiwano $exp)\n");exit(1);}
             echo "schemat v".$j["schema"].", push: ".(!empty($j["push_available"])?"dostepny":"NIEDOSTEPNY na tym serwerze").", PHP ".$j["php"].", strefa: ".($j["tz"]??"?").", faza: ".$j["phase"]."\n";
             $m=$j["market"]??[]; if($m){ echo "rynek (monitor, ".($j["market_age"]??"?")." tickow temu): bez kupna ".($m["bez_kupna"]??"?")."/".($m["spolek"]??"?").", oferty daleko od kursu ".($m["oferty_daleko"]??"?").", szeroki spread ".($m["spread"]??"?").", kurs daleko od wyceny ".($m["wycena"]??"?").", bez transakcji ".($m["cisza"]??"?").", gotowka animatorow ".($m["mm_proc"]??"?")."% startowej (pustych ".($m["mm_puste"]??"?").")".(!empty($m["najgorsze"])?", najgorsze: ".$m["najgorsze"]:"")."\n";
-              if(!empty($m["alarmy"])) echo "::warning::Monitor rynku zglasza alarm: ".$m["alarmy"]."\n"; } else echo "rynek: monitor jeszcze nie raportowal\n";' "$EXP"
+              if(!empty($m["alarmy"])) echo "::warning::Monitor rynku zglasza alarm: ".$m["alarmy"]."\n"; } else echo "rynek: monitor jeszcze nie raportowal\n";
+            $c=$j["money"]??[]; if($c){ $o=[]; foreach($c as $k=>$v) $o[]="$k $v"; echo "pieniadz (mln PLN): ".implode(", ",$o)."\n"; }' "$EXP"
 
       - name: Skrypty silnika nieosiągalne z internetu
         run: |
